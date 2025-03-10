@@ -1,0 +1,101 @@
+:root {
+
+    --Secondary-Color: linear-gradient(90deg, rgb(245, 245, 245) 0%, rgb(235, 235, 235) 100%);
+    --Third-Color: linear-gradient(90deg, rgb(145, 160, 175) 0%, rgb(105, 125, 140) 100%);
+    --Primary-FontFamily: 'Inter';
+
+    --Primary-Shadow: 0 0.155px 0.315rem 0 rgba(65, 90, 115, 0.10);
+
+
+    --Primary-Shadow: 0 0.155px 0.315rem 0 rgba(65, 90, 115, 0.10);
+
+    --Green-Bg-Color: linear-gradient(90deg, rgb(115, 220, 55) 0%, rgb(100, 195, 45) 100%);
+    --Red-Bg-Color: linear-gradient(90deg, rgb(230, 75, 60) 0%, rgb(190, 55, 45) 100%);
+
+
+
+    --Primary-Color: linear-gradient(100deg, rgb(90, 220, 115) 5%, rgb(45, 180, 75) 50%);
+    --Yellow-Color: linear-gradient(100deg, rgb(210, 195, 15) 5%, rgb(245, 205, 40) 50%);
+    --Primary-Border-Color: rgb(90, 220, 115);
+    --FontFamily-Light: 'YekanBakh-Light';
+    --FontFamily-Medium: 'YekanBakh-Medium';
+    --FontFamily-Bold: 'YekanBakh-Bold';
+    --FontFamily-Black: 'YekanBakh-Black';
+
+    --Primary-Text-Color: rgb(105, 125, 140);
+}
+
+@font-face {
+    font-family: 'YekanBakh-Light';
+    src: url('fonts/YekanBakh-Light.woff');
+}
+
+@font-face {
+    font-family: 'YekanBakh-Medium';
+    src: url('fonts/YekanBakh-Medium.woff');
+}
+
+@font-face {
+    font-family: 'YekanBakh-Bold';
+    src: url('fonts/YekanBakh-Bold.woff');
+}
+
+@font-face {
+    font-family: 'YekanBakh-Black';
+    src: url('fonts/YekanBakh-Black.woff');
+}
+
+@media (prefers-reduced-motion: no-preference) {
+
+    :root {
+        scroll-behavior: smooth;
+    }
+}
+
+body {
+    font-family: var(--FontFamily-Medium);
+    font-size: 1rem;
+    background: rgb(245, 245, 250);
+    color: rgb(105, 125, 140);
+    text-align: right;
+}
+
+ul,
+ol {
+    margin: 0;
+    padding: 0;
+}
+
+a {
+    text-decoration: none;
+    transition: all .25s ease-in-out;
+}
+
+h6,
+.h6,
+h5,
+.h5,
+h4,
+.h4,
+h3,
+.h3,
+h2,
+.h2,
+h1,
+.h1 {
+    margin: 0;
+    font-family: var(--FontFamily-Bold);
+    font-weight: 700;
+    line-height: 1.5;
+    color: rgb(90, 105, 125);
+}
+
+strong {
+    font-family: var(--FontFamily-Bold);
+    font-weight: 700;
+}
+
+input,
+button {
+    font-weight: 500;
+}

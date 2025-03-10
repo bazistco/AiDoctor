@@ -1,0 +1,336 @@
+/* fallback */
+@font-face {
+    font-family: 'Material Icons';
+    font-style: normal;
+    font-weight: 400;
+    src: url(fonts/google-material-icons.woff2) format('woff2');
+}
+
+.material-icons {
+    font-family: 'Material Icons';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+}
+.cr-hidden{
+    display: none !important;
+}
+
+.toast{
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    font-size: 17px;
+    padding: 5px;
+    z-index: 10000;
+}
+
+.cr-text.cr-icon input[type='password'] {
+    padding: 0 30px 0 10px;
+}
+
+.cr-text input[type='password'] {
+    width: 100%;
+    height: 40px;
+    padding: 0 0.5rem;
+    position: relative;
+    color: rgb(105, 120, 140);
+    border: 0.065rem solid rgb(215, 225, 225);
+    border-radius: 300px;
+}
+
+.cr-sidebar-section aside .cr-menu nav ul li a{
+    cursor: pointer;
+}
+
+.cr-table-spinner{
+    background: transparent !important;
+    padding: 0 !important;
+    display: none;
+}
+
+.cr-parent-spinner .cr-table-spinner{
+    display: block !important;
+}
+
+.cr-form-section .cr-actions .cr-spinner{
+    background: transparent !important;
+    padding: 0 !important;
+}
+
+.dir-ltr{
+    direction: ltr;
+}
+
+.dir-rtl{
+    direction: rtl;
+}
+
+.cr-card .cr-table .cr-driver {
+    text-align: right;
+}
+
+.cr-card .cr-table .cr-driver a {
+    font-family: var(--FontFamily-Bold);
+    color: #4b5a64;
+}
+
+.cr-card .cr-table .cr-weight {
+    text-align: right;
+}
+
+.cr-card .cr-table .cr-weight a {
+    font-family: var(--FontFamily-Bold);
+    color: #4b5a64;
+}
+
+.cr-card .cr-table .cr-address a {
+    font-family: var(--FontFamily-Bold);
+    color: #4b5a64;
+}
+
+.text-bold{
+    font-weight: bold;
+}
+
+.search-datalist{
+    position: relative;
+}
+
+.search-datalist ul{
+    position: absolute;
+    z-index: 1000;
+    background: #fff;
+    width: 100%;
+    list-style: none;
+}
+
+.cr-card .cr-table .cr-submit-time {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+}
+
+.cr-card .cr-table .cr-submit-time .cr-hour {
+    width: 80px;
+    height: 45px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .90rem;
+    border: 1px solid rgb(225, 225, 225);
+    border-radius: 300px;
+    cursor: pointer;
+}
+
+.cr-card .cr-table .cr-submit-time .cr-hour.cr-active {
+    background: var(--Primary-Border-Color);
+    color: rgb(255, 255, 255);
+    border-color: var(--Primary-Border-Color);
+}
+
+.cr-card .cr-table .cr-submit-time .cr-hour.cr-blue {
+    background: #1e87f0;
+    color: rgb(255, 255, 255);
+    border-color: #1e87f0;
+}
+
+.cr-card .cr-table .cr-submit-time .cr-polygon {
+    width: 40px;
+    height: 25px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .90rem;
+    border: 1px solid rgb(225, 225, 225);
+    border-radius: 300px;
+    cursor: pointer;
+}
+
+.cr-card .cr-table .cr-submit-time .cr-polygon-all {
+    width: 90px;
+    height: 25px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .90rem;
+    border: 1px solid rgb(225, 225, 225);
+    border-radius: 300px;
+    cursor: pointer;
+}
+
+.cr-card .cr-table .cr-submit-time .cr-polygon.cr-active {
+    background: var(--Primary-Border-Color);
+    color: rgb(255, 255, 255);
+    border-color: var(--Primary-Border-Color);
+}
+
+.width-100{
+    width: 100px !important;
+}
+
+.cursor-pointer{
+    cursor: pointer;
+}
+
+.cr-text input[type='number'] {
+    width: 100%;
+    height: 40px;
+    padding: 0 0.5rem;
+    position: relative;
+    color: rgb(105, 120, 140);
+    border: 0.065rem solid rgb(215, 225, 225);
+    border-radius: 300px;
+}
+
+.cr-rating {
+    display: flex;
+    justify-content: center;
+}
+
+.cr-rating i {
+    font-size: .75rem;
+    background: var(--Yellow-Color);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.blink {
+    animation: blinker 1s linear infinite;
+}
+
+@keyframes blinker {
+    50% {
+        opacity: 0;
+    }
+}
+
+.cr-card .cr-table .cr-circle.cr-red {
+    background: rgb(255, 67, 85);
+}
+
+.font-size-12{
+    font-size: 12px;
+}
+
+.cr-textarea label {
+    display: block;
+    margin: 0 0 5px;
+    font-family: var(--FontFamily-Bold);
+    font-weight: 700;
+    line-height: 1.5;
+    background: rgb(255, 255, 255);
+    color: rgb(105, 115, 125);
+}
+
+.cr-plate {
+    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid rgb(105, 125, 140);
+    border-radius: .25rem;
+    zoom: .90;
+}
+
+.cr-plate i {
+    font-style: normal;
+}
+
+.cr-plate .cr-id {
+    width: 35px;
+    border-left: 1px solid rgb(105, 125, 140);
+}
+
+.cr-plate .cr-id span {
+    display: block;
+    line-height: 1;
+}
+
+.cr-plate .cr-number {
+    display: block;
+    padding: 0 5px;
+    line-height: 1;
+}
+
+.cr-plate .cr-flag {
+    width: 25px;
+    padding: 0 0 0 1.5px;
+    background: rgb(0, 50, 145);
+    color: rgb(255, 255, 255);
+}
+
+.cr-plate .cr-flag img {
+    max-width: 10px;
+    display: block;
+    margin: 5px auto;
+}
+
+.cr-plate .cr-flag i {
+    display: block;
+    font-size: .5rem;
+    line-height: 1;
+    text-align: left;
+}
+
+.cr-heartbeat {
+    animation: heartbeat 2s infinite;
+}
+
+@keyframes heartbeat
+{
+    0%
+    {
+        transform: scale( .75 );
+    }
+    20%
+    {
+        transform: scale( 1 );
+    }
+    40%
+    {
+        transform: scale( .75 );
+    }
+    60%
+    {
+        transform: scale( 1 );
+    }
+    80%
+    {
+        transform: scale( .75 );
+    }
+    100%
+    {
+        transform: scale( .75 );
+    }
+}
+
+.cr-card .cr-table .cr-area span{
+    min-width: 35px;
+    padding: 5px;
+    width: auto;
+}
+
+.cr-card .cr-table .cr-submit-time .cr-polygon{
+    min-width: 35px;
+    padding: 5px;
+    width: auto;
+}
+
+.cr-balance .cr-text strong a{
+    color: #697d8c !important;
+}
+
+.cr-sidebar-section.cr-active{
+    z-index: 1000;
+}

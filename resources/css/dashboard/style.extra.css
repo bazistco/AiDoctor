@@ -1,0 +1,151 @@
+.cr-hidden{
+    display: none !important;
+}
+
+.toast{
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    font-size: 17px;
+    padding: 5px;
+    z-index: 10000;
+}
+
+.cr-text.cr-icon input[type='password'] {
+    padding: 0 30px 0 10px;
+}
+
+.cr-text input[type='password'] {
+    width: 100%;
+    height: 40px;
+    padding: 0 0.5rem;
+    position: relative;
+    color: rgb(105, 120, 140);
+    border: 0.065rem solid rgb(215, 225, 225);
+    border-radius: 300px;
+}
+
+.cr-sidebar-section aside .cr-menu nav ul li a{
+    cursor: pointer;
+}
+
+.cr-form-section .cr-actions .cr-spinner{
+    background: transparent !important;
+    padding: 0 !important;
+}
+
+.dir-ltr{
+    direction: ltr;
+}
+
+.dir-rtl{
+    direction: rtl;
+}
+
+.cr-card .cr-table .cr-driver {
+    text-align: right;
+}
+
+.cr-card .cr-table .cr-driver a {
+    font-family: var(--FontFamily-Bold);
+    color: #4b5a64;
+}
+
+.cr-card .cr-table .cr-weight {
+    text-align: right;
+}
+
+.cr-card .cr-table .cr-weight a {
+    font-family: var(--FontFamily-Bold);
+    color: #4b5a64;
+}
+
+.cr-card .cr-table .cr-address a {
+    font-family: var(--FontFamily-Bold);
+    color: #4b5a64;
+}
+
+.text-bold{
+    font-weight: bold;
+}
+
+.search-datalist{
+    position: relative;
+}
+
+.search-datalist ul{
+    position: absolute;
+    z-index: 1000;
+    background: #fff;
+    width: 100%;
+    list-style: none;
+}
+
+.cr-card .cr-table .cr-submit-time {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+}
+
+.cr-card .cr-table .cr-submit-time .cr-hour {
+    width: 80px;
+    height: 45px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .90rem;
+    border: 1px solid rgb(225, 225, 225);
+    border-radius: 300px;
+    cursor: pointer;
+}
+
+.cr-card .cr-table .cr-submit-time .cr-hour.cr-active {
+    background: var(--Primary-Border-Color);
+    color: rgb(255, 255, 255);
+    border-color: var(--Primary-Border-Color);
+}
+
+.cr-card .cr-table .cr-submit-time .cr-hour.cr-blue {
+    background: #1e87f0;
+    color: rgb(255, 255, 255);
+    border-color: #1e87f0;
+}
+
+.cr-card .cr-table .cr-submit-time .cr-polygon {
+    width: 40px;
+    height: 25px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .90rem;
+    border: 1px solid rgb(225, 225, 225);
+    border-radius: 300px;
+    cursor: pointer;
+}
+
+.cr-card .cr-table .cr-submit-time .cr-polygon-all {
+    width: 90px;
+    height: 25px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .90rem;
+    border: 1px solid rgb(225, 225, 225);
+    border-radius: 300px;
+    cursor: pointer;
+}
+
+.cr-card .cr-table .cr-submit-time .cr-polygon.cr-active {
+    background: var(--Primary-Border-Color);
+    color: rgb(255, 255, 255);
+    border-color: var(--Primary-Border-Color);
+}
+
+.width-100{
+    width: 100px !important;
+}
+
+.cursor-pointer{
+    cursor: pointer;
+}
