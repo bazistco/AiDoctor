@@ -1,12 +1,13 @@
 <?php
 
-use App\Models\Cache;
-use App\Models\Polygon;
-use App\Models\PolygonDriver;
+use App\Models1\Cache;
+use App\Models1\Polygon;
+use App\Models1\PolygonDriver;
 use Carbon\Carbon;
 use Hekmatinasser\Verta\Verta;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Response;
+use Stichoza\GoogleTranslate\GoogleTranslate;
 
 function developerId()
 {
@@ -393,3 +394,59 @@ function randomIranianMobile($withZero = true) {
 function normalizeToRange($value, $min, $max, $targetRange = 100){
     return (($value - $min) / ($max - $min)) * $targetRange;
 }
+function predict_illness($question)
+{
+    set_time_limit(300);
+    $question = str_replace(["\r", "\n"], '', $question);
+    $curl = curl_init();
+
+    curl_setopt_array($curl, array(
+        CURLOPT_URL => 'http://localhost:11434/api/chat',
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_ENCODING => '',
+        CURLOPT_MAXREDIRS => 10,
+        CURLOPT_TIMEOUT => 0,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_CUSTOMREQUEST => 'POST',
+        CURLOPT_POSTFIELDS =>'{
+  "model": "hf.co/mradermacher/Llama-chatDoctor-i1-GGUF:Q4_K_M",
+  "messages": [
+    {
+      "role": "user",
+      "content": "'.$question.'"
+    }
+  ],
+  "stream": false,
+  "format": {
+    "type": "object",
+    "properties": {
+      "predicted_diseases": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of predicted diseases based on symptoms"
+      }
+    },
+    "required": ["predicted_diseases"]
+  }
+}',
+        CURLOPT_HTTPHEADER => array(
+            'Content-Type: application/json'
+        ),
+    ));
+
+    $response = curl_exec($curl);
+    curl_close($curl);
+    $response=json_decode($response);
+    $illnesses=json_decode($response->message->content);
+    return $illnesses->predicted_diseases ?? [] ;
+}
+ function translateExample($text,$s='fa',$d='en')
+{
+    $tr = new GoogleTranslate($d); // زبان مقصد
+    $tr->setSource($s);          // تشخیص خودکار زبان
+    $result = $tr->translate($text);
+    return $result; // "Hello, how are you?"
+}
+
+

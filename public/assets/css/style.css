@@ -47,13 +47,26 @@ body {
     font-size: 1rem;
     background: rgb(245, 245, 250);
     color: rgb(105, 125, 140);
-    text-align: right;
 }
 
 ul,
 ol {
     margin: 0;
     padding: 0;
+}
+.search-bar input::placeholder {
+    font-size: 1.2rem; /* تغییر سایز placeholder */
+    color: #1c1d22;
+}
+.slick-slide {
+    margin: 0 20px;  /* فاصله بین اسلایدها */
+}
+.slick-slide img {
+    width: 100%;
+    border-radius: 10px;
+}
+.slick-list {
+    margin: 0 -20px;  /* جبران مارجین داخلی */
 }
 
 a {
@@ -2069,6 +2082,17 @@ button {
     font-size: .80rem;
     font-weight: 500;
 }
+.auth-card {
+    width: 100%;
+    max-width: 380px;
+    border-radius: 12px;
+    box-shadow: 0 6px 25px rgba(0,0,0,0.1);
+}
+.input-group-text img {
+    width: 22px;
+    height: auto;
+    border-radius: 3px;
+}
 
 .cr-dashboard-section .cr-info-section ul li {
     display: flex;
@@ -2162,4 +2186,163 @@ body {
 
 .cr-container-section .cr-nav ul li a {
     padding: 10px 15px 8px;
+}
+.navbar-brand {
+    margin-left: auto;
+}
+.user-section {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.user-dropdown {
+    cursor: pointer;
+}
+.carousel-inner {
+    max-height:300px; /* حداکثر ارتفاع اسلایدشو */
+    overflow: hidden; /* جلوگیری از سرریز شدن */
+}
+.carousel-item img {
+    width: 100%; /* عرض کامل */
+    height: 300px; /* ارتفاع ثابت */
+    object-fit: cover; /* مقیاس‌بندی تصویر بدون اعوجاج */
+    object-position: center; /* مرکز کردن تصویر */
+}
+.carousel {
+    border-radius: 10px; /* اختیاری: گوشه‌های گرد */
+    overflow: hidden; /* جلوگیری از سرریز شدن */
+}
+.chat-container {
+    display: flex;
+    height: 90vh;
+    border: 1px solid #ccc;
+}
+
+.chat-rooms {
+    width: 30%;
+    background: #f4f4f4;
+    border-left: 1px solid #ccc;
+    overflow-y: auto;
+}
+
+.chat-room {
+    padding: 15px;
+    cursor: pointer;
+    border-bottom: 1px solid #ddd;
+}
+.chat-room:hover { background: #e6e6e6; }
+.chat-room.active { background: #dcdcdc; font-weight: bold; }
+
+.chat-details {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+.chat-header {
+    padding: 15px;
+    border-bottom: 1px solid #ccc;
+    background: #f8f8f8;
+    font-weight: bold;
+}
+.chat-messages {
+    flex: 1;
+    padding: 15px;
+    overflow-y: auto;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+}
+.message {
+    margin-bottom: 10px;
+    max-width: 70%;
+    padding: 10px;
+    border-radius: 10px;
+}
+.message.me { background: #d1f1d1; align-self: flex-start; }
+.message.other { background: #e1e1e1; align-self: flex-end; }
+.chat-input {
+    padding: 10px;
+    border-top: 1px solid #ccc;
+    background: #fafafa;
+    display: flex;
+}
+.chat-input input {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+.chat-input button {
+    margin-right: 10px;
+    padding: 10px 15px;
+    border: none;
+    background: #4CAF50;
+    color: #fff;
+    border-radius: 5px;
+    cursor: pointer;
+}
+.chat-input button:hover { background: #45a049; }
+
+.bg-chat {
+    background: linear-gradient(rgba(255,255,255,0.6), rgba(255,255,255,0.6)),
+    url(../img/m.jpg) repeat;
+    background-size: cover;
+}
+.list-group-item.active {
+    background-color: #e9ecef !important;
+    color: #000 !important;
+    font-weight: bold;
+}
+.doctor-card {
+    border-radius: 12px;
+    border: 1px solid #d0e7ff;
+    background: #ffffff;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    transition: 0.2s;
+}
+.doctor-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+.doctor-img {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid #cde5ff;
+}
+.btn-consult {
+    background-color: #3399ff;
+    color: white;
+    border-radius: 8px;
+    padding: 6px 16px;
+}
+.btn-consult:hover {
+    background-color: #1d7ee0;
+}
+.filter-box {
+    border: 1px solid #cde5ff;
+    border-radius: 12px;
+    background: white;
+    padding: 15px;
+}
+.doctor-list-scroll {
+    max-height: 80vh;
+    overflow-y: auto;
+    padding-right: 5px;
+}
+.doctor-list-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+.doctor-list-scroll::-webkit-scrollbar-thumb {
+    background-color: #a7d3ff;
+    border-radius: 8px;
+}
+.lab-icon {
+    width: 60px;
+    height: 60px;
+    background: #f8f9fa; /* یه خاکستری روشن شبیه واتس‌اپ */
+    border-radius: 50%;
+    padding: 10px;
+    object-fit: contain;
 }

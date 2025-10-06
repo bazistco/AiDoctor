@@ -2,7 +2,7 @@
 
 namespace App\Livewire\Doctor\Auth;
 
-use App\Models\User;
+use App\Models1\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Livewire\Component;

@@ -10,16 +10,16 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         using: function (){
             Route::middleware('web')
-//                ->domain('admin.'.env('DOMAIN_URL'))
-                ->as('doctor.')
-                ->group(base_path('routes/web/doctor.php'));
+//                ->domain('patient.'.env('DOMAIN_URL'))
+                ->as('patient.')
+                ->group(base_path('routes/web/patient.php'));
         },
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->redirectGuestsTo(function ($request) {
-                return route('doctor.login');
+                return route('patient.login');
         });
     })
     ->withExceptions(function (Exceptions $exceptions) {
