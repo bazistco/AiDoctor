@@ -33,7 +33,7 @@ class SymptomPredictor extends Component
         $predictions = predict_illness($this->symptoms);
         foreach ($predictions as $prediction) {
             sleep(1);
-            $this->predictions[]=translateExample($prediction);
+            $this->predictions[]=translateExample($prediction,'en','fa');
         }
         $this->loading = false;
     }
