@@ -4,8 +4,11 @@
         <livewire:patient.slider />
     </div>
     <livewire:patient.search-bar />
-    <livewire:patient.services  />
+{{--    <livewire:patient.services  />--}}
+    <h6 class="fw-bold mb-5" style="font-size: 20px">{{ $title ?? 'چه خدماتی به شما ارائه می‌دهیم؟' }}</h6>
+
     <div class="container mt-3  mb-5 text-center align-content-center" style="width: 80%">
+
         <div id="myCarousel" class="carousel slide" data-bs-ride="carousel" >
             <!-- Indicators -->
             <div class="carousel-indicators">
@@ -81,6 +84,7 @@
 {{--                </script>--}}
 {{--            @endpush--}}
 {{--        </div>--}}
+    <livewire:top-doctors  />
     <livewire:patient.services  />
     <livewire:patient.bottom-navigation />
 </div>

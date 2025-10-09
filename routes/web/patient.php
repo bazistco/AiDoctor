@@ -13,3 +13,4 @@ Route::get('/test',function (){
 });
 Route::get('login', \App\Livewire\Patient\Auth\Login::class)->name('login');
 Route::get('predict',\App\Livewire\SymptomPredictor::class)->name('predict');
+Route::get('doctor_detail/{doctorId}',\App\Livewire\DoctorDetail::class)->name('doctor_detail');
