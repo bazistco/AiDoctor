@@ -414,7 +414,7 @@ function predict_illness($question)
   "messages": [
     {
       "role": "user",
-      "content": "'.$question.'"
+      "content": "'.$question.' Predict possible diseases ."
     }
   ],
   "stream": false,

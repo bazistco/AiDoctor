@@ -1,14 +1,30 @@
 <div wire:ignore.self>
     <div class="slider" wire:ignore.self >
-        <div wire:ignore.self><img onclick="sos()" src="{{ asset('assets/img/med.jpg') }}" alt="اسلاید" wire:ignore.self></div>
-        <div wire:ignore.self><img onclick="sos()" src="{{ asset('assets/img/med.jpg') }}" alt="اسلاید" wire:ignore.self></div>
-        <div wire:ignore.self><img onclick="sos()" src="{{ asset('assets/img/med.jpg') }}" alt="اسلاید" wire:ignore.self></div>
-        <div wire:ignore.self><img onclick="sos()" src="{{ asset('assets/img/med.jpg') }}" alt="اسلاید" wire:ignore.self></div>
-        <div wire:ignore.self><img onclick="sos()" src="{{ asset('assets/img/med.jpg') }}" alt="اسلاید" wire:ignore.self></div>
-        <div wire:ignore.self><img onclick="sos()" src="{{ asset('assets/img/med.jpg') }}" alt="اسلاید" wire:ignore.self></div>
-        <div wire:ignore.self><img onclick="sos()" src="{{ asset('assets/img/med.jpg') }}" alt="اسلاید" wire:ignore.self></div>
-
-        <div wire:ignore.self><img onclick="sos()" src="{{ asset('assets/img/med.jpg') }}" alt="اسلاید" wire:ignore.self></div>
+        <div class="py-1"><div class=" mx-auto" style="width:60px;height:60px;font-size: 60px">
+                🩺
+            </div>
+            <small class="d-block   mx-auto mt-3 text-bold  ">پزشکی</small></div>
+        <div >
+            <div class=" mx-auto" style="width:60px;height:60px;font-size: 60px">
+                🧠
+            </div>
+            <small class="d-block mx-auto mt-3 text-bold ">مشاوره</small>
+        </div>
+        <div class="py-1"><div class=" mx-auto" style="width:60px;height:60px;font-size: 60px">
+                💊
+            </div>
+            <small class="d-block mx-auto mt-3 text-bold">داروخانه</small>
+        </div>
+        <div class="py-1" >
+            <div class=" mx-auto" style="width:60px;height:60px;font-size: 60px">
+                🔬
+            </div>
+            <small class="d-block mx-auto mt-3 text-bold">آزمایشگاه</small>
+        </div>
+        <div class="py-1" ><div class=" mx-auto" style="width:60px;height:60px;font-size: 60px">
+                🏠
+            </div>
+            <small class="d-block mx-auto mt-3 text-bold">پرستار در منزل</small></div>
     </div>
 </div>
 
@@ -45,7 +61,7 @@
 
             $('.slider').slick({
                 infinite: true,
-                slidesToShow: 8,
+                slidesToShow: 5,
                 slidesToScroll: 1,
                 autoplay: true,
                 autoplaySpeed: 2000,

@@ -29,8 +29,8 @@ class SymptomPredictor extends Component
         $this->validate();
         $this->loading = true;
         sleep(1); // شبیه‌سازی تاخیر درخواست
-        $this->symptoms=translateExample($this->symptoms);
-        $predictions = predict_illness($this->symptoms);
+        $symptoms=translateExample($this->symptoms);
+        $predictions = predict_illness($symptoms);
         foreach ($predictions as $prediction) {
             sleep(1);
             $this->predictions[]=translateExample($prediction,'en','fa');
