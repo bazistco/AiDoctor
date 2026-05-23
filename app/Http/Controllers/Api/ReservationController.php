@@ -3,14 +3,93 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
 use App\Models\AppointmentSlot;
+use Illuminate\Validation\ValidationException;
 
 class ReservationController extends Controller
 {
+    /**
+     * لغو رزرو موقت کاربر
+     */
+    public function cancelReservation(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'reservation_token' => 'required|string'
+            ]);
+
+            $userId = $request->user()->id;
+            $reservationToken = $validated['reservation_token'];
+
+            // بررسی وجود رزرو موقت
+            $userReservationKey = "user:reservation:{$userId}:{$reservationToken}";
+
+            if (!Redis::exists($userReservationKey)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'رزرو موقت یافت نشد یا منقضی شده است'
+                ], 404);
+            }
+
+            // دریافت slot_id
+            $slotId = Redis::get($userReservationKey);
+
+            // بررسی وجود اطلاعات رزرو
+            $slotReservationKey = "slot:reservation:{$slotId}";
+            $reservationData = Redis::get($slotReservationKey);
+
+            if (!$reservationData) {
+                // پاک کردن کلید کاربر اگر اطلاعات رزرو وجود ندارد
+                Redis::del($userReservationKey);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'اطلاعات رزرو یافت نشد'
+                ], 404);
+            }
+
+            $reservationData = json_decode($reservationData, true);
+
+            // بررسی تطابق user_id
+            if ($reservationData['user_id'] != $userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'شما مجاز به لغو این رزرو نیستید'
+                ], 403);
+            }
+
+            // حذف کلیدهای رزرو موقت از Redis
+            Redis::del($slotReservationKey);
+            Redis::del($userReservationKey);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'رزرو موقت با موفقیت لغو شد',
+                'data' => [
+                    'slot_id' => $slotId,
+                    'cancelled_at' => now()->toIso8601String()
+                ]
+            ], 200);
+
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'خطای اعتبارسنجی',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در لغو رزرو: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function getActiveReservation(Request $request)
     {
         try {

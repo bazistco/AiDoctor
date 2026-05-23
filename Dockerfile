@@ -11,6 +11,21 @@ RUN apt-get update && apt-get install -y libonig-dev \
 # نصب افزونه‌های PHP (بدون apt)
 RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath
 
+RUN apt-get update && apt-get install -y wget && \
+    export http_proxy=http://127.0.0.1:20171 && \
+    export https_proxy=http://127.0.0.1:20171 && \
+    cd /tmp && \
+    wget https://pecl.php.net/get/redis-6.0.2.tgz && \
+    tar -xzf redis-6.0.2.tgz && \
+    cd redis-6.0.2 && \
+    phpize && \
+    ./configure && \
+    make && \
+    make install && \
+    docker-php-ext-enable redis && \
+    cd / && rm -rf /tmp/redis-6.0.2* && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # تنظیم مسیر کاری
 WORKDIR /var/www
 

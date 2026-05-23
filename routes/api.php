@@ -5,9 +5,9 @@ use App\Http\Controllers\Api\AppointmentController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\DiagnosisController;
 use App\Http\Controllers\Api\FoodExtractController;
+use App\Http\Controllers\Api\ReservationController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\FileUploadController;
-use App\Http\Controllers\ReservationController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -106,10 +106,10 @@ Route::group(['prefix' => 'user'],function (){
         Route::prefix('reservations')->group(function () {
             // رزرو موقت اسلات (15 دقیقه)
             Route::post('/reserve', [ReservationController::class, 'reserveSlot']);
-
+            Route::post('/cancel', [ReservationController::class, 'cancelReservation']);
             // تایید نهایی رزرو
             Route::post('/confirm', [ReservationController::class, 'confirmReservation']);
-
+            Route::get('/active', [ReservationController::class, 'getActiveReservation']);
         });
         Route::post('/profile/update', [UserController::class, 'updateProfile']);
         // دریافت اطلاعات کاربر با پلن
