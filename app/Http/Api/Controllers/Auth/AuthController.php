@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Validator;
 use App\Models\User;
 use Carbon\Carbon;
@@ -17,6 +18,8 @@ class AuthController extends Controller
      */
     public function login(Request $request)
     {
+
+        Redis::funnel()
         $phone = $this->convertPersianToEnglish($request->phone);
 
         $validator = Validator::make(['phone' => $phone], [
@@ -137,7 +140,7 @@ class AuthController extends Controller
             ['phone' => $request->phone], // شرط جستجو
             [
                 'phone' => $request->phone,
-                'name' => 'user-'.$request->phone,
+                //'name' => 'user-'.$request->phone,
                 'password' => Hash::make($request->phone)
             ]
         );
@@ -153,7 +156,7 @@ class AuthController extends Controller
                 'age' => rand(18, 65),
                 'weight' => rand(50, 120),
                 'height' => rand(150, 195),
-                'gender' => $genders[rand(0, 1)],
+                //'gender' => $genders[rand(0, 1)],
                 'birth_date' => now(),
             ]);
             DB::table('room_participants')->insert([

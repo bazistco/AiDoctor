@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\DiagnosisController;
 use App\Http\Controllers\Api\FoodExtractController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\FileUploadController;
+use App\Http\Controllers\ReservationController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -48,6 +49,49 @@ Route::prefix('exercise-extract')->group(function () {
 
 
 });
+Route::get('/redis-test', function (Request $request) {
+    try {
+        // تست اتصال
+        Redis::connection()->ping();
+
+        // تست set و get
+        $testKey = 'test_key_' . time();
+        $testValue = 'Hello Redis! ' . now();
+
+        Redis::set($testKey, $testValue);
+        $retrieved = Redis::get($testKey);
+
+        // پاک کردن کلید تست
+        Redis::del($testKey);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Redis connection is working',
+            'test' => [
+                'set_value' => $testValue,
+                'retrieved_value' => $retrieved,
+                'match' => $testValue === $retrieved
+            ],
+            'redis_info' => [
+                'host' => config('database.redis.default.host'),
+                'port' => config('database.redis.default.port'),
+                'database' => config('database.redis.default.database')
+            ]
+        ], 200);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Redis connection failed',
+            'error' => $e->getMessage(),
+            'redis_config' => [
+                'host' => config('database.redis.default.host'),
+                'port' => config('database.redis.default.port'),
+                'database' => config('database.redis.default.database')
+            ]
+        ], 500);
+    }
+});
 Route::prefix('food-extract')->group(function () {
     Route::post('/', [FoodExtractController::class, 'extract']);
     Route::get('/health', [FoodExtractController::class, 'health']);
@@ -55,9 +99,18 @@ Route::prefix('food-extract')->group(function () {
 
 });
 Route::group(['prefix' => 'user'],function (){
+
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:3,1');
     Route::post('verify',[AuthController::class,'verify']);
     Route::middleware('auth:sanctum')->group(function () {
+        Route::prefix('reservations')->group(function () {
+            // رزرو موقت اسلات (15 دقیقه)
+            Route::post('/reserve', [ReservationController::class, 'reserveSlot']);
+
+            // تایید نهایی رزرو
+            Route::post('/confirm', [ReservationController::class, 'confirmReservation']);
+
+        });
         Route::post('/profile/update', [UserController::class, 'updateProfile']);
         // دریافت اطلاعات کاربر با پلن
         Route::get('/profile', [UserController::class, 'getProfile']);

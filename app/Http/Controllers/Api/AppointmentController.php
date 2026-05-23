@@ -9,13 +9,18 @@ use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 use App\Services\PaymentGateway;
 
+
 class AppointmentController extends Controller
 {
+
+
     /**
      * دریافت اسلات‌های خالی یک پزشک
      */
     public function getAvailableSlots(Request $request, int $doctorId)
     {
+
+
         $request->validate([
             'from_date' => 'required|date',
             'to_date' => 'required|date|after_or_equal:from_date',

@@ -20,9 +20,9 @@ class UserController extends Controller
 
             // ۱. اعتبارسنجی بر اساس فیلدهای ارسالی فرانت
             $validator = Validator::make($request->all(), [
-                'first_name' => 'nullable|string|max:100',
+                'first_name' => 'required|string|max:100',
                 'last_name' => 'nullable|string|max:100',
-                'gender' => 'nullable|in:0,1', // 0: male, 1: female
+                'gender' => 'required|in:0,1', // 0: male, 1: female
                 'age' => 'nullable|integer|min:1|max:120',
                 'weight' => 'nullable|numeric|min:10|max:500',
                 'height' => 'nullable|numeric|min:50|max:250',
