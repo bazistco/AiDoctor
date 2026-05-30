@@ -36,12 +36,24 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
             'api.rate.limit' => \App\Http\Middleware\CheckApiRateLimit::class,
+            'api.check.admin' => \App\Http\Middleware\CheckApiAdmin::class,
         ]);
         $middleware->redirectGuestsTo(function ($request) { // No type hint here, or use fully qualified
+            if ($request->expectsJson() || $request->is('api/*') || $request->is('ai/*')) {
+                return null;
+            }
             return route('patient.login');
         });
     })
     ->withExceptions(function (Exceptions $exceptions) {
+        $exceptions->shouldRenderJsonWhen(function ($request) {
+            return $request->is('api/*') || $request->expectsJson();
+        });
+        $exceptions->render(function (AuthenticationException $e, $request) {
+                return response()->json([
+                    'message' => 'Unauthenticated.'
+                ], 401);
+        });
         $exceptions->renderable(function (AuthenticationException $e, Request $request) { // Use Illuminate\Http\Request
             if ($request->expectsJson()) {
                 return response()->json([

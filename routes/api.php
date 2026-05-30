@@ -182,4 +182,14 @@ Route::group(['prefix' => 'user'],function (){
     Route::post('/appointments/release-expired', [AppointmentController::class, 'releaseExpiredSlots']);
 
 });
+Route::group(['prefix' => 'admin'],function (){
+
+    Route::post('/login', [\App\Http\Controllers\Api\AdminAuthController::class, 'login'])->middleware('throttle:3,1');
+    Route::middleware(['auth:sanctum',\App\Http\Middleware\CheckApiAdmin::class])->group(function () {
+
+        Route::get('/profile', [UserController::class, 'getProfile']);
+
+    });
+
+});
 

@@ -52,9 +52,9 @@ class UserController extends Controller
             DB::table('user_profiles')->updateOrInsert(
                 ['user_id' => $userId],
                 [
-                    'age' => $request->age,
-                    'weight' => $request->weight,
-                    'height' => $request->height,
+                    'age' => $request->age?? rand(18, 65),
+                    'weight' => $request->weight??rand(50, 120),
+                    'height' => $request->height??rand(150, 195),
                     'updated_at' => now()
                 ]
             );
@@ -85,6 +85,7 @@ class UserController extends Controller
                 ->leftJoin('user_profiles', 'users.id', '=', 'user_profiles.user_id')
                 ->select(
                     'users.id',
+                    'users.status',
                     'users.name',
                     'users.email',
                     'users.phone',
@@ -119,6 +120,12 @@ class UserController extends Controller
                     'success' => false,
                     'message' => 'کاربر یافت نشد'
                 ], 404);
+            }
+            if ($user->status == 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'شما مجاز نیستید'
+                ], 403);
             }
 
             // اگر پلن نداشت، پلن پایه بساز

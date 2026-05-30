@@ -19,7 +19,6 @@ class AuthController extends Controller
     public function login(Request $request)
     {
 
-        Redis::funnel()
         $phone = $this->convertPersianToEnglish($request->phone);
 
         $validator = Validator::make(['phone' => $phone], [
@@ -141,9 +140,16 @@ class AuthController extends Controller
             [
                 'phone' => $request->phone,
                 //'name' => 'user-'.$request->phone,
-                'password' => Hash::make($request->phone)
+                'password' => Hash::make($request->phone),
+                'status' => 1,
             ]
         );
+        if (!$user->wasRecentlyCreated && (int)$user->status !== 1) {
+            return response()->json([
+                'success' => false,
+                'message' => 'شما مجاز به ورود نیستید'
+            ], 403);
+        }
 
 // اگر کاربر تازه ساخته شد، پروفایل و پلن پیش‌فرض ایجاد کن
         if ($user->wasRecentlyCreated) {
