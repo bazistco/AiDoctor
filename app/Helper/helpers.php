@@ -6,6 +6,7 @@ use App\Models1\PolygonDriver;
 use Carbon\Carbon;
 use Hekmatinasser\Verta\Verta;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Response;
 use Stichoza\GoogleTranslate\GoogleTranslate;
 
@@ -397,49 +398,55 @@ function normalizeToRange($value, $min, $max, $targetRange = 100){
 function predict_illness($question)
 {
     set_time_limit(300);
+
+// حذف خط جدید
     $question = str_replace(["\r", "\n"], '', $question);
-    $curl = curl_init();
 
-    curl_setopt_array($curl, array(
-        CURLOPT_URL => 'http://localhost:11434/api/chat',
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_ENCODING => '',
-        CURLOPT_MAXREDIRS => 10,
-        CURLOPT_TIMEOUT => 0,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-        CURLOPT_CUSTOMREQUEST => 'POST',
-        CURLOPT_POSTFIELDS =>'{
-  "model": "hf.co/mradermacher/Llama-chatDoctor-i1-GGUF:Q4_K_M",
-  "messages": [
-    {
-      "role": "user",
-      "content": "'.$question.' Predict possible diseases ."
+// داده ارسالی
+    $data = [
+        "model" => "hf.co/mradermacher/Llama-3.1-8B-Instruct-MedQA-GGUF:Q6_K",
+        "messages" => [
+            [
+                "role" => "user",
+                "content" => $question
+            ]
+        ],
+        "stream" => false,
+        "format" => [
+            "type" => "object",
+            "properties" => [
+                "predicted_diseases" => [
+                    "type" => "array",
+                    "items" => ["type" => "string"],
+                    "description" => "List of predicted diseases based on symptoms"
+                ]
+            ],
+            "required" => ["predicted_diseases"]
+        ]
+    ];
+
+    try {
+        $response = Http::timeout(300) // معادل set_time_limit
+        ->post('http://localhost:11434/api/chat', $data);
+
+        if ($response->successful()) {
+            $responseData = $response->json();
+
+            // اگر مدل، JSON را داخل content برمی‌گرداند
+            $illnesses = isset($responseData['message']['content'])
+                ? json_decode($responseData['message']['content'], true)
+                : null;
+
+            // آرایه بیماری‌ها را برگردان
+            return $illnesses['predicted_diseases'] ?? [];
+        }
+
+        return []; // اگر پاسخ موفق نبود
+    } catch (\Exception $e) {
+
+        return [$e->getMessage()];
     }
-  ],
-  "stream": false,
-  "format": {
-    "type": "object",
-    "properties": {
-      "predicted_diseases": {
-        "type": "array",
-        "items": { "type": "string" },
-        "description": "List of predicted diseases based on symptoms"
-      }
-    },
-    "required": ["predicted_diseases"]
-  }
-}',
-        CURLOPT_HTTPHEADER => array(
-            'Content-Type: application/json'
-        ),
-    ));
 
-    $response = curl_exec($curl);
-    curl_close($curl);
-    $response=json_decode($response);
-    $illnesses=json_decode($response->message->content);
-    return $illnesses->predicted_diseases ?? [] ;
 }
  function translateExample($text,$s='fa',$d='en')
 {
@@ -448,5 +455,37 @@ function predict_illness($question)
     $result = $tr->translate($text);
     return $result; // "Hello, how are you?"
 }
+function success_response($data = null, $message = 'success', $status = 200)
+{
+    // اگر پاسخ صفحه‌بندی بود (paginate or simplePaginate)
+    if ($data instanceof LengthAwarePaginator || $data instanceof Paginator) {
+        return response()->json([
+            'status'  => true,
+            'message' => $message,
+            'pagination' => [
+                'current_page' => $data->currentPage(),
+                'per_page'     => $data->perPage(),
+                'total'        => method_exists($data, 'total') ? $data->total() : null,
+                'last_page'    => method_exists($data, 'lastPage') ? $data->lastPage() : null,
+            ],
+            'data' => $data->items(),
+        ], $status);
+    }
+
+    // اگر صفحه‌بندی نبود:
+    return response()->json([
+        'status'  => true,
+        'message' => $message,
+        'data'    => $data
+    ], $status);
+}
 
 
+function error_response($message = 'error', $status = 400, $errors = null)
+{
+    return response()->json([
+        'status'  => false,
+        'message' => $message,
+        'errors'  => $errors
+    ], $status);
+}
