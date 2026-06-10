@@ -103,6 +103,7 @@ Route::group(['prefix' => 'user'],function (){
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:3,1');
     Route::post('verify',[AuthController::class,'verify']);
     Route::middleware('auth:sanctum')->group(function () {
+
         Route::prefix('reservations')->group(function () {
             // رزرو موقت اسلات (15 دقیقه)
             Route::post('/reserve', [ReservationController::class, 'reserveSlot']);
@@ -125,6 +126,7 @@ Route::group(['prefix' => 'user'],function (){
         Route::post('/cancel-plan', [UserController::class, 'cancelPlan']);
     });
     Route::middleware('auth:sanctum')->prefix('diagnosis')->group(function () {
+
         Route::get('/doctors', [DiagnosisController::class, 'getDoctorsList']);
 
         Route::get('/doctors/{doctorId}/schedule', [DiagnosisController::class, 'getDoctorWithSchedule']);
@@ -134,7 +136,7 @@ Route::group(['prefix' => 'user'],function (){
         Route::get('/doctors/availability', [DiagnosisController::class, 'getDoctorsWithAvailability']);
 
         Route::post('/diagnose', [DiagnosisController::class, 'diagnose']);
-
+        Route::post('/chat', [DiagnosisController::class, 'chat']);
         Route::get('/history', [DiagnosisController::class, 'history']);
 
         // دریافت دکترها بر اساس تخصص
@@ -152,6 +154,9 @@ Route::group(['prefix' => 'user'],function (){
 
     });
     Route::middleware('auth:sanctum')->prefix('chat')->group(function () {
+        Route::get('/rooms', [ChatController::class, 'getUserRooms']);
+        Route::get('/rooms/{room_id}/participants', [ChatController::class, 'getRoomParticipants']);
+        Route::get('/rooms/{room_id}/messages', [ChatController::class, 'getRoomMessages']);
         Route::post('/rooms', [ChatController::class, 'createRoom']);
     });
     Route::prefix('appointments')->group(function () {
@@ -186,8 +191,17 @@ Route::group(['prefix' => 'admin'],function (){
 
     Route::post('/login', [\App\Http\Controllers\Api\AdminAuthController::class, 'login'])->middleware('throttle:3,1');
     Route::middleware(['auth:sanctum',\App\Http\Middleware\CheckApiAdmin::class])->group(function () {
-
+        Route::get('users', [\App\Http\Controllers\Api\Admin\UserController::class, 'index']);
+        Route::get('users/{id}', [\App\Http\Controllers\Api\Admin\UserController::class, 'show']);
+        Route::put('users/{id}', [\App\Http\Controllers\Api\Admin\UserController::class, 'update']);
+        Route::delete('users/{id}', [\App\Http\Controllers\Api\Admin\UserController::class, 'destroy']);
+        Route::post('users/bulk-status', [\App\Http\Controllers\Api\Admin\UserController::class, 'bulkStatus']);
+        Route::post('users/bulk-delete', [\App\Http\Controllers\Api\Admin\UserController::class, 'bulkDelete']);
         Route::get('/profile', [UserController::class, 'getProfile']);
+        Route::get('doctor-rooms', [ChatController::class, 'getDoctorRooms']);
+        Route::get('/payments/report', [ \App\Http\Controllers\Api\PaymentReportController::class, 'index']);
+        Route::get('/chat/{roomId}/messages', [ChatController::class, 'getAdminRoomMessages']);
+        Route::get('/appointments/list', [ReservationController::class, 'getAppointments']);
 
     });
 

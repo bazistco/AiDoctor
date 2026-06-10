@@ -14,6 +14,101 @@ class AppointmentController extends Controller
 {
 
 
+    use Carbon\Carbon;
+    use Illuminate\Http\Request;
+
+    public function getAppointments(Request $request)
+    {
+        // دریافت پارامترهای صفحه‌بندی از درخواست
+        $perPage = $request->get('per_page', 15);
+        $page = $request->get('page', 1);
+        $offset = ($page - 1) * $perPage;
+
+        // ۱. دریافت اطلاعات نوبت‌ها و بیماران با صفحه‌بندی
+        $query = DB::table('appointment_slots as a')
+            ->join('users as u', 'a.patient_id', '=', 'u.id')
+            ->join('cities as c', 'u.city_id', '=', 'c.id')
+            ->join('provinces as p', 'u.province_id', '=', 'p.id')
+            ->select(
+                'a.id', 'a.slot_date', 'a.status', 'a.start_time', 'a.doctor_id',
+                'u.name as patient_name', 'u.phone as patient_phone',
+                'p.name as province_name', 'c.name as city_name'
+            );
+
+        // گرفتن تعداد کل رکوردها
+        $total = $query->count();
+
+        // اعمال صفحه‌بندی
+        $appointments = $query->orderBy('a.slot_date', 'desc')
+            ->orderBy('a.start_time', 'desc')
+            ->limit($perPage)
+            ->offset($offset)
+            ->get();
+
+        $doctorIds = $appointments->pluck('doctor_id')->unique()->toArray();
+
+        // ۲. دریافت اطلاعات پزشکان و تخصص‌ها
+        $doctors = DB::table('doctor_info as df')
+            ->join('specialties as s', 'df.specialty_id', '=', 's.id')
+            ->whereIn('df.user_id', $doctorIds)
+            ->select('df.user_id', 'df.name as doctor_name', 's.name as specialty')
+            ->get()
+            ->keyBy('user_id');
+
+        // ۳. فرمت‌دهی نهایی برای خروجی وب‌سرویس
+        $result = $appointments->map(function ($item) use ($doctors) {
+            $doctor = $doctors->get($item->doctor_id);
+
+            // تبدیل وضعیت دیتابیس به متن فارسی و استایل مناسب
+            $statusMap = [
+                'booked'    => ['text' => 'رزرو شده', 'color' => 'blue'],
+                'available' => ['text' => 'آزاد', 'color' => 'gray'],
+                'completed' => ['text' => 'انجام شده', 'color' => 'green'],
+                'cancelled' => ['text' => 'لغو شده', 'color' => 'red'],
+            ];
+
+            $currentStatus = $statusMap[$item->status] ?? ['text' => $item->status, 'color' => 'default'];
+
+            return [
+                'id' => $item->id,
+                'patient' => [
+                    'name' => $item->patient_name,
+                    'location' => "{$item->province_name} — {$item->city_name}",
+                ],
+                'mobile' => $item->patient_phone,
+                'doctor' => [
+                    'name' => $doctor ? "دکتر " . $doctor->doctor_name : 'نامشخص',
+                    'specialty' => $doctor ? $doctor->specialty : '-',
+                ],
+                'datetime' => [
+                    // تبدیل تاریخ میلادی دیتابیس به شمسی مشابه تصویر
+                    'date' => Carbon::make($item->slot_date)?->format('Y-m-d') ?? '-',
+                    'time' => substr($item->start_time, 0, 5), // تبدیل 09:00:00 به 09:00
+                ],
+                'status' => $currentStatus,
+            ];
+        });
+
+        // ساختار پاسخ با صفحه‌بندی
+        return response()->json([
+            'data' => $result,
+            'meta' => [
+                'current_page' => (int) $page,
+                'per_page' => (int) $perPage,
+                'total' => $total,
+                'last_page' => (int) ceil($total / $perPage),
+                'from' => $offset + 1,
+                'to' => min($offset + $perPage, $total),
+            ],
+            'links' => [
+                'first' => $request->fullUrlWithQuery(['page' => 1]),
+                'last' => $request->fullUrlWithQuery(['page' => ceil($total / $perPage)]),
+                'prev' => $page > 1 ? $request->fullUrlWithQuery(['page' => $page - 1]) : null,
+                'next' => $page < ceil($total / $perPage) ? $request->fullUrlWithQuery(['page' => $page + 1]) : null,
+            ],
+        ]);
+    }
+
     /**
      * دریافت اسلات‌های خالی یک پزشک
      */

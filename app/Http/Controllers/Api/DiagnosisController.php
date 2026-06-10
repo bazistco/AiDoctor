@@ -16,6 +16,55 @@ class DiagnosisController extends Controller
 {
     private string $ApiUrl = 'http://185.222.163.113:8000';
 
+    public function chat(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'messages' => 'required|array|min:1',
+            'messages.*.role' => 'required|in:user,assistant',
+            'messages.*.content' => 'required|string',]);
+        $messages = $validated['messages'];
+
+        $firstUserMsg = collect($messages)->first(fn($m) => $m['role'] === 'user');
+        $history = collect($messages)->slice(1)->values()->toArray(); // بقیه به عنوان history
+
+
+
+        try {
+            $response = Http::timeout(30)
+                ->post("http://185.222.163.113:8000/chat", [
+                    'symptoms' => $firstUserMsg['content'],
+                    'history'  => $history,]);
+
+            if (!$response->successful()) {
+                return response()->json(['success' => false, 'message' => 'خطا در دریافت پاسخ'], 500);
+            }
+
+            $data = $response->json();
+
+            // اگر تشخیص نهایی رسید، غنی‌سازی کن
+            if (($data['status'] ?? null) === 'complete' && isset($data['diagnosis'])) {
+                $data = $this->enrichDiagnosisData($data,1);
+
+                if (auth()->check()) {
+                    $userId = auth()->id();
+                    $key = "diagnosis_{$userId}_" . now()->timestamp;
+                    Cache::put($key, $data, now()->addDays(7));
+
+                    $userKeysKey = "user_diagnosis_keys_{$userId}";
+                    $keys = Cache::get($userKeysKey, []);
+                    $keys[] = $key;
+                    Cache::put($userKeysKey, $keys, now()->addDays(7));
+                }
+            }
+
+            return response()->json(['success' => true, 'data' => $data]);
+
+        } catch (\Exception $e) {
+            Log::error('Chat API Error', ['message' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'خطا در پردازش درخواست'], 500);
+        }
+    }
+
     /**
      * دریافت تشخیص از API خارجی و غنی‌سازی با داده‌های دیتابیس
      */
@@ -91,11 +140,16 @@ class DiagnosisController extends Controller
     /**
      * غنی‌سازی داده‌های تشخیص با اطلاعات دکترها و آزمایشگاه‌ها
      */
-    private function enrichDiagnosisData(array $diagnosisData): array
+    private function enrichDiagnosisData(array $diagnosisData,$type = 0): array
     {
 
-        $primarySpecialty = $diagnosisData['specialty']['primary'] ?? null;
-
+        if ($type == 0)
+        {
+            $primarySpecialty = $diagnosisData['specialty']['primary'] ?? null;
+        }
+        else{
+            $primarySpecialty = $diagnosisData['diagnosis']['specialty']['primary'] ?? null;
+        }
         if (!$primarySpecialty) {
             return $diagnosisData;
         }

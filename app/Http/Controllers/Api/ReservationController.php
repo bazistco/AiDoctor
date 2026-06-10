@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
@@ -13,6 +14,65 @@ use Illuminate\Validation\ValidationException;
 
 class ReservationController extends Controller
 {
+    public function getAppointments()
+    {
+        // ۱. دریافت اطلاعات نوبت‌ها و بیماران
+        $appointments = DB::table('appointment_slots as a')
+            ->join('users as u', 'a.patient_id', '=', 'u.id')
+            ->join('cities as c', 'u.city_id', '=', 'c.id')
+            ->join('provinces as p', 'u.province_id', '=', 'p.id')
+            ->select(
+                'a.id', 'a.slot_date', 'a.status', 'a.start_time', 'a.doctor_id',
+                'u.name as patient_name', 'u.phone as patient_phone',
+                'p.name as province_name', 'c.name as city_name'
+            )
+            ->get();
+
+        $doctorIds = $appointments->pluck('doctor_id')->unique()->toArray();
+
+        // ۲. دریافت اطلاعات پزشکان و تخصص‌ها
+        $doctors = DB::table('doctor_info as df')
+            ->join('specialties as s', 'df.specialty_id', '=', 's.id')
+            ->whereIn('df.user_id', $doctorIds)
+            ->select('df.user_id', 'df.name as doctor_name', 's.name as specialty')
+            ->get()
+            ->keyBy('user_id');
+
+        // ۳. فرمت‌دهی نهایی برای خروجی وب‌سرویس
+        $result = $appointments->map(function ($item) use ($doctors) {
+            $doctor = $doctors->get($item->doctor_id);
+
+            // تبدیل وضعیت دیتابیس به متن فارسی و استایل مناسب
+            $statusMap = [
+                'booked'    => ['text' => 'رزرو شده', 'color' => 'blue'],
+                'available' => ['text' => 'آزاد', 'color' => 'gray'],
+                'completed' => ['text' => 'انجام شده', 'color' => 'green'], // اگر در آینده اضافه شد
+            ];
+
+            $currentStatus = $statusMap[$item->status] ?? ['text' => $item->status, 'color' => 'default'];
+
+            return [
+                'id' => $item->id,
+                'patient' => [
+                    'name' => $item->patient_name,
+                    'location' => "{$item->province_name} — {$item->city_name}",
+                ],
+                'mobile' => $item->patient_phone,
+                'doctor' => [
+                    'name' => $doctor ? "دکتر " . $doctor->doctor_name : 'نامشخص',
+                    'specialty' => $doctor ? $doctor->specialty : '-',
+                ],
+                'datetime' => [
+                    // تبدیل تاریخ میلادی دیتابیس به شمسی مشابه تصویر
+                    'date' => $item->slot_date->format('Y-m-d'),
+                    'time' => substr($item->start_time, 0, 5), // تبدیل 09:00:00 به 09:00
+                ],
+                'status' => $currentStatus,
+            ];
+        });
+
+        return response()->json($result);
+    }
     /**
      * لغو رزرو موقت کاربر
      */

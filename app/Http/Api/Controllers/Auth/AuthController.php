@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Validator;
 use App\Models\User;
 use Carbon\Carbon;
@@ -18,7 +17,6 @@ class AuthController extends Controller
      */
     public function login(Request $request)
     {
-
         $phone = $this->convertPersianToEnglish($request->phone);
 
         $validator = Validator::make(['phone' => $phone], [
@@ -40,8 +38,6 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $phone = $request->phone;
-
         // 🔸 چک کنیم آیا در دو دقیقه گذشته OTP ارسال شده؟
         $recentOtp = DB::table('otp_codes')
             ->where('mobile', $phone)
@@ -61,7 +57,7 @@ class AuthController extends Controller
         $code = rand(100000, 999999);
 
         DB::table('otp_codes')->insert([
-            'code' => 1111,
+            'code' => 1111, // TODO: برای پروداکشن به $code تغییر دهید
             'mobile' => $phone,
             'created_at' => now()
         ]);
@@ -95,7 +91,7 @@ class AuthController extends Controller
                 'code' => [
                     'required',
                     'numeric',
-                    'digits:4', // دقیقاً ۶ رقم
+                    'digits:4', // دقیقاً ۴ رقم
                     'regex:/^[0-9]+$/' // فقط اعداد انگلیسی
                 ]
             ]
@@ -110,8 +106,8 @@ class AuthController extends Controller
         }
 
         $otp = DB::table('otp_codes')
-            ->where('mobile', $request->phone)
-            ->where('code', $request->code)
+            ->where('mobile', $phone)
+            ->where('code', $code)
             ->orderByDesc('created_at')
             ->first();
 
@@ -136,14 +132,14 @@ class AuthController extends Controller
 
         // 🔸 یافتن کاربر
         $user = User::query()->firstOrCreate(
-            ['phone' => $request->phone], // شرط جستجو
+            ['phone' => $phone], // شرط جستجو
             [
-                'phone' => $request->phone,
-                //'name' => 'user-'.$request->phone,
-                'password' => Hash::make($request->phone),
+                'phone' => $phone,
+                'password' => Hash::make($phone),
                 'status' => 1,
             ]
         );
+
         if (!$user->wasRecentlyCreated && (int)$user->status !== 1) {
             return response()->json([
                 'success' => false,
@@ -151,9 +147,8 @@ class AuthController extends Controller
             ], 403);
         }
 
-// اگر کاربر تازه ساخته شد، پروفایل و پلن پیش‌فرض ایجاد کن
+        // اگر کاربر تازه ساخته شد، پروفایل و پلن پیش‌فرض ایجاد کن
         if ($user->wasRecentlyCreated) {
-            $genders = ['male', 'female'];
             // ایجاد پروفایل خالی
             DB::table('user_profiles')->insert([
                 'user_id' => $user->id,
@@ -162,14 +157,15 @@ class AuthController extends Controller
                 'age' => rand(18, 65),
                 'weight' => rand(50, 120),
                 'height' => rand(150, 195),
-                //'gender' => $genders[rand(0, 1)],
                 'birth_date' => now(),
             ]);
+
             DB::table('room_participants')->insert([
                 'user_id' => $user->id,
-                'room_id'=>1,
+                'room_id'=> 1,
                 'joined_at' => now()
             ]);
+
             // ایجاد پلن رایگان
             DB::table('user_plans')->insert([
                 'user_id' => $user->id,
@@ -181,7 +177,6 @@ class AuthController extends Controller
                 'updated_at' => now()
             ]);
 
-            // ثبت در تاریخچه
             DB::table('plan_history')->insert([
                 'user_id' => $user->id,
                 'old_plan' => 'basic',
@@ -197,6 +192,18 @@ class AuthController extends Controller
             ], 404);
         }
 
+        // 🔸 ایجاد کیف پول (اگر از قبل نداشته باشد)
+        $walletExists = DB::table('wallets')->where('user_id', $user->id)->exists();
+
+        if (!$walletExists) {
+            DB::table('wallets')->insert([
+                'user_id' => $user->id,
+                'balance' => 0,
+                'created_at' => now(),
+                'updated_at' => now()
+            ]);
+        }
+
         // 🔸 ساخت توکن
         $token = $user->createToken('api-login')->plainTextToken;
 
@@ -208,6 +215,7 @@ class AuthController extends Controller
             'data' => ['access_token' => $token],
         ]);
     }
+
     /**
      * تبدیل اعداد فارسی و عربی به انگلیسی
      */
@@ -226,5 +234,4 @@ class AuthController extends Controller
 
         return $string;
     }
-
 }
