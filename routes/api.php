@@ -10,7 +10,7 @@ use App\Http\Controllers\FileUploadController;
 use App\Jobs\SendWelcomeEmail;
 use Illuminate\Support\Facades\Redis;
 use App\Http\Controllers\Api\ReservationController;
-
+use App\Http\Controllers\Api\AppointmentController;
 
 Route::group(['prefix' => 'admin'],function (){
 
@@ -23,6 +23,11 @@ Route::group(['prefix' => 'admin'],function (){
         Route::post('users/bulk-status', [\App\Http\Controllers\Api\Admin\UserController::class, 'bulkStatus']);
         Route::post('users/bulk-delete', [\App\Http\Controllers\Api\Admin\UserController::class, 'bulkDelete']);
         Route::get('/profile', [UserController::class, 'getProfile']);
+        Route::get('patient-rooms', [ChatController::class, 'getPatientRooms']);
+        Route::get('/payments/report', [ \App\Http\Controllers\Api\PaymentReportController::class, 'index']);
+        Route::get('/chat/{roomId}/messages', [ChatController::class, 'getAdminRoomMessages']);
+        Route::get('/appointments/list', [ReservationController::class, 'getAppointments']);
+        Route::get('/appointments/generate', [AppointmentController::class, 'generateWeeklySlotsForAllDoctors']);
 
     });
 
@@ -140,6 +145,7 @@ Route::group(['prefix' => 'user'],function (){
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:3,1');
     Route::post('verify',[AuthController::class,'verify']);
      Route::middleware('auth:sanctum')->group(function () {
+           
 
           Route::prefix('reservations')->group(function () {
             // رزرو موقت اسلات (15 دقیقه)
@@ -165,7 +171,7 @@ Route::group(['prefix' => 'user'],function (){
     Route::middleware('auth:sanctum')->prefix('diagnosis')->group(function () {
         // تشخیص بیماری (عمومی)
         Route::middleware('api.rate.limit')->post('/diagnose', [DiagnosisController::class, 'diagnose']);
-
+        Route::post('/chat', [DiagnosisController::class, 'chat']);
         Route::get('/doctors', [DiagnosisController::class, 'getDoctorsList']);
         // تاریخچه تشخیص‌ها (نیاز به احراز هویت)
         Route::get('/history', [DiagnosisController::class, 'history']);
