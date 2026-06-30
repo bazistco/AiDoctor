@@ -4,471 +4,529 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use RuntimeException;
-use Throwable;
+use Exception;
 
 class FinancialService
 {
-    // ── Payment Reason IDs (از جدول payment_reasons) ──────────────────────
-    private function getReasonId(string $slug): int
+    /**
+     * ایجاد سفارش جدید
+     */
+    public function createOrder(int $userId, int $reasonId, int $reasonRef, int $amount, ?string $description = null): int
     {
-        $row = DB::table('payment_reasons')->where('slug', $slug)->value('id');
-        if (!$row) throw new RuntimeException("payment_reason not found: {$slug}");
-        return (int) $row;
-    }
+        $orderId = DB::table('orders')->insertGetId([
+            'user_id' => $userId,
+            'reason_id' => $reasonId,
+            'reason_ref' => $reasonRef,
+            'amount' => $amount,
+            'status' => 1, // در انتظار پرداخت
+            'description' => $description,
+            'ip_address' => request()->ip(),
+            'user_agent' => request()->userAgent(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
-    // ── Transaction Subject IDs (از جدول transaction_subjects) ────────────
-    private function getSubjectId(string $name): int
-    {
-        $row = DB::table('transaction_subjects')->where('name', $name)->value('id');
-        if (!$row) throw new RuntimeException("transaction_subject not found: {$name}");
-        return (int) $row;
+        return $orderId;
     }
-
-    // ━━━━━━━━━━━━━
-    // ORDER
-    // ━━━━━━━━━━━━━
 
     /**
-     * @param  string  $reasonSlug  'appointment' | 'wallet_charge' | 'chat'
-     * @param  int|null $reasonRef   e.g. appointment_slots.id
+     * ایجاد پرداخت جدید
      */
-    public function createOrder(int $userId, string $reasonSlug, int $amount, ?int $reasonRef = null): int
+    public function createPayment(int $userId, int $orderId, int $reasonId, int $reasonRef, int $amount, string $gateway): int
     {
-        return DB::table('orders')->insertGetId([
-            'user_id'    => $userId,
-            'reason_id'  => $this->getReasonId($reasonSlug),
-            'reason_ref' => $reasonRef,
-            'amount'     => $amount,
-            'status'     => 1, // pending
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━
-    // PAYMENT
-    // ━━━━━━━━━━━━━
-
-    public function createPayment(
-        int $userId,
-        int $orderId,
-        string $reasonSlug,
-        int $amount,
-        string $authority,
-        ?int $reasonRef = null,
-        string $gateway = 'zarinpal',
-        ?string $userIp = null,
-        ?string $userAgent = null
-    ): int {
         $paymentId = DB::table('payments')->insertGetId([
-            'user_id'    => $userId,
-            'order_id'   => $orderId,
-            'reason_id'  => $this->getReasonId($reasonSlug),
+            'user_id' => $userId,
+            'order_id' => $orderId,
+            'reason_id' => $reasonId,
             'reason_ref' => $reasonRef,
-            'amount'     => $amount,
-            'authority'  => $authority,
-            'status'     => 1, // pending
-            'gateway'    => $gateway,
-            'user_ip'    => $userIp,
-            'user_agent' => $userAgent,
+            'amount' => $amount,
+            'status' => 1, // در انتظار پرداخت
+            'gateway' => $gateway,
+            'ip_address' => request()->ip(),
+            'user_agent' => request()->userAgent(),
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
-
-        // لاگ اولیه درگاه
-        DB::table('payment_gateway_logs')->insert([
-            'id'           => $paymentId,
-            'payment_id'   => $paymentId,
-            'gateway_name' => $gateway,
-            'created_at'   => now(),'updated_at'   => now(),
         ]);
 
         return $paymentId;
     }
 
-    // ━━━━━━━━━━━━━
-    // COMPLETE PAYMENT (callback موفق)
-    // ━━━━━━━━━━━━━
-
     /**
-     * ثبت callback، verify درگاه و تکمیل پرداخت — idempotent
+     * تکمیل پرداخت موفق با رعایت Idempotency
      */
-    public function completePayment(
-        string $authority,
-        string $refId,
-        array $callbackPayload = [],
-        array $verifyResponse = []
-    ): array {
-        // ── Idempotency: اگر قبلاً پردازش شده، نتیجه همان را برگردان ──────
-        $existing = DB::table('payment_callbacks')
-            ->where('authority', $authority)
-            ->first();
-        if ($existing) {
-            return ['idempotent' => true, 'payment_id' => $existing->payment_id];
-        }
-
-        $payment = DB::table('payments')->where('authority', $authority)->first();
-        if (!$payment) throw new RuntimeException("Payment not found for authority: {$authority}");
-        if ($payment->status == 2) return ['idempotent' => true, 'payment_id' => $payment->id];
-
+    public function completePayment(int $paymentId, string $authority, string $refId): bool
+    {
         DB::beginTransaction();
+
         try {
-            $now = now();
+            // ════════════════════════════════════════════════════════════
+            // مرحله 1: Idempotency Check با Insert + Unique Constraint
+            // ════════════════════════════════════════════════════════════
+            try {
+                DB::table('payment_callbacks')->insert([
+                    'payment_id' => $paymentId,
+                    'authority' => $authority,
+                    'ref_id' => $refId,
+                    'raw_payload' => json_encode(request()->all()), // پاسخ کامل درگاه
+                    'ip_address' => request()->ip(),
+                    'user_agent' => request()->userAgent(),
+                    'created_at' => now(),
+                ]);
+            } catch (\Illuminate\Database\QueryException $e) {
+                // Duplicate: (payment_id + authority) قبلاً ثبت شده
+                if ($e->getCode() == 23000) {
+                    Log::warning('Duplicate callback (idempotency)', [
+                        'payment_id' => $paymentId,
+                        'authority' => $authority,
+                    ]);
+                    DB::rollBack();
+                    return true; // ✅ قبلاً پردازش شده
+                }
+                throw $e;
+            }
 
-            // ثبت callback (idempotency key)
-            DB::table('payment_callbacks')->insert([
-                'payment_id'  => $payment->id,
-                'authority'   => $authority,
-                'raw_payload' => json_encode($callbackPayload),
-                'created_at'  => $now,
-            ]);
+            // ════════════════════════════════════════════════════════════
+            // مرحله 2: قفل و بررسی وضعیت پرداخت
+            // ════════════════════════════════════════════════════════════
+            $payment = DB::table('payments')
+                ->where('id', $paymentId)
+                ->lockForUpdate()
+                ->first();
 
-            // آپدیت پرداخت
-            DB::table('payments')->where('id', $payment->id)->update([
-                'status'     => 2, // paid
-                'ref_id'     => $refId,
-                'updated_at' => $now,
-            ]);
+            if (!$payment) {
+                throw new Exception('Payment not found');
+            }
 
-            // آپدیت سفارش
-            DB::table('orders')->where('id', $payment->order_id)->update([
-                'status'     => 2, // confirmed
-                'updated_at' => $now,
-            ]);
+            // اگر قبلاً موفق شده، دیگه کاری نکن
+            if ($payment->status == 2) {
+                Log::info('Payment already completed', ['payment_id' => $paymentId]);
+                DB::rollBack();
+                return true;
+            }
 
-            // آپدیت لاگ درگاه
-            DB::table('payment_gateway_logs')
-                ->where('payment_id', $payment->id)
+            // فقط پرداخت‌های pending رو می‌پذیریم
+            if ($payment->status != 1) {
+                throw new Exception("Invalid payment status: {$payment->status}");
+            }
+
+            // ════════════════════════════════════════════════════════════
+            // مرحله 3: به‌روزرسانی پرداخت
+            // ════════════════════════════════════════════════════════════
+            DB::table('payments')
+                ->where('id', $paymentId)
                 ->update([
-                    'callback_payload'     => json_encode($callbackPayload),
-                    'callback_received_at' => $now,
-                    'verify_response'      => json_encode($verifyResponse),
-                    'verified_at'          => $now,
-                    'gateway_trace_id'     => $refId,
-                    'updated_at'           => $now,
+                    'status' => 2, // موفق
+                    'authority' => $authority,
+                    'ref_id' => $refId,
+                    'paid_at' => now(),
+                    'updated_at' => now(),
                 ]);
 
-            // تراکنش‌های کیف پول
-            $this->recordWalletTransactions(
+            Log::info('Payment status updated to successful', [
+                'payment_id' => $paymentId,
+                'ref_id' => $refId,
+            ]);
+
+            // ════════════════════════════════════════════════════════════
+            // مرحله 4: به‌روزرسانی سفارش
+            // ════════════════════════════════════════════════════════════
+            DB::table('orders')
+                ->where('id', $payment->order_id)
+                ->update([
+                    'status' => 2, // پرداخت شده
+                    'paid_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            Log::info('Order status updated to paid', [
+                'order_id' => $payment->order_id,
+            ]);
+
+            // ════════════════════════════════════════════════════════════
+            // مرحله 5: تراکنش‌های کیف پول
+            // ════════════════════════════════════════════════════════════
+
+            // 5.1: واریز از درگاه
+            $this->recordWalletTransaction(
                 userId: $payment->user_id,
-                paymentId: $payment->id,
-                orderId: $payment->order_id,
-                amount: $payment->amount
+                type: 1, // deposit
+                subjectId: 1, // payment
+                subjectRef: $paymentId,
+                amount: $payment->amount,
+                description: "واریز از درگاه {$payment->gateway} - RefID: {$refId}"
             );
+
+            // 5.2: برداشت بابت سفارش
+            $this->recordWalletTransaction(
+                userId: $payment->user_id,
+                type: 2, // withdrawal
+                subjectId: 2, // order
+                subjectRef: $payment->order_id,
+                amount: $payment->amount,
+                description: "پرداخت سفارش #{$payment->order_id}"
+            );
+
+            Log::info('Wallet transactions recorded', [
+                'user_id' => $payment->user_id,
+                'amount' => $payment->amount,
+            ]);
+
+            // ════════════════════════════════════════════════════════════
+            // مرحله 6: ثبت لاگ کامل درگاه
+            // ════════════════════════════════════════════════════════════
+            DB::table('payment_gateway_logs')->insert([
+                'payment_id' => $paymentId,
+                'gateway' => $payment->gateway,
+                'step' => 'complete', // مرحله کامل‌سازی
+                'request_data' => json_encode([
+                    'payment_id' => $paymentId,
+                    'authority' => $authority,
+                    'amount' => $payment->amount,
+                ]),
+                'response_data' => json_encode([
+                    'authority' => $authority,
+                    'ref_id' => $refId,
+                    'status' => 'success',
+                    'completed_at' => now()->toDateTimeString(),
+                ]),
+                'ip_address' => request()->ip(),
+                'created_at' => now(),
+            ]);
 
             DB::commit();
 
-            return ['idempotent' => false, 'payment_id' => $payment->id];
+            Log::info('Payment completed successfully', [
+                'payment_id' => $paymentId,
+                'order_id' => $payment->order_id,
+                'ref_id' => $refId,
+                'amount' => $payment->amount,
+            ]);
 
-        } catch (Throwable $e) {
+            return true;
+
+        } catch (Exception $e) {
             DB::rollBack();
-            Log::error('completePayment failed', [
+
+            Log::error('Payment completion failed', [
+                'payment_id' => $paymentId,
                 'authority' => $authority,
-                'error'     => $e->getMessage(),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+
+    /**
+     * بازگشت وجه (Refund)
+     */
+    public function refundPayment(int $orderId, ?string $reason = null): bool
+    {
+        DB::beginTransaction();
+
+        try {
+            // قفل کردن سفارش
+            $order = DB::table('orders')
+                ->where('id', $orderId)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$order || $order->status != 2) {
+                throw new Exception('Order cannot be refunded');
+            }
+
+            // قفل کردن پرداخت
+            $payment = DB::table('payments')
+                ->where('order_id', $orderId)
+                ->where('status', 2)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$payment) {
+                throw new Exception('No successful payment found for this order');
+            }
+
+            // به‌روزرسانی وضعیت سفارش
+            DB::table('orders')
+                ->where('id', $orderId)
+                ->update([
+                    'status' => 4, // refunded
+                    'updated_at' => now(),
+                ]);
+
+            // به‌روزرسانی وضعیت پرداخت
+            DB::table('payments')
+                ->where('id', $payment->id)
+                ->update([
+                    'status' => 4, // refunded
+                    'updated_at' => now(),
+                ]);
+
+            // آزادسازی نوبت (اگر نوع سفارش نوبت باشد)
+            if ($order->reason_id == 1) {
+                DB::table('appointment_slots')
+                    ->where('id', $order->reason_ref)
+                    ->update([
+                        'status' => 'cancelled',
+                        'cancelled_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+            }
+
+            // واریز برگشتی به کیف پول
+            $this->recordWalletTransaction(
+                $order->user_id,
+                1, // واریز
+                3, // refund subject
+                $orderId,
+                $order->amount,
+                $reason ?? 'بازگشت وجه کنسلی سفارش #' . $orderId
+            );
+
+            DB::commit();
+            return true;
+
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error('Refund failed', [
+                'order_id' => $orderId,
+                'error' => $e->getMessage(),
             ]);
             throw $e;
         }
     }
 
-    // ━━━━━━━━━━━━━
-    // WALLET TRANSACTIONS
-    // ━━━━━━━━━━━━━
-
-    private function recordWalletTransactions(int $userId, int $paymentId, int $orderId, int $amount): void
-    {
+    /**
+     * ثبت تراکنش کیف پول با قفل امن
+     */
+    private function recordWalletTransaction(
+        int $userId,
+        int $type,
+        int $subjectId,
+        int $subjectRef,
+        int $amount,
+        string $description
+    ): void {
+        // قفل کردن کیف پول کاربر
         $wallet = DB::table('wallets')
             ->where('user_id', $userId)
             ->lockForUpdate()
             ->first();
 
         if (!$wallet) {
-            // ساخت کیف پول اگر وجود ندارد
+            // ایجاد کیف پول در صورت عدم وجود
             $walletId = DB::table('wallets')->insertGetId([
-                'user_id'    => $userId,
-                'balance'    => 0,
+                'user_id' => $userId,
+                'balance' => 0,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
             $currentBalance = 0;
         } else {
             $walletId = $wallet->id;
-            $currentBalance = (int) $wallet->balance;
+            $currentBalance = $wallet->balance;
         }
 
-        $subjectPayment = $this->getSubjectId('payment');
-        $subjectOrder   = $this->getSubjectId('order');
-        $now = now();
+        // محاسبه موجودی جدید
+        $newBalance = match($type) {
+            1 => $currentBalance + $amount, // واریز
+            2 => $currentBalance - $amount, // برداشت
+            default => throw new Exception('Invalid transaction type'),
+        };
 
-        // واریز بابت پرداخت
-        $balanceAfterDeposit = $currentBalance + $amount;
+        // بررسی موجودی کافی برای برداشت
+        if ($type == 2 && $newBalance < 0) {
+            throw new Exception('Insufficient wallet balance');
+        }
+
+        // ثبت تراکنش
         DB::table('wallet_transactions')->insert([
-            'wallet_id'    => $walletId,
-            'type'         => 1, // واریز
-            'amount'       => $amount,
-            'balance_after'=> $balanceAfterDeposit,
-            'subject_type' => $subjectPayment,
-            'subject_id'   => $paymentId,
-            'description'  => 'واریز بابت پرداخت #' . $paymentId,
-            'created_at'   => $now,
-            'updated_at'   => $now,
+            'wallet_id' => $walletId,
+            'type' => $type,
+            'subject_type' => $subjectId,
+            'subject_id' => $subjectRef,
+            'amount' => $amount,
+            'balance_after' => $newBalance,
+            'description' => $description,
+            'ip_address' => request()->ip(),
+            'user_agent' => request()->userAgent(),
+            'created_at' => now(),
         ]);
 
-        // برداشت بابت سفارش
-        $balanceAfterWithdraw = $balanceAfterDeposit - $amount;
-        DB::table('wallet_transactions')->insert([
-            'wallet_id'    => $walletId,
-            'type'         => 2, // برداشت
-            'amount'       => $amount,
-            'balance_after'=> $balanceAfterWithdraw,
-            'subject_type' => $subjectOrder,
-            'subject_id'   => $orderId,
-            'description'  => 'برداشت بابت سفارش #' . $orderId,
-            'created_at'   => $now,
-            'updated_at'   => $now,
-        ]);
-
-        DB::table('wallets')->where('id', $walletId)->update([
-            'balance'    => $balanceAfterWithdraw,
-            'updated_at' => $now,
-        ]);
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━
-    // WALLET BALANCE
-    // ━━━━━━━━━━━━━━━━━━━━━
-
-    public function getWalletBalance(int $userId): int
-    {
-        return (int) DB::table('wallets')
-            ->where('user_id', $userId)
-            ->whereNull('deleted_at')
-            ->value('balance') ?? 0;
-    }
-
-    public function calculateWalletBalance(int $userId): int
-    {
-        $walletId = DB::table('wallets')->where('user_id', $userId)->value('id');
-        if (!$walletId) return 0;
-
-        $deposits = (int) DB::table('wallet_transactions')
-            ->where('wallet_id', $walletId)
-            ->where('type', 1)
-            ->whereNull('deleted_at')
-            ->sum('amount');
-
-        $withdrawals = (int) DB::table('wallet_transactions')
-            ->where('wallet_id', $walletId)
-            ->where('type', 2)
-            ->whereNull('deleted_at')
-            ->sum('amount');
-
-        return $deposits - $withdrawals;
+        // به‌روزرسانی موجودی کیف پول
+        DB::table('wallets')
+            ->where('id', $walletId)
+            ->update([
+                'balance' => $newBalance,
+                'updated_at' => now(),
+                'version' => DB::raw('version + 1'), // Optimistic locking
+            ]);
     }
 
     /**
-     * مقایسه موجودی ذخیره‌شده با محاسبه‌شده و اصلاح در صورت اختلاف
+     * تطبیق موجودی کیف پول (Reconciliation)
      */
     public function reconcileWalletBalance(int $userId): array
     {
-        $wallet = DB::table('wallets')
-            ->where('user_id', $userId)
-            ->lockForUpdate()
-            ->first();
-
-        if (!$wallet) throw new RuntimeException("Wallet not found for user: {$userId}");
-
-        $storedBalance     = (int) $wallet->balance;
-        $calculatedBalance = $this->calculateWalletBalance($userId);
-        $diff              = $calculatedBalance - $storedBalance;
-
-        if ($diff !== 0) {
-            DB::table('wallets')->where('id', $wallet->id)->update([
-                'balance'    => $calculatedBalance,
-                'updated_at' => now(),
-            ]);
-            Log::warning('Wallet balance mismatch corrected', [
-                'user_id'    => $userId,
-                'stored'     => $storedBalance,
-                'calculated' => $calculatedBalance,
-                'diff'       => $diff,
-            ]);
-        }
-
-        return [
-            'stored'     => $storedBalance,
-            'calculated' => $calculatedBalance,
-            'diff'       => $diff,
-            'corrected'  => $diff !== 0,
-        ];
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━
-    // CANCEL
-    // ━━━━━━━━━━━━━
-
-    public function cancelPayment(int $paymentId): bool
-    {
-        $payment = DB::table('payments')->where('id', $paymentId)->first();
-        if (!$payment) throw new RuntimeException("Payment not found: {$paymentId}");
-        if ($payment->status != 1) throw new RuntimeException("Only pending payments can be cancelled.");
-
         DB::beginTransaction();
+
         try {
-            $now = now();
-            DB::table('payments')->where('id', $paymentId)->update([
-                'status'     => 4, // cancelled
-                'updated_at' => $now,
-            ]);
-            DB::table('orders')->where('id', $payment->order_id)->update([
-                'status'     => 4, // cancelled
-                'updated_at' => $now,
-            ]);
-            DB::commit();
-            return true;
-        } catch (Throwable $e) {
-            DB::rollBack();
-            Log::error('cancelPayment failed', ['payment_id' => $paymentId, 'error' => $e->getMessage()]);
-            throw $e;
-        }
-    }
-
-    // ━━━━━━━━━━━━━
-    // REFUND
-    // ━━━━━━━━━━━━━
-
-    public function refundPayment(int $paymentId, ?string $reason = null): bool
-    {
-        $payment = DB::table('payments')->where('id', $paymentId)->first();
-        if (!$payment) throw new RuntimeException("Payment not found: {$paymentId}");
-        if ($payment->status != 2) throw new RuntimeException("Only paid payments can be refunded.");
-
-        DB::beginTransaction();
-        try {
-            $now     = now();
-            $wallet  = DB::table('wallets')
-                ->where('user_id', $payment->user_id)
+            $wallet = DB::table('wallets')
+                ->where('user_id', $userId)
                 ->lockForUpdate()
                 ->first();
 
-            if (!$wallet) throw new RuntimeException("Wallet not found.");
+            if (!$wallet) {
+                throw new Exception('Wallet not found');
+            }
 
-            $subjectRefund  = $this->getSubjectId('refund');
-            $newBalance     = (int) $wallet->balance + (int) $payment->amount;
+            // محاسبه موجودی واقعی از تراکنش‌ها
+            $calculatedBalance = DB::table('wallet_transactions')
+                ->where('wallet_id', $wallet->id)
+                ->selectRaw('
+                    SUM(CASE WHEN type = 1 THEN amount ELSE 0 END) -
+                    SUM(CASE WHEN type = 2 THEN amount ELSE 0 END) as balance
+                ')
+                ->value('balance') ?? 0;
 
-            // واریز مجدد به کیف پول
-            DB::table('wallet_transactions')->insert([
-                'wallet_id'    => $wallet->id,
-                'type'         => 1, // واریز
-                'amount'       => $payment->amount,
-                'balance_after'=> $newBalance,
-                'subject_type' => $subjectRefund,
-                'subject_id'   => $paymentId,
-                'description'  => $reason ?? 'بازگشت وجه بابت پرداخت #' . $paymentId,
-                'created_at'   => $now,
-                'updated_at'   => $now,
-            ]);
+            $difference = $calculatedBalance - $wallet->balance;
 
-            DB::table('wallets')->where('id', $wallet->id)->update([
-                'balance'    => $newBalance,
-                'updated_at' => $now,
-            ]);
+            if ($difference != 0) {
+                // اصلاح موجودی
+                DB::table('wallets')
+                    ->where('id', $wallet->id)
+                    ->update([
+                        'balance' => $calculatedBalance,
+                        'updated_at' => now(),
+                    ]);
 
-            DB::table('payments')->where('id', $paymentId)->update([
-                'status'     => 3, // failed → در صورت داشتن status=5 برای refund، عدد را عوض کن
-                'updated_at' => $now,
-            ]);
-
-            DB::table('orders')->where('id', $payment->order_id)->update([
-                'status'     => 5, // refunded
-                'updated_at' => $now,
-            ]);
+                Log::warning('Wallet balance reconciled', [
+                    'user_id' => $userId,
+                    'wallet_id' => $wallet->id,
+                    'old_balance' => $wallet->balance,
+                    'new_balance' => $calculatedBalance,
+                    'difference' => $difference,
+                ]);
+            }
 
             DB::commit();
-            return true;
-        } catch (Throwable $e) {
+
+            return [
+                'old_balance' => $wallet->balance,
+                'new_balance' => $calculatedBalance,
+                'difference' => $difference,
+                'reconciled' => $difference != 0,
+            ];
+
+        } catch (Exception $e) {
             DB::rollBack();
-            Log::error('refundPayment failed', ['payment_id' => $paymentId, 'error' => $e->getMessage()]);
+            Log::error('Wallet reconciliation failed', [
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+            ]);
             throw $e;
         }
     }
 
-    // ━━━━━━━━━━━━━
-    // HISTORY
-    // ━━━━━━━━━━━━━
-
-    public function getWalletTransactionHistory(int $userId, int $perPage = 20): object
+    /**
+     * دریافت موجودی کیف پول
+     */
+    public function getWalletBalance(int $userId): int
     {
-        $walletId = DB::table('wallets')->where('user_id', $userId)->value('id');
-        if (!$walletId) return (object)['data' => [], 'total' => 0];
+        $wallet = DB::table('wallets')
+            ->where('user_id', $userId)
+            ->first();
 
-        return DB::table('wallet_transactions')
-            ->where('wallet_id', $walletId)
-            ->whereNull('deleted_at')
-            ->orderByDesc('created_at')
+        return $wallet ? $wallet->balance : 0;
+    }
+
+    /**
+     * دریافت تاریخچه تراکنش‌های کیف پول
+     */
+    public function getWalletTransactions(int $userId, int $perPage = 20)
+    {
+        $wallet = DB::table('wallets')
+            ->where('user_id', $userId)
+            ->first();
+
+        if (!$wallet) {
+            return [];
+        }
+
+        return DB::table('wallet_transactions as wt')
+            ->join('transaction_subjects as ts', 'wt.subject_id', '=', 'ts.id')
+            ->where('wt.wallet_id', $wallet->id)
+            ->select([
+                'wt.id',
+                'wt.type',
+                'ts.title as subject_title',
+                'wt.amount',
+                'wt.balance_after',
+                'wt.description',
+                'wt.created_at',
+            ])
+            ->orderByDesc('wt.created_at')
             ->paginate($perPage);
     }
-    // در FinancialService
 
-    private const PAYMENT_STATUS = [
-        1 => 'در انتظار',
-        2 => 'پرداخت شده',
-        3 => 'ناموفق',
-        4 => 'لغو شده',
-    ];
-
-    // در FinancialService
-
-
-    public function getPaymentReport(int $perPage = 15): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    /**
+     * گزارش پرداخت‌ها
+     */
+    public function getPaymentReport(array $filters = [], int $perPage = 50)
     {
-        return DB::table('payments as p')
-            ->join('users as u', 'u.id', '=', 'p.user_id')
-            ->join('payment_reasons as pr', 'pr.id', '=', 'p.reason_id')
-            ->leftJoin('orders as o', function ($join) {
-                $join->on('o.id', '=', 'p.order_id')
-                    ->where('pr.slug', '=', 'appointment');
-            })
-            ->leftJoin('appointment_slots as asl', function ($join) {
-                $join->on('asl.id', '=', 'o.reason_ref')
-                    ->where('pr.slug', '=', 'appointment');
-            })
-            ->leftJoin('doctor_info as di', 'di.user_id', '=', 'asl.doctor_id')
-            ->leftJoin('specialties as sp', 'sp.id', '=', 'di.specialty_id')
-            ->where('p.status', 2)
-            ->orderByDesc('p.created_at')
+        $query = DB::table('payments as p')
+            ->join('orders as o', 'p.order_id', '=', 'o.id')
+            ->join('users as u', 'p.user_id', '=', 'u.id')
             ->select([
-                'p.ref_id as tracking_code',
-                'u.name as payer_name',
-                'u.phone as payer_phone',
-                'p.gateway as payment_method',
+                'p.id',
+                'p.user_id',
+                'u.name as user_name',
+                'p.order_id',
                 'p.amount',
                 'p.status',
-                'p.updated_at as paid_at',
-                'pr.slug as reason_slug',
-                'pr.label as reason_label',
-                'di.name as doctor_name',
-                'sp.name as doctor_specialty',
-                'asl.start_time',
-                'asl.end_time',
-            ])
+                'p.gateway',
+                'p.ref_id',
+                'p.created_at',
+                'p.paid_at',
+            ]);
+
+        // فیلتر بر اساس وضعیت
+        if (isset($filters['status'])) {
+            $query->where('p.status', $filters['status']);
+        }
+
+        // فیلتر بر اساس کاربر
+        if (isset($filters['user_id'])) {
+            $query->where('p.user_id', $filters['user_id']);
+        }
+
+        // فیلتر بر اساس تاریخ
+        if (isset($filters['from_date'])) {
+            $query->where('p.created_at', '>=', $filters['from_date']);
+        }
+
+        if (isset($filters['to_date'])) {
+            $query->where('p.created_at', '<=', $filters['to_date']);
+        }
+
+        // فیلتر بر اساس درگاه
+        if (isset($filters['gateway'])) {
+            $query->where('p.gateway', $filters['gateway']);
+        }
+
+        return $query->orderByDesc('p.created_at')
             ->paginate($perPage)
-            ->through(function ($row) {
-                $row->status_label = self::PAYMENT_STATUS[$row->status] ?? 'نامشخص';
-
-                $row->service_type = match ($row->reason_slug) {
-                    'appointment'   => 'رزرو نوبت - دکتر ' . $row->doctor_name,
-                    'wallet_charge' => 'شارژ کیف پول',
-                    'chat'          => 'مشاوره چت',
-                    default         => $row->reason_label,
+            ->through(function ($payment) {
+                $payment->status_text = match($payment->status) {
+                    1 => 'در انتظار پرداخت',
+                    2 => 'موفق',
+                    3 => 'ناموفق',
+                    4 => 'بازگشت داده شده',
+                    default => 'نامشخص',
                 };
-
-                unset($row->status, $row->reason_slug, $row->reason_label);
-
-                return $row;
+                return $payment;
             });
     }
-
-
-
 }

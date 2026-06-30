@@ -24,12 +24,20 @@ class DiagnosisController extends Controller
             'messages.*.content' => 'required|string',]);
         $messages = $validated['messages'];
 
-        $firstUserMsg = collect($messages)->first(fn($m) => $m['role'] === 'user');
+        $firstUserMsg = collect($messages)->last(fn($m) => $m['role'] === 'user');
         $history = collect($messages)->slice(1)->values()->toArray(); // بقیه به عنوان history
 
 
 
         try {
+            DB::table('ai_messages')->insert([
+                'user_id'    => auth()->id(),
+                'session_id' => session()->getId(),
+                'role'       => 'user',
+                'content'    => $firstUserMsg['content'],
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
             $response = Http::timeout(30)
                 ->post("http://185.222.163.113:8000/chat", [
                     'symptoms' => $firstUserMsg['content'],
@@ -40,11 +48,12 @@ class DiagnosisController extends Controller
             }
 
             $data = $response->json();
-
+            $status        = $data['status'] ?? null;
+            $diagnosisData = null;
             // اگر تشخیص نهایی رسید، غنی‌سازی کن
             if (($data['status'] ?? null) === 'complete' && isset($data['diagnosis'])) {
                 $data = $this->enrichDiagnosisData($data,1);
-
+                $diagnosisData = $data;
                 if (auth()->check()) {
                     $userId = auth()->id();
                     $key = "diagnosis_{$userId}_" . now()->timestamp;
@@ -56,6 +65,16 @@ class DiagnosisController extends Controller
                     Cache::put($userKeysKey, $keys, now()->addDays(7));
                 }
             }
+            DB::table('ai_messages')->insert([
+                'user_id'        => auth()->id(),
+                'session_id'     => session()->getId(),
+                'role'           => 'assistant',
+                'content'        => $data['message'] ?? '',
+                'status'         => $status,
+                'diagnosis_data' => $diagnosisData ? json_encode($diagnosisData) : null,
+                'created_at'     => now(),
+                'updated_at'     => now(),
+            ]);
 
             return response()->json(['success' => true, 'data' => $data]);
 
@@ -78,6 +97,7 @@ class DiagnosisController extends Controller
         ]);
 
         try {
+
             // فراخوانی API خارجی
             $response = Http::timeout(30)
                 ->post("http://185.222.163.113:8000/diagnose", $validated);

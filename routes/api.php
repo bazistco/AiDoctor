@@ -109,7 +109,7 @@ Route::group(['prefix' => 'user'],function (){
             Route::post('/reserve', [ReservationController::class, 'reserveSlot']);
             Route::post('/cancel', [ReservationController::class, 'cancelReservation']);
             // تایید نهایی رزرو
-            Route::post('/confirm', [ReservationController::class, 'confirmReservation']);
+            Route::post('/confirm', [ReservationController::class, 'confirmReservation'])->name('payment.callback');
             Route::get('/active', [ReservationController::class, 'getActiveReservation']);
         });
         Route::post('/profile/update', [UserController::class, 'updateProfile']);
@@ -202,6 +202,7 @@ Route::group(['prefix' => 'admin'],function (){
         Route::get('/payments/report', [ \App\Http\Controllers\Api\PaymentReportController::class, 'index']);
         Route::get('/chat/{roomId}/messages', [ChatController::class, 'getAdminRoomMessages']);
         Route::get('/appointments/list', [ReservationController::class, 'getAppointments']);
+        Route::get('/appointments/generate', [AppointmentController::class, 'generateWeeklySlotsForAllDoctors']);
 
     });
 

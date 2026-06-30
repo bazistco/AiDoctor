@@ -26,6 +26,8 @@ class UserController extends Controller
                 'age' => 'nullable|integer|min:1|max:120',
                 'weight' => 'nullable|numeric|min:10|max:500',
                 'height' => 'nullable|numeric|min:50|max:250',
+                'province'   => 'nullable|integer|min:1|max:31',   // اضافه شد
+                'city'       => 'nullable|integer|min:1',           // اضافه شد
             ]);
 
             if ($validator->fails()) {
@@ -43,6 +45,8 @@ class UserController extends Controller
             $fullName = trim($request->first_name . ' ' . $request->last_name);
 
             DB::table('users')->where('id', $userId)->update([
+                'province_id'   => $request->province ?? 1,  // اضافه شد
+                'city_id'       => $request->city ?? 1,       // اضافه شد
                 'name' => $fullName,
                 'gender' => $request->gender, // در دیتابیس شما احتمالا gender در یوزر است
                 'updated_at' => now()
@@ -102,8 +106,8 @@ class UserController extends Controller
                     'user_profiles.weight',
                     'user_profiles.age',
                     'user_profiles.birth_date',
-                    'user_profiles.city',
-                    'user_profiles.province',
+                    'user.city_id',
+                    'user.province_id',
                     'user_profiles.address',
                     'user_profiles.postal_code',
                     'user_profiles.blood_type',
@@ -178,8 +182,8 @@ class UserController extends Controller
                         'weight' => $user->weight,
                         'age' => $user->age,
                         'birth_date' => $user->birth_date,
-                        'city' => $user->city,
-                        'province' => $user->province,
+                        'city' => $user->city_id,
+                        'province' => $user->province_id,
                         'address' => $user->address,
                         'postal_code' => $user->postal_code,
                         'blood_type' => $user->blood_type,

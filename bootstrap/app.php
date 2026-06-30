@@ -31,12 +31,18 @@ return Application::configure(basePath: dirname(__DIR__))
 //            ->domain('api.'.env('DOMAIN_URL'))
                     ->group(base_path('routes/api.php'));
             });
+            Route::middleware('api')
+                ->prefix('api/owner')
+                ->group(base_path('routes/owner.php'));
+
         },
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
             'api.rate.limit' => \App\Http\Middleware\CheckApiRateLimit::class,
             'api.check.admin' => \App\Http\Middleware\CheckApiAdmin::class,
+            'role'      => \App\Http\Middleware\CheckRole::class,
+            'ownership' => \App\Http\Middleware\CheckOwnership::class,
         ]);
         $middleware->redirectGuestsTo(function ($request) { // No type hint here, or use fully qualified
             if ($request->expectsJson() || $request->is('api/*') || $request->is('ai/*')) {
