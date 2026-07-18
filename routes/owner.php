@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Owner\Labs\LabAuthController;
 use App\Http\Controllers\Api\Owner\Labs\LabProfileController;
 use App\Http\Controllers\Api\Owner\Labs\LabRequestController;
 use App\Http\Controllers\Api\Owner\Labs\LabTestController;
+use App\Http\Controllers\Api\Owner\MedicalCenters\CoverageController;
 use App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterProfileController;
 use App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterRequestController;
 use App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterServiceController;
@@ -67,29 +68,43 @@ Route::middleware(['auth:sanctum', 'role:pharmacy_owner'])->prefix('pharmacy')->
 });
 
 // Medical Center Owner Routes
-Route::middleware(['auth:sanctum', 'role:medical_center_owner'])->prefix('medical-center')->name('medical_center.')->group(function () {
+Route::prefix('medical-center')->name('medical_center.')->group(function () {
+
+    Route::post('/login', [\App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterAuthController::class, 'login'])->name('login');
+    Route::post('/verify', [\App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterAuthController::class, 'verify'])->name('verify');
+
+    Route::middleware(['auth:sanctum', 'role:medical_center','ownership:medical_center'])->group(function () {
+
+        Route::get('/finance', [MedicalCenterProfileController::class, 'finance'])->name('profile.finance');
+        Route::get('/profile', [MedicalCenterProfileController::class, 'show'])->name('profile.show');
+        Route::put('/profile', [MedicalCenterProfileController::class, 'update'])->name('profile.update');
+
+        Route::get('/coverage/regions', [CoverageController::class, 'getAvailableRegions'])->name('coverage.regions');
+        Route::get('/coverage', [CoverageController::class, 'getCoverage'])->name('coverage.show');
+        Route::post('/coverage', [CoverageController::class, 'updateCoverage'])->name('coverage.update');
+
+        // Staff
+        Route::get('/staff', [MedicalCenterStaffController::class, 'index'])->name('staff.index');
+        Route::post('/staff', [MedicalCenterStaffController::class, 'store'])->name('staff.store');
+        Route::get('/staff/{id}', [MedicalCenterStaffController::class, 'show'])->name('staff.show');
+        Route::put('/staff/{id}', [MedicalCenterStaffController::class, 'update'])->name('staff.update');
+        Route::delete('/staff/{id}', [MedicalCenterStaffController::class, 'destroy'])->name('staff.destroy');
+
+        // Services
+        Route::get('/services', [MedicalCenterServiceController::class, 'index'])->name('services.index');
+        Route::post('/services', [MedicalCenterServiceController::class, 'store'])->name('services.store');
+        Route::get('/services/{id}', [MedicalCenterServiceController::class, 'show'])->name('services.show');
+        Route::put('/services/{id}', [MedicalCenterServiceController::class, 'update'])->name('services.update');
+        Route::delete('/services/{id}', [MedicalCenterServiceController::class, 'destroy'])->name('services.destroy');
+
+        // Requests
+        Route::get('/requests', [MedicalCenterRequestController::class, 'index'])->name('requests.index');
+        Route::get('/requests/stats', [MedicalCenterRequestController::class, 'stats'])->name('requests.stats');
+        Route::get('/requests/{id}', [MedicalCenterRequestController::class, 'show'])->name('requests.show');
+        Route::put('/requests/{id}/status', [MedicalCenterRequestController::class, 'updateStatus'])->name('requests.updateStatus');
+        Route::get('/schedule', [MedicalCenterRequestController::class, 'schedule']);
+
+    });
     // Profile
-    Route::get('/profile', [MedicalCenterProfileController::class, 'show'])->name('profile.show');
-    Route::put('/profile', [MedicalCenterProfileController::class, 'update'])->name('profile.update');
-
-    // Staff
-    Route::get('/staff', [MedicalCenterStaffController::class, 'index'])->name('staff.index');
-    Route::post('/staff', [MedicalCenterStaffController::class, 'store'])->name('staff.store');
-    Route::get('/staff/{id}', [MedicalCenterStaffController::class, 'show'])->name('staff.show');
-    Route::put('/staff/{id}', [MedicalCenterStaffController::class, 'update'])->name('staff.update');
-    Route::delete('/staff/{id}', [MedicalCenterStaffController::class, 'destroy'])->name('staff.destroy');
-
-    // Services
-    Route::get('/services', [MedicalCenterServiceController::class, 'index'])->name('services.index');
-    Route::post('/services', [MedicalCenterServiceController::class, 'store'])->name('services.store');
-    Route::get('/services/{id}', [MedicalCenterServiceController::class, 'show'])->name('services.show');
-    Route::put('/services/{id}', [MedicalCenterServiceController::class, 'update'])->name('services.update');
-    Route::delete('/services/{id}', [MedicalCenterServiceController::class, 'destroy'])->name('services.destroy');
-
-    // Requests
-    Route::get('/requests', [MedicalCenterRequestController::class, 'index'])->name('requests.index');
-    Route::get('/requests/stats', [MedicalCenterRequestController::class, 'stats'])->name('requests.stats');
-    Route::get('/requests/{id}', [MedicalCenterRequestController::class, 'show'])->name('requests.show');
-    Route::put('/requests/{id}/status', [MedicalCenterRequestController::class, 'updateStatus'])->name('requests.updateStatus');
 
 });

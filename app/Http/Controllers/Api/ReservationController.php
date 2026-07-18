@@ -259,9 +259,11 @@ class ReservationController extends Controller
         // اعتبارسنجی ورودی
         $validated = $request->validate([
             'slot_id' => 'required|integer|exists:appointment_slots,id',
+            'session_id' => 'nullable',
         ]);
 
         $slotId = $validated['slot_id'];
+        $sessionId = $validated['session_id'];
         $userId = $request->user()->id;
 
         // بررسی وجود اسلات در دیتابیس
@@ -380,6 +382,7 @@ class ReservationController extends Controller
                 'payment_id' => $paymentId,
                 'authority' => $authority,
                 'amount' => $amount,
+                'ai_session_token' => $sessionId,
                 'reserved_at' => Carbon::now()->toDateTimeString(),
             ];
 
@@ -574,7 +577,8 @@ class ReservationController extends Controller
             $paymentCompleted = $this->financialService->completePayment(
                 paymentId: $paymentId,
                 authority: $authority,
-                refId: $refId
+                refId: $refId,
+                providerId: $reservationData['user_id']
             );
 
             if (!$paymentCompleted) {
@@ -605,6 +609,7 @@ class ReservationController extends Controller
 
             // به‌روزرسانی اسلات در دیتابیس
             $slot->update([
+                'order_id'=>$orderId,
                 'status' => 'booked',
                 'patient_id' => $userId,
                 'booking_time' => Carbon::now(),

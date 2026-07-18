@@ -54,7 +54,12 @@ class FinancialService
     /**
      * تکمیل پرداخت موفق با رعایت Idempotency
      */
-    public function completePayment(int $paymentId, string $authority, string $refId): bool
+    public function completePayment(
+        int $paymentId,
+        string $authority,
+        string $refId,
+        ?int $providerId = null
+    ): bool
     {
         DB::beginTransaction();
 
@@ -67,20 +72,19 @@ class FinancialService
                     'payment_id' => $paymentId,
                     'authority' => $authority,
                     'ref_id' => $refId,
-                    'raw_payload' => json_encode(request()->all()), // پاسخ کامل درگاه
+                    'raw_payload' => json_encode(request()->all()),
                     'ip_address' => request()->ip(),
                     'user_agent' => request()->userAgent(),
                     'created_at' => now(),
                 ]);
             } catch (\Illuminate\Database\QueryException $e) {
-                // Duplicate: (payment_id + authority) قبلاً ثبت شده
                 if ($e->getCode() == 23000) {
                     Log::warning('Duplicate callback (idempotency)', [
                         'payment_id' => $paymentId,
                         'authority' => $authority,
                     ]);
                     DB::rollBack();
-                    return true; // ✅ قبلاً پردازش شده
+                    return true;
                 }
                 throw $e;
             }
@@ -104,9 +108,24 @@ class FinancialService
                 return true;
             }
 
-            // فقط پرداخت‌های pending رو می‌پذیریم
             if ($payment->status != 1) {
                 throw new Exception("Invalid payment status: {$payment->status}");
+            }
+
+            // ════════════════════════════════════════════════════════════
+            // مرحله 2.1: بررسی سرویس‌دهنده (در صورت وجود)
+            // ════════════════════════════════════════════════════════════
+            $provider = null;
+
+            if (!is_null($providerId)) {
+                $provider = DB::table('users')
+                    ->where('id', $providerId)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$provider) {
+                    throw new Exception("Provider not found: {$providerId}");
+                }
             }
 
             // ════════════════════════════════════════════════════════════
@@ -115,7 +134,7 @@ class FinancialService
             DB::table('payments')
                 ->where('id', $paymentId)
                 ->update([
-                    'status' => 2, // موفق
+                    'status' => 2,
                     'authority' => $authority,
                     'ref_id' => $refId,
                     'paid_at' => now(),
@@ -133,7 +152,7 @@ class FinancialService
             DB::table('orders')
                 ->where('id', $payment->order_id)
                 ->update([
-                    'status' => 2, // پرداخت شده
+                    'status' => 2,
                     'paid_at' => now(),
                     'updated_at' => now(),
                 ]);
@@ -146,7 +165,7 @@ class FinancialService
             // مرحله 5: تراکنش‌های کیف پول
             // ════════════════════════════════════════════════════════════
 
-            // 5.1: واریز از درگاه
+            // 5.1: واریز از درگاه به کیف پول کاربر
             $this->recordWalletTransaction(
                 userId: $payment->user_id,
                 type: 1, // deposit
@@ -156,7 +175,7 @@ class FinancialService
                 description: "واریز از درگاه {$payment->gateway} - RefID: {$refId}"
             );
 
-            // 5.2: برداشت بابت سفارش
+            // 5.2: برداشت بابت سفارش از کیف پول کاربر
             $this->recordWalletTransaction(
                 userId: $payment->user_id,
                 type: 2, // withdrawal
@@ -166,8 +185,27 @@ class FinancialService
                 description: "پرداخت سفارش #{$payment->order_id}"
             );
 
+            // 5.3: واریز به کیف پول سرویس‌دهنده
+            if (!is_null($providerId)) {
+                $this->recordWalletTransaction(
+                    userId: $providerId,
+                    type: 1, // deposit
+                    subjectId: 2, // order
+                    subjectRef: $payment->order_id,
+                    amount: $payment->amount,
+                    description: "دریافت مبلغ بابت سفارش #{$payment->order_id}"
+                );
+
+                Log::info('Provider wallet credited', [
+                    'provider_id' => $providerId,
+                    'order_id' => $payment->order_id,
+                    'amount' => $payment->amount,
+                ]);
+            }
+
             Log::info('Wallet transactions recorded', [
                 'user_id' => $payment->user_id,
+                'provider_id' => $providerId,
                 'amount' => $payment->amount,
             ]);
 
@@ -177,11 +215,12 @@ class FinancialService
             DB::table('payment_gateway_logs')->insert([
                 'payment_id' => $paymentId,
                 'gateway' => $payment->gateway,
-                'step' => 'complete', // مرحله کامل‌سازی
+                'step' => 'complete',
                 'request_data' => json_encode([
                     'payment_id' => $paymentId,
                     'authority' => $authority,
                     'amount' => $payment->amount,
+                    'provider_id' => $providerId,
                 ]),
                 'response_data' => json_encode([
                     'authority' => $authority,
@@ -198,6 +237,7 @@ class FinancialService
             Log::info('Payment completed successfully', [
                 'payment_id' => $paymentId,
                 'order_id' => $payment->order_id,
+                'provider_id' => $providerId,
                 'ref_id' => $refId,
                 'amount' => $payment->amount,
             ]);
@@ -210,6 +250,7 @@ class FinancialService
             Log::error('Payment completion failed', [
                 'payment_id' => $paymentId,
                 'authority' => $authority,
+                'provider_id' => $providerId,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);

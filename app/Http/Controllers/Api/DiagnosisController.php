@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class DiagnosisController extends Controller
 {
@@ -21,39 +22,46 @@ class DiagnosisController extends Controller
         $validated = $request->validate([
             'messages' => 'required|array|min:1',
             'messages.*.role' => 'required|in:user,assistant',
-            'messages.*.content' => 'required|string',]);
+            'messages.*.content' => 'required|string',
+            'session_id' => 'nullable|string|uuid', // ← اضافه کن
+        ]);
+
         $messages = $validated['messages'];
 
+        // اگر فرانت session_id فرستاده، استفاده کن؛ وگرنه یکی جدید بساز
+        $sessionId = $validated['session_id'] ?? (string) Str::uuid();
+
         $firstUserMsg = collect($messages)->last(fn($m) => $m['role'] === 'user');
-        $history = collect($messages)->slice(1)->values()->toArray(); // بقیه به عنوان history
-
-
+        $history = collect($messages)->slice(1)->values()->toArray();
 
         try {
             DB::table('ai_messages')->insert([
                 'user_id'    => auth()->id(),
-                'session_id' => session()->getId(),
+                'session_id' => $sessionId, // ← از session_id یکتا استفاده کن
                 'role'       => 'user',
                 'content'    => $firstUserMsg['content'],
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+
             $response = Http::timeout(30)
                 ->post("http://185.222.163.113:8000/chat", [
                     'symptoms' => $firstUserMsg['content'],
-                    'history'  => $history,]);
+                    'history'  => $history,
+                ]);
 
             if (!$response->successful()) {
                 return response()->json(['success' => false, 'message' => 'خطا در دریافت پاسخ'], 500);
             }
 
             $data = $response->json();
-            $status        = $data['status'] ?? null;
+            $status = $data['status'] ?? null;
             $diagnosisData = null;
-            // اگر تشخیص نهایی رسید، غنی‌سازی کن
+
             if (($data['status'] ?? null) === 'complete' && isset($data['diagnosis'])) {
-                $data = $this->enrichDiagnosisData($data,1);
+                $data = $this->enrichDiagnosisData($data, 1);
                 $diagnosisData = $data;
+
                 if (auth()->check()) {
                     $userId = auth()->id();
                     $key = "diagnosis_{$userId}_" . now()->timestamp;
@@ -65,9 +73,10 @@ class DiagnosisController extends Controller
                     Cache::put($userKeysKey, $keys, now()->addDays(7));
                 }
             }
+
             DB::table('ai_messages')->insert([
                 'user_id'        => auth()->id(),
-                'session_id'     => session()->getId(),
+                'session_id'     => $sessionId, // ← همان session_id
                 'role'           => 'assistant',
                 'content'        => $data['message'] ?? '',
                 'status'         => $status,
@@ -76,13 +85,18 @@ class DiagnosisController extends Controller
                 'updated_at'     => now(),
             ]);
 
-            return response()->json(['success' => true, 'data' => $data]);
+            return response()->json([
+                'success' => true,
+                'data' => $data,
+                'session_id' => $sessionId, // ← برگردون به فرانت
+            ]);
 
         } catch (\Exception $e) {
             Log::error('Chat API Error', ['message' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'خطا در پردازش درخواست'], 500);
         }
     }
+
 
     /**
      * دریافت تشخیص از API خارجی و غنی‌سازی با داده‌های دیتابیس
@@ -191,6 +205,7 @@ class DiagnosisController extends Controller
             ->where('doctor_info.specialty_id', $specialty->id)
             ->select(
                 'doctor_info.id',
+                'doctor_info.user_id',
                 'doctor_info.name',
                 'doctor_info.image_url',
                 'doctor_info.rating',
@@ -206,7 +221,7 @@ class DiagnosisController extends Controller
             ->get()
             ->map(function ($doctor) {
                 return [
-                    'id' => $doctor->id,
+                    'id' => $doctor->user_id,
                     'name' => $doctor->name,
                     'image_url' => $doctor->image_url,
                     'rating' => (float) $doctor->rating,

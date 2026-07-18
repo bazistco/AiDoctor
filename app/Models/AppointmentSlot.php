@@ -9,6 +9,7 @@ class AppointmentSlot extends Model
     protected $table = 'appointment_slots';
 
     protected $fillable = [
+        'order_id',
         'doctor_id',
         'slot_date',
         'start_time',

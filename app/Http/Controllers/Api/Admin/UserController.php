@@ -10,9 +10,9 @@ class UserController extends Controller
     private function baseQuery()
     {
         return DB::table('users as u')
-            ->join('user_profiles as uf', 'uf.user_id', '=', 'u.id')
-            ->join('cities as c', 'c.id', '=', 'uf.city')
-            ->join('provinces as p', 'p.id', '=', 'uf.province')
+           // ->join('user_profiles as uf', 'uf.user_id', '=', 'u.id')
+            ->join('cities as c', 'c.id', '=', 'u.city_id')
+            ->join('provinces as p', 'p.id', '=', 'u.province_id')
             ->select(
                 'u.id', 'u.name', 'u.email', 'u.phone',
                 'u.role', 'u.status', 'u.is_verify', 'u.avatar',
@@ -62,7 +62,7 @@ class UserController extends Controller
 
         if ($request->filled('city'))
             $query->where('c.name', $request->city);
-
+       $query->orderBy('u.created_at', 'DESC');
         $perPage = $request->get('per_page', 8);
         $page    = $request->get('page', 1);
         $total   = (clone $query)->count();
