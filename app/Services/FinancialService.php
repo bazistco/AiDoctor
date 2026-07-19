@@ -58,7 +58,8 @@ class FinancialService
         int $paymentId,
         string $authority,
         string $refId,
-        ?int $providerId = null
+        ?int $providerId = null,
+        ?string $providerId_payment_description = null
     ): bool
     {
         DB::beginTransaction();
@@ -193,7 +194,7 @@ class FinancialService
                     subjectId: 2, // order
                     subjectRef: $payment->order_id,
                     amount: $payment->amount,
-                    description: "دریافت مبلغ بابت سفارش #{$payment->order_id}"
+                    description: $providerId_payment_description ?? "دریافت مبلغ بابت سفارش #{$payment->order_id}"
                 );
 
                 Log::info('Provider wallet credited', [

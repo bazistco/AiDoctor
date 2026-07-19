@@ -13,43 +13,67 @@ class DoctorProfileController extends Controller
     {
         $userId = auth()->id();
         $period = $request->input('period', 'month');
-        $wallet=DB::table('wallets')->where('user_id',$userId)->first();
-        $query = DB::table('wallet_transactions')->where('wallet_id', $wallet->id);
 
-        // فیلتر زمانی
-        $now = Carbon::now();
-        if ($period === 'day') {
-            $query->whereDate('created_at', $now->toDateString());
-        } elseif ($period === 'week') {
-            $query->where('created_at', '>=', $now->subDays(7));
-        } elseif ($period === 'month') {
-            $query->where('created_at', '>=', $now->subDays(30));
+        $wallet = DB::table('wallets')->where('user_id', $userId)->first();
+
+        if (!$wallet) {
+            return response()->json(['status' => 404, 'message' => 'کیف پول یافت نشد'], 404);
         }
 
-        $transactions = $query->orderBy('created_at', 'desc')->get();
+        $now = Carbon::now();
 
-        // محاسبه مجموع واریزی‌ها (type = 1)
+        $query = DB::table('wallet_transactions as wt')
+            ->leftJoin('orders as o', function ($join) {
+                $join->on('o.id', '=', 'wt.subject_id')
+                    ->where('o.reason_id', '=', 1)
+                    ->where('wt.subject_type', '=', 2);
+            })
+            ->leftJoin('appointment_slots as ap', 'ap.id', '=', 'o.reason_ref')
+            ->leftJoin('users as u', 'u.id', '=', 'ap.patient_id')
+            ->where('wt.wallet_id', $wallet->id)
+            ->select(
+                'wt.id',
+                'wt.amount',
+                'wt.type',
+                'wt.created_at',
+                'wt.description',
+                'o.reason_ref',
+                'u.name',
+                'u.phone'
+            );
+
+        if ($period === 'day') {
+            $query->whereDate('wt.created_at', $now->toDateString());
+        } elseif ($period === 'week') {
+            $query->where('wt.created_at', '>=', $now->copy()->subDays(7));
+        } elseif ($period === 'month') {
+            $query->where('wt.created_at', '>=', $now->copy()->subDays(30));
+        }
+
+        $transactions = $query->orderBy('wt.created_at', 'desc')->get();
+
         $totalIncome = $transactions->where('type', 1)->sum('amount');
 
-        // فرمت کردن داده‌ها برای فرانت‌اند
         $rows = $transactions->map(function ($trx) {
             return [
-                'id' => $trx->id,
-                'code' => 'TRX-' . $trx->id,
-                'amount' => (float) $trx->amount,
-                'type' => (int) $trx->type, // 1: واریز, 2: برداشت
-                'description' => $trx->description ?? 'تراکنش سیستمی',
-                // تغییر این خط: ارسال تاریخ میلادی استاندارد
-                'date' => \Carbon\Carbon::parse($trx->created_at)->format('Y-m-d H:i:s')
+                'id'           => $trx->id,
+                'code'         => 'TRX-' . $trx->id,
+                'amount'       => (float) $trx->amount,
+                'type'         => (int) $trx->type,
+                'description'  => $trx->description ?? 'تراکنش سیستمی',
+                'date'         => Carbon::parse($trx->created_at)->format('Y-m-d H:i:s'),
+                'reason_ref'   => $trx->reason_ref,
+                'patientName'  => $trx->name,
+                'patientPhone' => $trx->phone,
             ];
         })->values();
 
         return response()->json([
             'status' => 200,
-            'data' => [
-                'balance' => $wallet->balance,
+            'data'   => [
+                'balance'     => $wallet->balance,
                 'totalIncome' => $totalIncome,
-                'rows' => $rows
+                'rows'        => $rows,
             ]
         ]);
     }

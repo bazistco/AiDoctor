@@ -1,167 +1,260 @@
 <?php
+
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\FinancialService;
+use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
 
 class MedicalRequestController extends Controller
 {
+    private FinancialService $financialService;
+
+    public function __construct(FinancialService $financialService)
+    {
+        $this->financialService = $financialService;
+    }
+
     /**
-     * مرحله ۱: دریافت لیست خدمات
+     * دریافت لیست خدمات فعال
      */
     public function getServices()
     {
         $services = DB::table('medical_services')
-            ->where('status', 1)
+            ->where('status',1)
             ->select('id', 'name', 'slug')
             ->get();
 
         return response()->json([
             'success' => true,
-            'data' => $services
+            'data'    => $services,
         ]);
     }
 
     /**
-     * مرحله ۳: دریافت لیست درمانگاه‌هایی که خدمات درخواستی را ارائه می‌دهند
+     * دریافت مراکز درمانی ارائه‌دهنده خدمات انتخابی
      */
     public function getCenters(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'service_ids' => 'required|array',
-            'service_ids.*' => 'integer|exists:medical_services,id',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
-        }
-
-        $serviceIds = $request->input('service_ids');
-
-        // اصلاح: اتصال جداول با استفاده از medical_centers_info.user_id
-        $centers = DB::table('medical_centers_info')
-            ->join('medical_center_services', 'medical_centers_info.user_id', '=', 'medical_center_services.medical_center_id')
-            ->whereIn('medical_center_services.medical_service_id', $serviceIds)
-            ->where('medical_center_services.status', 1)
-            ->select(
-                'medical_centers_info.user_id as id', // برگرداندن user_id با نام id برای هماهنگی با فرانت‌اند
-                'medical_centers_info.name',
-                'medical_centers_info.address',
-                'medical_centers_info.lat',
-                'medical_centers_info.lng',
-                DB::raw('SUM(medical_center_services.price) as total_estimated_price')
-            )
-            ->groupBy(
-                'medical_centers_info.user_id', // Group by بر اساس user_id
-                'medical_centers_info.name',
-                'medical_centers_info.address',
-                'medical_centers_info.lat',
-                'medical_centers_info.lng'
-            )
-            ->get();
-
-        return response()->json([
-            'success' => true,
-            'data' => $centers
-        ]);
-    }
-
-    /**
-     * ثبت نهایی درخواست پرستار در منزل
-     */
-    public function storeRequest(Request $request)
-    {
-        // اصلاح: بررسی وجود medical_center_id در فیلد user_id از جدول medical_centers_info
-        $validator = Validator::make($request->all(), [
-            'medical_center_id' => 'required|integer|exists:medical_centers_info,user_id',
-            'service_ids' => 'required|array',
-            'service_ids.*' => 'integer|exists:medical_services,id',
-            'gender_pref' => 'nullable|string',
-            'condition' => 'nullable|string',
-            'is_urgent' => 'boolean',
-            'address' => 'required|string',
-            'time_type_id' => 'required|integer',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
-        }
-
-        $userId = auth()->id() ?? 1;
-        $now = Carbon::now();
-
-        DB::beginTransaction();
         try {
-            // محاسبه قیمت کل سرویس‌های انتخاب شده برای این مرکز
-            $services = DB::table('medical_center_services')
-                ->where('medical_center_id', $request->medical_center_id)
-                ->whereIn('medical_service_id', $request->service_ids)
-                ->get();
-
-            $totalPrice = $services->sum('price');
-
-            // ذخیره اطلاعات اضافه
-            $extraInfo = json_encode([
-                'gender_pref' => $request->gender_pref,
-                'condition' => $request->condition,
-                'is_urgent' => $request->is_urgent ?? false,
-                'custom_address' => $request->address
-            ], JSON_UNESCAPED_UNICODE);
-
-            // ایجاد درخواست اصلی
-            $requestId = DB::table('user_medical_center_requests')->insertGetId([
-                'user_id' => $userId,
-                'medical_center_id' => $request->medical_center_id,
-                'address_id' => null,
-                'time_type_id' => $request->time_type_id,
-
-                // اصلاح این خط: ارسال تاریخ و زمان کامل
-                'start_time' => $now->toDateTimeString(),
-
-                'total_price' => $totalPrice,
-                'status' => 0,
-                'extra_info' => $extraInfo,
-                'created_at' => $now,
-                'updated_at' => $now,
+            $request->validate([
+                'service_ids'=> 'required|array',
+                'service_ids.*' => 'integer|exists:medical_services,id',
             ]);
 
+            $serviceIds = $request->input('service_ids');
 
-
-            // ثبت رکوردهای سرویس‌های مربوط به این درخواست
-            $requestServicesData = [];
-            foreach ($services as $service) {
-                $requestServicesData[] = [
-                    'user_medical_center_request_id' => $requestId,
-                    'medical_center_service_id' => $service->id,
-                    'price' => $service->price,
-                    'date' => $now->toDateString(),
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-            }
-
-            DB::table('user_medical_center_request_services')->insert($requestServicesData);
-
-            DB::commit();
+            $centers = DB::table('medical_centers_info as mc')
+                ->join('medical_center_services as mcs', 'mc.user_id', '=', 'mcs.medical_center_id')
+                ->whereIn('mcs.medical_service_id', $serviceIds)
+                ->where('mcs.status', 1)
+                ->select(
+                    'mc.user_id as id',
+                    'mc.name',
+                    'mc.address',
+                    'mc.lat',
+                    'mc.lng',
+                    DB::raw('SUM(mcs.price) as total_estimated_price')
+                )
+                ->groupBy('mc.user_id', 'mc.name', 'mc.address', 'mc.lat', 'mc.lng')
+                ->get();
 
             return response()->json([
                 'success' => true,
-                'message' => 'درخواست شما با موفقیت ثبت شد.',
-                'data' => [
-                    'request_id' => $requestId,
-                    'total_price' => $totalPrice
-                ]
-            ], 201);
+                'data'    => $centers,
+            ]);
 
-        } catch (\Exception $e) {
-            DB::rollBack();
+        } catch (ValidationException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'خطا در ثبت درخواست',
-                'error' => $e->getMessage()
+                'message' => 'خطای اعتبارسنجی',
+                'errors'  => $e->errors(),
+            ], 422);
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در دریافت مراکز درمانی: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * ثبت درخواست خدمات پزشکی + پرداخت شبیه‌سازی‌شده از کیف پول
+     */
+    public function storeRequest(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'medical_center_id' => 'required|integer|exists:medical_centers_info,user_id',
+                'service_ids'       => 'required|array',
+                'service_ids.*'     => 'integer|exists:medical_services,id',
+                'gender_pref'       => 'nullable|string',
+                'condition'=> 'nullable|string',
+                'is_urgent'         => 'boolean',
+                'address'           => 'required|string',
+                'time_type_id'      => 'required|integer',
+            ]);
+
+            $userId= $request->user()->id;
+            $centerId  = $validated['medical_center_id'];
+            $now       = Carbon::now();
+
+            // ──۱. واکشی سرویس‌های انتخاب‌شده برای این مرکز ─────────────
+            $services = DB::table('medical_center_services')
+                ->where('medical_center_id', $centerId)
+                ->whereIn('medical_service_id', $validated['service_ids'])
+                ->where('status', 1)
+                ->get();
+
+            if ($services->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'خدمات انتخاب‌شده برای این مرکز درمانی یافت نشد.',], 422);
+            }
+
+            $totalPrice = $services->sum('price');
+
+            // ── ۲.ثبت درخواست + فرآیند مالی (داخل تراکنش) ─────────────
+            DB::beginTransaction();
+
+            try {
+                //۲.۱ ثبت درخواست اصلی
+                $requestId = DB::table('user_medical_center_requests')->insertGetId([
+                    'user_id'           => $userId,
+                    'medical_center_id' => $centerId,
+                    'address_id'        => null,
+                    'time_type_id'      => $validated['time_type_id'],
+                    'start_time'        => $now->toDateTimeString(),
+                    'total_price'       => $totalPrice,
+                    'status'            => 0, // در انتظار تایید
+                    'extra_info'        => json_encode([
+                        'gender_pref'=> $validated['gender_pref'] ?? null,
+                        'condition'      => $validated['condition'] ?? null,
+                        'is_urgent'      => $validated['is_urgent'] ?? false,
+                        'custom_address' => $validated['address'],
+                    ], JSON_UNESCAPED_UNICODE),'created_at'        => $now,
+                    'updated_at'        => $now,
+                ]);
+
+                // ۲.۲ ثبت آیتم‌های سرویس
+                $serviceRows = [];
+                foreach ($services as $service) {
+                    $serviceRows[] = [
+                        'user_medical_center_request_id' => $requestId,
+                        'medical_center_service_id'      => $service->id,
+                        'price'                          => $service->price,
+                        'date'                           => $now->toDateString(),
+                        'created_at'                     => $now,
+                        'updated_at'                     => $now,
+                    ];
+                }
+                DB::table('user_medical_center_request_services')->insert($serviceRows);
+
+                // ── ۳. فرآیند مالی (همانند ReservationController) ─────────
+
+                // ۳.۱ ایجاد سفارش
+                $orderId = $this->financialService->createOrder(
+                    userId:$userId,
+                    reasonId:    4, // medical_service
+                    reasonRef:   $requestId,
+                    amount:      $totalPrice,
+                    description: "درخواست خدمات پزشکی #{$requestId}"
+                );
+
+                // ۳.۲ ایجاد پرداخت (gateway: mock)
+                $paymentId = $this->financialService->createPayment(
+                    userId:    $userId,
+                    orderId:   $orderId,
+                    reasonId:  4,
+                    reasonRef: $requestId,
+                    amount:    $totalPrice,
+                    gateway:   'mock'
+                );
+
+                // ۳.۳ شبیه‌سازی authority (مشابه ReservationController)
+                $authority = 'MOCK-' . str_pad($paymentId, 30, '0', STR_PAD_LEFT);
+                $refId     = 'SIM-' . strtoupper(Str::random(12));
+
+                // ثبت authority در پرداخت (مشابه reserveSlot)
+                DB::table('payments')
+                    ->where('id', $paymentId)
+                    ->update([
+                        'authority'  => $authority,
+                        'updated_at' => $now,
+                    ]);
+
+                // ۳.۴ تکمیل پرداخت + کسر از کیف پول کاربر + واریز به مرکز درمانی
+                // completePayment داخلاً:
+                //   - واریز از درگاه mock به کیف پول کاربر
+                //   - برداشت بابت سفارش از کیف پول کاربر
+                //   - واریز به کیف پول مرکز درمانی (providerId)
+                $patient = DB::table('users')
+                    ->where('id', $userId)
+                    ->first(['name']);
+                $patientName = trim(($patient->name ?? ''));
+                $description = "درآمد از ارائه خدمات درمانی - درخواست #{$requestId} (سفارش #{$orderId}) - بیمار: {$patientName}";
+
+                $this->financialService->completePayment(
+                    paymentId:  $paymentId,
+                    authority:  $authority,
+                    refId:      $refId,
+                    providerId: $centerId,
+                    providerId_payment_description:$description
+                );
+
+                DB::commit();
+
+                Log::info('Medical request created and paid', [
+                    'request_id' => $requestId,
+                    'user_id'    => $userId,
+                    'center_id'  => $centerId,
+                    'order_id'   => $orderId,
+                    'payment_id' => $paymentId,
+                    'amount'     => $totalPrice,]);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'درخواست شما با موفقیت ثبت و پرداخت انجام شد.',
+                    'data'    => [
+                        'request_id'  => $requestId,
+                        'total_price' => $totalPrice,
+                        'payment'     => [
+                            'order_id'   => $orderId,
+                            'payment_id' => $paymentId,
+                            'ref_id'     => $refId,
+                            'amount'     => $totalPrice,
+                            'status'     => 'completed',
+                        ],
+                    ],
+                ], 201);
+
+            } catch (Exception $e) {
+                DB::rollBack();
+                throw $e;
+            }
+
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'خطای اعتبارسنجی',
+                'errors'  => $e->errors(),
+            ], 422);
+
+        } catch (Exception $e) {
+            Log::error('Medical request store failed', [
+                'user_id' => $request->user()?->id,
+                'error'   => $e->getMessage(),'trace'   => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در ثبت درخواست: ' . $e->getMessage(),
             ], 500);
         }
     }

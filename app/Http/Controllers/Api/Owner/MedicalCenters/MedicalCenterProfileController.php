@@ -19,35 +19,46 @@ class MedicalCenterProfileController extends Controller
         $userId = auth()->id();
         $period = $request->input('period', 'month');
         $wallet=DB::table('wallets')->where('user_id',$userId)->first();
-        $query = DB::table('wallet_transactions')->where('wallet_id', $wallet->id);
+        $query = DB::table('wallet_transactions')
+            ->leftJoin('orders', function ($join) {
+                $join->on('wallet_transactions.subject_id', '=', 'orders.id')->where('wallet_transactions.type', '=', 1)
+                    ->where('wallet_transactions.subject_type', '=', 2)
+                    ->where('orders.reason_id', '=', 4);
+            })
+            ->select(
+                'wallet_transactions.*',
+                'orders.reason_ref'
+            )
+            ->where('wallet_transactions.wallet_id', $wallet->id);
 
         // فیلتر زمانی
         $now = Carbon::now();
         if ($period === 'day') {
-            $query->whereDate('created_at', $now->toDateString());
+            $query->whereDate('wallet_transactions.created_at', $now->toDateString());
         } elseif ($period === 'week') {
-            $query->where('created_at', '>=', $now->subDays(7));
+            $query->where('wallet_transactions.created_at', '>=', $now->subDays(7));
         } elseif ($period === 'month') {
-            $query->where('created_at', '>=', $now->subDays(30));
+            $query->where('wallet_transactions.created_at', '>=', $now->subDays(30));
         }
 
-        $transactions = $query->orderBy('created_at', 'desc')->get();
+        $transactions = $query->orderBy('wallet_transactions.created_at', 'desc')->get();
 
         // محاسبه مجموع واریزی‌ها (type = 1)
-        $totalIncome = $transactions->where('type', 1)->sum('amount');
+        $totalIncome = $transactions->where('wallet_transactions.type', 1)->sum('amount');
 
         // فرمت کردن داده‌ها برای فرانت‌اند
         $rows = $transactions->map(function ($trx) {
             return [
-                'id' => $trx->id,
-                'code' => 'TRX-' . $trx->id,
-                'amount' => (float) $trx->amount,
-                'type' => (int) $trx->type, // 1: واریز, 2: برداشت
+                'id'          => $trx->id,
+                'code'        => 'TRX-' . $trx->id,
+                'amount'      => (float) $trx->amount,
+                'type'        => (int) $trx->type,
                 'description' => $trx->description ?? 'تراکنش سیستمی',
-                // تغییر این خط: ارسال تاریخ میلادی استاندارد
-                'date' => \Carbon\Carbon::parse($trx->created_at)->format('Y-m-d H:i:s')
+                'date'        => \Carbon\Carbon::parse($trx->created_at)->format('Y-m-d H:i:s'),
+                'reason_ref'  => $trx->reason_ref ?? null,
             ];
         })->values();
+
 
         return response()->json([
             'status' => 200,

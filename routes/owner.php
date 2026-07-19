@@ -9,12 +9,49 @@ use App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterProfileController
 use App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterRequestController;
 use App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterServiceController;
 use App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterStaffController;
-use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyMedicineController;
+use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyAuthController;
 use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyProfileController;
 use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyRequestController;
 use Illuminate\Support\Facades\Route;
 
+Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
 
+    // 1. احراز هویت (بدون نیاز به توکن)
+    Route::post('/login', [PharmacyAuthController::class, 'login'])->name('login');
+    Route::post('/verify', [PharmacyAuthController::class, 'verify'])->name('verify');
+
+    // 2. روت‌های نیازمند احراز هویت و دسترسی داروخانه
+    Route::middleware(['auth:sanctum', 'role:pharmacy', 'ownership:pharmacy'])->group(function () {
+
+        Route::get('/profile', [PharmacyProfileController::class, 'show']);
+        Route::post('/profile/update', [PharmacyProfileController::class, 'update']);
+        Route::get('/medicines/search', [PharmacyRequestController::class, 'searchMedicines']);
+
+        Route::prefix('requests')->name('requests.')->group(function () {
+            // لیست درخواست‌ها (خام و پذیرفته شده)
+            Route::get('/', [PharmacyRequestController::class, 'index'])->name('index');
+
+            // آمار داشبورد
+            Route::get('/stats', [PharmacyRequestController::class, 'stats'])->name('stats');
+
+            // جزئیات یک درخواست خاص
+            Route::get('/{id}', [PharmacyRequestController::class, 'show'])->name('show');
+
+            // تغییر وضعیت درخواست (تکمیل و ...)
+            Route::patch('/{id}/status', [PharmacyRequestController::class, 'updateStatus'])->name('updateStatus');
+
+            // مدیریت اقلام یک درخواست
+            Route::post('/{id}/items', [PharmacyRequestController::class, 'addItem']);
+            Route::delete('/{id}/items/{itemId}', [PharmacyRequestController::class, 'removeItem']);
+
+            // پذیرش و آزادسازی درخواست‌های خام
+            Route::post('/{id}/accept', [PharmacyRequestController::class, 'acceptRequest'])->name('accept');
+            Route::post('/{id}/release', [PharmacyRequestController::class, 'releaseRequest'])->name('release');
+        });
+
+    });
+
+});
 // Lab Owner Routes
 Route::prefix('lab')->name('lab.')->group(function () {
     // Authentication
@@ -47,25 +84,6 @@ Route::prefix('lab')->name('lab.')->group(function () {
 
 
 // Pharmacy Owner Routes
-Route::middleware(['auth:sanctum', 'role:pharmacy_owner'])->prefix('pharmacy')->name('pharmacy.')->group(function () {
-    // Profile
-    Route::get('/profile', [PharmacyProfileController::class, 'show'])->name('profile.show');
-    Route::put('/profile', [PharmacyProfileController::class, 'update'])->name('profile.update');
-
-    // Medicines
-    Route::get('/medicines', [PharmacyMedicineController::class, 'index'])->name('medicines.index');
-    Route::post('/medicines', [PharmacyMedicineController::class, 'store'])->name('medicines.store');
-    Route::get('/medicines/{id}', [PharmacyMedicineController::class, 'show'])->name('medicines.show');
-    Route::put('/medicines/{id}', [PharmacyMedicineController::class, 'update'])->name('medicines.update');
-    Route::delete('/medicines/{id}', [PharmacyMedicineController::class, 'destroy'])->name('medicines.destroy');
-
-    // Requests
-    Route::get('/requests', [PharmacyRequestController::class, 'index'])->name('requests.index');
-    Route::get('/requests/stats', [PharmacyRequestController::class, 'stats'])->name('requests.stats');
-    Route::get('/requests/{id}', [PharmacyRequestController::class, 'show'])->name('requests.show');
-    Route::put('/requests/{id}/status', [PharmacyRequestController::class, 'updateStatus'])->name('requests.updateStatus');
-    Route::put('/requests/{requestId}/items/{itemId}/status', [PharmacyRequestController::class, 'updateItemStatus'])->name('requests.updateItemStatus');
-});
 
 // Medical Center Owner Routes
 Route::prefix('medical-center')->name('medical_center.')->group(function () {
