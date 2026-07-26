@@ -12,11 +12,21 @@ class MedicalCenterServiceController extends Controller
 {
     use ApiResponse;
 
+    public function getAvailableServices()
+    {
+        // دریافت لیست سرویس‌های پایه که وضعیت فعال دارند
+        $services = DB::table('medical_services')
+            ->where('status', 1)
+            ->select('id', 'name', 'slug')
+            ->get();
+
+        return $this->success($services);
+    }
     public function index(Request $request)
     {
         $services = DB::table('medical_center_services')
             ->join('medical_services', 'medical_center_services.medical_service_id', '=', 'medical_services.id')
-            ->where('medical_center_services.medical_center_id', $request->medical_center_id)
+            ->where('medical_center_services.medical_center_id', auth()->user()->id)
             ->where('medical_center_services.status', 1)
             ->select(
                 'medical_center_services.*',
@@ -45,7 +55,7 @@ class MedicalCenterServiceController extends Controller
 
         // بررسی تکراری نبودن
         $exists = DB::table('medical_center_services')
-            ->where('medical_center_id', $request->medical_center_id)
+            ->where('medical_center_id', auth()->user()->id)
             ->where('medical_service_id', $request->medical_service_id)
             ->exists();
 
@@ -54,7 +64,7 @@ class MedicalCenterServiceController extends Controller
         }
 
         $id = DB::table('medical_center_services')->insertGetId([
-            'medical_center_id' => $request->medical_center_id,
+            'medical_center_id' => auth()->user()->id,
             'medical_service_id' => $request->medical_service_id,
             'description' => $request->description,
             'price' => $request->price,
@@ -71,7 +81,7 @@ class MedicalCenterServiceController extends Controller
     {
         $service = DB::table('medical_center_services')
             ->join('medical_services', 'medical_center_services.medical_service_id', '=', 'medical_services.id')
-            ->where('medical_center_services.medical_center_id', $request->medical_center_id)
+            ->where('medical_center_services.medical_center_id', auth()->user()->id)
             ->where('medical_center_services.id', $id)
             ->select(
                 'medical_center_services.*',
@@ -90,7 +100,7 @@ class MedicalCenterServiceController extends Controller
     public function update(Request $request, int $id)
     {
         $service = DB::table('medical_center_services')
-            ->where('medical_center_id', $request->medical_center_id)
+            ->where('medical_center_id', auth()->user()->id)
             ->where('id', $id)
             ->first();
 
@@ -113,7 +123,7 @@ class MedicalCenterServiceController extends Controller
         // بررسی تکراری نبودن
         if ($request->has('medical_service_id') && $request->medical_service_id != $service->medical_service_id) {
             $exists = DB::table('medical_center_services')
-                ->where('medical_center_id', $request->medical_center_id)
+                ->where('medical_center_id', auth()->user()->id)
                 ->where('medical_service_id', $request->medical_service_id)
                 ->where('id', '!=', $id)
                 ->exists();
@@ -125,7 +135,7 @@ class MedicalCenterServiceController extends Controller
 
         DB::table('medical_center_services')
             ->where('id', $id)
-            ->where('medical_center_id', $request->medical_center_id)
+            ->where('medical_center_id', auth()->user()->id)
             ->update(array_filter([
                 'medical_service_id' => $request->medical_service_id,
                 'description' => $request->description,
@@ -141,7 +151,7 @@ class MedicalCenterServiceController extends Controller
     public function destroy(Request $request, int $id)
     {
         $service = DB::table('medical_center_services')
-            ->where('medical_center_id', $request->medical_center_id)
+            ->where('medical_center_id', auth()->user()->id)
             ->where('id', $id)
             ->first();
 
@@ -162,7 +172,7 @@ class MedicalCenterServiceController extends Controller
 
         DB::table('medical_center_services')
             ->where('id', $id)
-            ->where('medical_center_id', $request->medical_center_id)
+            ->where('medical_center_id', auth()->user()->id)
             ->delete();
 
         return $this->success(null, 'خدمت حذف شد');

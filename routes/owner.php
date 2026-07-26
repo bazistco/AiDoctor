@@ -115,6 +115,7 @@ Route::prefix('medical-center')->name('medical_center.')->group(function () {
         Route::delete('/staff/{id}', [MedicalCenterStaffController::class, 'destroy'])->name('staff.destroy');
 
         // Services
+        Route::get('/services/list', [MedicalCenterServiceController::class, 'getAvailableServices']);
         Route::get('/services', [MedicalCenterServiceController::class, 'index'])->name('services.index');
         Route::post('/services', [MedicalCenterServiceController::class, 'store'])->name('services.store');
         Route::get('/services/{id}', [MedicalCenterServiceController::class, 'show'])->name('services.show');

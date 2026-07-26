@@ -58,7 +58,7 @@ class UserManagementController extends Controller
                 'doctor' => 'doctor',
                 'pharmacy' => 'pharmacy',
                 'lab' => 'lab',
-                'nurse' => 'patient', // اگر رول جدا داری اصلاحش کن
+                'nurse' => 'medical_center', // اگر رول جدا داری اصلاحش کن
             ];
 
             $fullName = trim($request->firstName . ' ' . $request->lastName);
