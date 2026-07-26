@@ -1,13 +1,17 @@
 <?php
 
 use App\Http\Api\Controllers\Auth\AuthController;
+use App\Http\Controllers\Api\Admin\AppointmentManagementController;
 use App\Http\Controllers\Api\AppointmentController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\DiagnosisController;
 use App\Http\Controllers\Api\FoodExtractController;
 use App\Http\Controllers\Api\MedicalRequestController;
+use App\Http\Controllers\Api\PeriodShareController;
+use App\Http\Controllers\Api\PeriodTrackerController;
 use App\Http\Controllers\Api\ReservationController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\UserPharmacyRequestController;
 use App\Http\Controllers\FileUploadController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -120,7 +124,32 @@ Route::group(['prefix' => 'user'],function (){
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:3,1');
     Route::post('verify',[AuthController::class,'verify']);
     Route::middleware('auth:sanctum')->group(function () {
+        Route::get('/period-tracker', [PeriodTrackerController::class, 'show']);
+        Route::post('/period-tracker/init', [PeriodTrackerController::class, 'storeOrUpdate']);
+
+        Route::post('/period-tracker/log', [PeriodTrackerController::class, 'storePeriodLog']);
+        Route::get('/period-tracker/logs', [PeriodTrackerController::class, 'logs']);
+
+        Route::post('/period-tracker/daily-log', [PeriodTrackerController::class, 'storeDailyLog']);
+        Route::get('/period-tracker/daily-logs', [PeriodTrackerController::class, 'dailyLogsByMonth']);
+        Route::get('/period-tracker/daily-log/{date}', [PeriodTrackerController::class, 'dailyLogByDate']);
+
+        // --- بخش پارتنر (Partner Sync) ---
+        Route::post('/period-tracker/partner/connect', [PeriodTrackerController::class, 'connectPartner']);
+        Route::delete('/period-tracker/partner/disconnect', [PeriodTrackerController::class, 'disconnectPartner']);
+        Route::get('/period-tracker/partner/dashboard', [PeriodTrackerController::class, 'partnerDashboard']);
+
+        Route::post('/period-tracker/share-link', [PeriodShareController::class, 'create']);
+        Route::delete('/period-tracker/share-link', [PeriodShareController::class, 'disable']);
+        Route::get('/period-tracker/share-link', [PeriodShareController::class, 'activeLink']);
+        Route::get('/orders', [\App\Http\Controllers\Api\UserOrderController::class,'index' ]);
+
+        Route::post('/pharmacy-requests', [UserPharmacyRequestController::class, 'storeRequest']);
+        Route::get('pharmacy-requests/{id}', [UserPharmacyRequestController::class, 'show']);
+        Route::post('pharmacy-requests/{id}/pay', [UserPharmacyRequestController::class, 'pay']);
+
         // دریافت لیست پکیج‌های آزمایش پایه برای نمایش در مرحله اول
+
         Route::get('/labs/prescription-types', [\App\Http\Controllers\Api\LabController::class, 'getPrescriptionTypes']);
         Route::get('/labs/test-packs', [\App\Http\Controllers\Api\LabController::class, 'getTestPacks']);
         Route::post('/labs/search-centers', [\App\Http\Controllers\Api\LabController::class, 'searchCenters']);
@@ -177,6 +206,8 @@ Route::group(['prefix' => 'user'],function (){
         Route::get('/availability', [DiagnosisController::class, 'getDoctorsWithAvailability']);
 
     });
+    Route::get('/medical-requests/{id}', [MedicalRequestController::class, 'getRequestDetail']);
+
     Route::middleware('auth:sanctum')->prefix('chat')->group(function () {
         Route::get('/rooms', [ChatController::class, 'getUserRooms']);
         Route::get('/rooms/{room_id}/participants', [ChatController::class, 'getRoomParticipants']);
@@ -227,9 +258,11 @@ Route::group(['prefix' => 'admin'],function (){
         Route::get('doctor-rooms', [ChatController::class, 'getDoctorRooms']);
         Route::get('/payments/report', [ \App\Http\Controllers\Api\PaymentReportController::class, 'index']);
         Route::get('/chat/{roomId}/messages', [ChatController::class, 'getAdminRoomMessages']);
-        Route::get('/appointments/list', [ReservationController::class, 'getAppointments']);
-        Route::get('/appointments/generate', [AppointmentController::class, 'generateWeeklySlotsForAllDoctors']);
-
+        Route::get('/appointments/list', [AppointmentManagementController::class, 'index']);
+        Route::get('/doctors', [AppointmentManagementController::class, 'doctors']);
+        Route::get('/appointments/{id}', [AppointmentManagementController::class, 'show']);
+        Route::put('/appointments/{id}/status', [AppointmentManagementController::class, 'updateStatus']);
+        Route::post('/appointments/{id}/cancel', [AppointmentManagementController::class, 'cancel']);
     });
 
 });

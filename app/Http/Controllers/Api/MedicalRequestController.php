@@ -16,6 +16,75 @@ class MedicalRequestController extends Controller
 {
     private FinancialService $financialService;
 
+    /**
+     * دریافت جزئیات درخواست پرستاری/پزشکی برای کاربر
+     */
+    public function getRequestDetail(Request $request, $id)
+    {
+        try {
+            $userId = $request->user()->id;
+
+            $medicalRequest = DB::table('user_medical_center_requests as ur')
+                ->leftJoin('medical_centers_info as mc', 'ur.medical_center_id', '=', 'mc.user_id')
+                ->leftJoin('medical_center_staffs as staff', 'ur.staff_id', '=', 'staff.id') // پرستار تخصیص یافته
+                ->where('ur.id', $id)
+                ->where('ur.user_id', $userId)
+                ->select(
+                    'ur.id',
+                    'ur.status',
+                    'ur.total_price',
+                    'ur.created_at',
+                    'ur.start_time',
+                    'ur.extra_info',
+                    'mc.name as center_name',
+                    'staff.name as staff_name',
+                    'staff.mobile as staff_mobile'
+                )
+                ->first();
+
+            if (!$medicalRequest) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'درخواست یافت نشد یا متعلق به شما نیست.'
+                ], 404);
+            }
+
+            // دریافت لیست خدمات داخل این درخواست
+            $services = DB::table('user_medical_center_request_services as urs')
+                ->join('medical_center_services as mcs', 'urs.medical_center_service_id', '=', 'mcs.id')
+                ->join('medical_services as ms', 'mcs.medical_service_id', '=', 'ms.id')
+                ->where('urs.user_medical_center_request_id', $id)
+                ->select('ms.name as service_name', 'urs.price')
+                ->get();
+
+            $data = [
+                'id' => $medicalRequest->id,
+                'status' => $medicalRequest->status,
+                'total_price' => (float) $medicalRequest->total_price,
+                'created_at' => $medicalRequest->created_at,
+                'start_time' => $medicalRequest->start_time,
+                'center_name' => $medicalRequest->center_name,
+                'staff' => $medicalRequest->staff_name ? [
+                    'name' => $medicalRequest->staff_name,
+                    'mobile' => $medicalRequest->staff_mobile
+                ] : null,
+                'services' => $services,
+                'extra_info' => json_decode($medicalRequest->extra_info, true) ?? [],
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => $data
+            ]);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function __construct(FinancialService $financialService)
     {
         $this->financialService = $financialService;
@@ -132,7 +201,7 @@ class MedicalRequestController extends Controller
                     'time_type_id'      => $validated['time_type_id'],
                     'start_time'        => $now->toDateTimeString(),
                     'total_price'       => $totalPrice,
-                    'status'            => 0, // در انتظار تایید
+                    'status'            => 1, // در انتظار تایید
                     'extra_info'        => json_encode([
                         'gender_pref'=> $validated['gender_pref'] ?? null,
                         'condition'      => $validated['condition'] ?? null,

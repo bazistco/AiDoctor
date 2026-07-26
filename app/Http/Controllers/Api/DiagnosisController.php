@@ -17,6 +17,83 @@ class DiagnosisController extends Controller
 {
     private string $ApiUrl = 'http://185.222.163.113:8000';
 
+    // دریافت لیست پزشکانی که این پزشک را پیشنهاد داده‌اند
+    public function getRecommendations($id)
+    {
+        $recommenders = DB::table('doctor_recommendations')
+            ->join('users', 'doctor_recommendations.recommender_id', '=', 'users.id')
+            ->join('doctor_info', 'users.id', '=', 'doctor_info.user_id')
+            ->leftJoin('specialties', 'doctor_info.specialty_id', '=', 'specialties.id') // اضافه کردن جوین با جدول تخصص‌ها
+            ->where('doctor_recommendations.recommended_id', $id)
+            ->select(
+                'users.id',
+                'users.name',
+                'specialties.name as specialty_name', // دریافت نام تخصص
+                'doctor_info.image_url'
+            )
+            ->get();
+
+        // بررسی اینکه آیا کاربر فعلی (اگر پزشک است) این پزشک را پیشنهاد داده یا خیر
+        $isRecommendedByMe = false;
+        $userId = auth()->id();
+
+        if ($userId) {
+            $exists = DB::table('doctor_recommendations')
+                ->where('recommender_id', $userId)
+                ->where('recommended_id', $id)
+                ->exists();
+            $isRecommendedByMe = $exists;
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'recommenders' => $recommenders,
+                'is_recommended_by_me' => $isRecommendedByMe
+            ]
+        ]);
+    }
+
+
+    // ثبت یا لغو پیشنهاد پزشک
+    public function toggleRecommendation(Request $request, $id)
+    {
+        $recommenderId = auth()->id();
+
+        // اطمینان از اینکه کاربر درخواست دهنده خودش پزشک است (بر اساس نقش)
+        $userRole = DB::table('users')->where('id', $recommenderId)->value('role');
+        if ($userRole !== 'doctor') {
+            return response()->json(['message' => 'فقط پزشکان می‌توانند همکاران را پیشنهاد دهند'], 403);
+        }
+
+        if ($recommenderId == $id) {
+            return response()->json(['message' => 'شما نمی‌توانید خودتان را پیشنهاد دهید'], 400);
+        }
+
+        $exists = DB::table('doctor_recommendations')
+            ->where('recommender_id', $recommenderId)
+            ->where('recommended_id', $id)
+            ->exists();
+
+        if ($exists) {
+            // حذف پیشنهاد (لغو)
+            DB::table('doctor_recommendations')
+                ->where('recommender_id', $recommenderId)
+                ->where('recommended_id', $id)
+                ->delete();
+
+            return response()->json(['success' => true, 'message' => 'پیشنهاد شما لغو شد', 'is_recommended' => false]);
+        } else {
+            // ثبت پیشنهاد جدید
+            DB::table('doctor_recommendations')->insert([
+                'recommender_id' => $recommenderId,
+                'recommended_id' => $id,
+                'created_at' => now()
+            ]);
+
+            return response()->json(['success' => true, 'message' => 'پزشک با موفقیت پیشنهاد داده شد', 'is_recommended' => true]);
+        }
+    }
     public function chat(Request $request): JsonResponse
     {
         $validated = $request->validate([

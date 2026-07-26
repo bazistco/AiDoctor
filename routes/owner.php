@@ -47,6 +47,12 @@ Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
             // پذیرش و آزادسازی درخواست‌های خام
             Route::post('/{id}/accept', [PharmacyRequestController::class, 'acceptRequest'])->name('accept');
             Route::post('/{id}/release', [PharmacyRequestController::class, 'releaseRequest'])->name('release');
+            Route::patch('/{id}/mark-preparing', [PharmacyRequestController::class, 'markAsPreparing']);
+            Route::patch('/{id}/mark-ready', [PharmacyRequestController::class, 'markAsReadyForDelivery']);
+            Route::patch('/{id}/mark-delivering', [PharmacyRequestController::class, 'markAsDelivering']);
+            Route::patch('/{id}/mark-delivered', [PharmacyRequestController::class, 'markAsDelivered']);
+            Route::patch('/{id}/mark-completed', [PharmacyRequestController::class, 'markAsCompleted']);
+            Route::patch('/{id}/cancel', [PharmacyRequestController::class, 'cancelRequest']);
         });
 
     });
@@ -120,7 +126,14 @@ Route::prefix('medical-center')->name('medical_center.')->group(function () {
         Route::get('/requests/stats', [MedicalCenterRequestController::class, 'stats'])->name('requests.stats');
         Route::get('/requests/{id}', [MedicalCenterRequestController::class, 'show'])->name('requests.show');
         Route::put('/requests/{id}/status', [MedicalCenterRequestController::class, 'updateStatus'])->name('requests.updateStatus');
+        Route::post('/requests/{id}/assign', [MedicalCenterRequestController::class, 'assignStaff'])->name('requests.assignStaff');
+        Route::post('/requests/{id}/report', [MedicalCenterRequestController::class, 'submitReport'])->name('requests.submitReport');
+
+        // برنامه‌ریزی
         Route::get('/schedule', [MedicalCenterRequestController::class, 'schedule']);
+
+        // درخواست‌های پرسنل
+        Route::get('/staff/{staffId}/requests', [MedicalCenterRequestController::class, 'staffAssignedRequests']);
 
     });
     // Profile

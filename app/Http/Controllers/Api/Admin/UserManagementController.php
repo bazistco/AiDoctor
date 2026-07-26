@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Http\Controllers\Api\Admin;
+
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -31,8 +32,8 @@ class UserManagementController extends Controller
         }
 
         DB::beginTransaction();
+
         try {
-            // پیدا کردن province_id و city_id
             $province = DB::table('provinces')->where('name', $request->province)->first();
             $city = DB::table('cities')
                 ->where('name', $request->city)
@@ -46,27 +47,26 @@ class UserManagementController extends Controller
                 ], 400);
             }
 
-            // تبدیل status
             $statusMap = [
                 'active' => 1,
                 'inactive' => 0,
                 'blocked' => 2,
             ];
 
-            // تبدیل type به role
             $roleMap = [
                 'patient' => 'patient',
                 'doctor' => 'doctor',
                 'pharmacy' => 'pharmacy',
                 'lab' => 'lab',
-                'nurse' => 'patient', // یا نقش دیگه‌ای که برای nurse داری
+                'nurse' => 'patient', // اگر رول جدا داری اصلاحش کن
             ];
 
-            // ساخت رکورد user
+            $fullName = trim($request->firstName . ' ' . $request->lastName);
+
             $userId = DB::table('users')->insertGetId([
-                'name' => trim($request->firstName . ' ' . $request->lastName),
+                'name' => $fullName,
                 'phone' => $request->phone,
-                'password' => Hash::make($request->phone), // پسورد = شماره موبایل
+                'password' => Hash::make($request->phone),
                 'role' => $roleMap[$request->type],
                 'status' => $statusMap[$request->status],
                 'is_verify' => 0,
@@ -76,24 +76,39 @@ class UserManagementController extends Controller
                 'updated_at' => now(),
             ]);
 
-            // ذخیره جداول اطلاعات تکمیلی
+            // ساخت کیف پول برای همه کاربران
+            DB::table('wallets')->insert([
+                'user_id' => $userId,
+                'balance' => 0,
+                'version' => 0,
+                'deleted_at' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
             $details = $request->details ?? [];
 
             switch ($request->type) {
                 case 'doctor':
-                    $this->createDoctorInfo($userId, $request->firstName . ' ' . $request->lastName, $details, $request->province, $request->city);
+                    $this->createDoctorInfo(
+                        $userId,
+                        $fullName,
+                        $details,
+                        $request->province,
+                        $request->city
+                    );
                     break;
 
                 case 'lab':
-                    $this->createLabInfo($userId, $request->firstName . ' ' . $request->lastName, $details);
+                    $this->createLabInfo($userId, $fullName, $details);
                     break;
 
                 case 'pharmacy':
-                    // اگر جدول pharmacy_info داری، اضافه کن
+                    $this->createMedicalCenterInfo($userId, $fullName, $details);
                     break;
 
                 case 'nurse':
-                    // اگه جدول nurse_info داری
+                    $this->createMedicalCenterInfo($userId, $fullName, $details);
                     break;
             }
 
@@ -107,9 +122,9 @@ class UserManagementController extends Controller
                     'phone' => $request->phone,
                 ]
             ], 201);
-
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'success' => false,
                 'message' => 'خطا در ایجاد کاربر: ' . $e->getMessage()
@@ -120,6 +135,7 @@ class UserManagementController extends Controller
     private function createDoctorInfo($userId, $name, $details, $province, $city)
     {
         $specialtyId = $details['specialty_id'] ?? null;
+
         if (!$specialtyId) {
             throw new \Exception('specialty_id برای دکتر الزامی است.');
         }
@@ -167,6 +183,26 @@ class UserManagementController extends Controller
             'address' => $details['address'] ?? null,
             'lat' => $details['lat'] ?? null,
             'lng' => $details['lng'] ?? null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function createMedicalCenterInfo($userId, $name, $details)
+    {
+        $slug = Str::slug($name . '-' . $userId);
+
+        DB::table('medical_centers_info')->insert([
+            'user_id' => $userId,
+            'name' => $name,
+            'slug' => $slug,
+            'status' => 0,
+            'image' => $details['image'] ?? null,
+            'lat' => $details['lat'] ?? null,
+            'lng' => $details['lng'] ?? null,
+            'address' => $details['address'] ?? null,
+            'coverage_description' => $details['coverage_description'] ?? null,
+            'coverage_radius' => $details['coverage_radius'] ?? null,
             'created_at' => now(),
             'updated_at' => now(),
         ]);

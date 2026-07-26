@@ -72,7 +72,7 @@ class ReservationController extends Controller
                 ],
                 'datetime' => [
                     // تبدیل تاریخ میلادی دیتابیس به شمسی مشابه تصویر
-                    'date' => $item->slot_date->format('Y-m-d'),
+                    'date' => $item->slot_date ,
                     'time' => substr($item->start_time, 0, 5), // تبدیل 09:00:00 به 09:00
                 ],
                 'status' => $currentStatus,

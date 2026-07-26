@@ -13,7 +13,7 @@ class PharmacyRequestController extends Controller
         return auth()->id();
     }
 
-
+    // ---------- index: فهرست درخواست‌ها ----------
     public function index(Request $request)
     {
         $pharmacyId = $this->getPharmacyId();
@@ -32,7 +32,7 @@ class PharmacyRequestController extends Controller
             )
             ->orderBy('users_pharmacy_requests.created_at', 'desc');
 
-        if ($request->has('status') && $request->input('status') !== '') {
+        if ($request->has('status') && $request->input('status') !== '' && $request->input('status') !== 'all') {
             $query->where('users_pharmacy_requests.status', $request->input('status'));
         }
 
@@ -41,12 +41,15 @@ class PharmacyRequestController extends Controller
         return response()->json(['status' => 'success', 'data' => $requests]);
     }
 
+    // ---------- show: نمایش جزئیات یک درخواست ----------
     public function show($id)
     {
         $pharmacyId = $this->getPharmacyId();
 
         $pharmacyRequest = DB::table('users_pharmacy_requests')
             ->leftJoin('users', 'users_pharmacy_requests.user_id', '=', 'users.id')
+            ->leftJoin('users_prescriptions', 'users_pharmacy_requests.prescription_id', '=', 'users_prescriptions.id')
+            ->leftJoin('prescription_types', 'users_prescriptions.prescription_type_id', '=', 'prescription_types.id')
             ->where('users_pharmacy_requests.id', $id)
             ->where(function ($query) use ($pharmacyId) {
                 $query->where('users_pharmacy_requests.pharmacy_id', $pharmacyId)
@@ -56,7 +59,14 @@ class PharmacyRequestController extends Controller
                 'users_pharmacy_requests.*',
                 'users.name as user_name',
                 'users.phone as user_mobile',
-                'users.national_code as user_national_code'
+                'users.national_code as user_national_code',
+                'users_prescriptions.id as prescription_id',
+                'users_prescriptions.prescription_type_id',
+                'users_prescriptions.status as prescription_status',
+                'users_prescriptions.details as prescription_details',
+                'users_prescriptions.created_at as prescription_created_at',
+                'users_prescriptions.updated_at as prescription_updated_at',
+                'prescription_types.name as prescription_type_name'
             )
             ->first();
 
@@ -64,6 +74,7 @@ class PharmacyRequestController extends Controller
             return response()->json(['status' => 'error', 'message' => 'درخواست یافت نشد.'], 404);
         }
 
+        // اقلام درخواست با join روی pharmacy_medicines و medicines
         $items = DB::table('user_pharmacy_request_medicines as uprm')
             ->join('pharmacy_medicines as pm', 'uprm.pharmacy_medicine_id', '=', 'pm.id')
             ->join('medicines', 'pm.medicine_id', '=', 'medicines.id')
@@ -71,7 +82,7 @@ class PharmacyRequestController extends Controller
             ->where('uprm.user_pharmacy_request_id', $id)
             ->select(
                 'uprm.id',
-                'pm.medicine_id',                          // alias as medicine_id for frontend
+                'pm.medicine_id',
                 'uprm.quantity',
                 'uprm.price',
                 DB::raw('(uprm.quantity * uprm.price) as total_price'),
@@ -83,13 +94,83 @@ class PharmacyRequestController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'data' => [
+            'data'   => [
                 'request' => $pharmacyRequest,
                 'items'   => $items,
             ]
         ]);
     }
 
+    // ---------- acceptRequest: رزرو درخواست (وضعیت 0) ----------
+    public function acceptRequest($id)
+    {
+        $pharmacyId = $this->getPharmacyId();
+
+        $request = DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->whereNull('pharmacy_id')
+            ->where('status', 0)
+            ->first();
+
+        if (!$request) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'این درخواست قبلاً رزرو شده یا معتبر نیست.'
+            ], 400);
+        }
+
+        DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->update([
+                'pharmacy_id' => $pharmacyId,
+                'status'      => 0,            // وضعیت همچنان 0 (امکان افزودن دارو)
+                'updated_at'  => now()
+            ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'درخواست با موفقیت برای شما رزرو شد. اکنون می‌توانید داروها را اضافه کنید.'
+        ]);
+    }
+
+    // ---------- releaseRequest: رهاسازی (فقط در وضعیت 0) ----------
+    public function releaseRequest($id)
+    {
+        $pharmacyId = $this->getPharmacyId();
+
+        $request = DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->where('pharmacy_id', $pharmacyId)
+            ->where('status', 0)
+            ->first();
+
+        if (!$request) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'امکان رهاسازی در وضعیت فعلی وجود ندارد.'
+            ], 403);
+        }
+
+        DB::table('user_pharmacy_request_medicines')
+            ->where('user_pharmacy_request_id', $id)
+            ->delete();
+
+        DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->update([
+                'pharmacy_id' => null,
+                'status'      => 0,
+                'total_price' => 0,
+                'updated_at'  => now()
+            ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'درخواست رها شد و به لیست آزاد بازگشت.'
+        ]);
+    }
+
+    // ---------- addItem: افزودن دارو (وضعیت 0) ----------
     public function addItem(Request $request, $id)
     {
         $pharmacyId = $this->getPharmacyId();
@@ -101,7 +182,10 @@ class PharmacyRequestController extends Controller
             ->first();
 
         if (!$pharmacyRequest) {
-            return response()->json(['status' => 'error', 'message' => 'دسترسی غیرمجاز یا وضعیت نامعتبر.'], 403);
+            return response()->json([
+                'status' => 'error',
+                'message' => 'دسترسی غیرمجاز یا وضعیت نامعتبر.'
+            ], 403);
         }
 
         $medicineId = $request->input('medicine_id');
@@ -109,7 +193,7 @@ class PharmacyRequestController extends Controller
         $price      = (float) $request->input('price', 0);
         $unit       = $request->input('unit', 'عدد');
 
-        // Find or create the pharmacy_medicine record
+        // پیدا کردن یا ایجاد pharmacy_medicine
         $pharmacyMedicine = DB::table('pharmacy_medicines')
             ->where('pharmacy_id', $pharmacyId)
             ->where('medicine_id', $medicineId)
@@ -119,7 +203,7 @@ class PharmacyRequestController extends Controller
             $pharmacyMedicineId = DB::table('pharmacy_medicines')->insertGetId([
                 'pharmacy_id'      => $pharmacyId,
                 'medicine_id'      => $medicineId,
-                'medicine_type_id' => 1,
+                'medicine_type_id' => 1,             // نوع پیش‌فرض
                 'unit'             => $unit,
                 'price_per_unit'   => $price,
                 'status'           => 1,
@@ -137,13 +221,11 @@ class PharmacyRequestController extends Controller
                 ]);
         }
 
-        // Insert the request item using pharmacy_medicine_id and quantity
         DB::table('user_pharmacy_request_medicines')->insert([
             'user_pharmacy_request_id' => $id,
             'pharmacy_medicine_id'     => $pharmacyMedicineId,
             'quantity'                 => $qty,
             'price'                    => $price,
-            // total_price is not stored – computed when needed
             'created_at'               => now(),
             'updated_at'               => now(),
         ]);
@@ -153,72 +235,35 @@ class PharmacyRequestController extends Controller
         return response()->json(['status' => 'success', 'message' => 'دارو با موفقیت اضافه شد.']);
     }
 
-
-    public function stats(Request $request)
+    // ---------- removeItem: حذف یک قلم دارو (وضعیت 0) ----------
+    public function removeItem($id, $itemId)
     {
         $pharmacyId = $this->getPharmacyId();
 
-        $stats = [
-            'total_requests' => DB::table('users_pharmacy_requests')->where('pharmacy_id', $pharmacyId)->count(),
-            'pending_requests' => DB::table('users_pharmacy_requests')->where('pharmacy_id', $pharmacyId)->where('status', 0)->count(),
-        ];
-
-        return response()->json(['status' => 'success', 'data' => $stats]);
-    }
-
-
-
-    public function acceptRequest($id)
-    {
-        $pharmacyId = $this->getPharmacyId();
-
-        $pharmacyRequest = DB::table('users_pharmacy_requests')
-            ->where('id', $id)
-            ->whereNull('pharmacy_id')
-            ->first();
-
-        if (!$pharmacyRequest) {
-            return response()->json(['status' => 'error', 'message' => 'این درخواست قبلاً توسط داروخانه دیگری برداشته شده یا وجود ندارد.'], 400);
-        }
-
-        DB::table('users_pharmacy_requests')
-            ->where('id', $id)
-            ->update([
-                'pharmacy_id' => $pharmacyId,
-                'updated_at' => now()
-            ]);
-
-        return response()->json(['status' => 'success', 'message' => 'درخواست با موفقیت برای شما رزرو شد. حالا می‌توانید داروها را اضافه کنید.']);
-    }
-
-    public function releaseRequest($id)
-    {
-        $pharmacyId = $this->getPharmacyId();
-
-        $pharmacyRequest = DB::table('users_pharmacy_requests')
+        $request = DB::table('users_pharmacy_requests')
             ->where('id', $id)
             ->where('pharmacy_id', $pharmacyId)
+            ->where('status', 0)
             ->first();
 
-        if (!$pharmacyRequest) {
-            return response()->json(['status' => 'error', 'message' => 'درخواست یافت نشد یا متعلق به شما نیست.'], 404);
+        if (!$request) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'دسترسی غیرمجاز یا وضعیت نامعتبر.'
+            ], 403);
         }
 
         DB::table('user_pharmacy_request_medicines')
+            ->where('id', $itemId)
             ->where('user_pharmacy_request_id', $id)
             ->delete();
 
-        DB::table('users_pharmacy_requests')
-            ->where('id', $id)
-            ->update([
-                'pharmacy_id' => null,
-                'total_price' => 0,
-                'updated_at' => now()
-            ]);
+        $this->updateRequestTotalPrice($id);
 
-        return response()->json(['status' => 'success', 'message' => 'درخواست رها شد و به لیست درخواست‌های آزاد بازگشت.']);
+        return response()->json(['status' => 'success', 'message' => 'دارو با موفقیت حذف شد.']);
     }
 
+    // ---------- searchMedicines: جستجوی داروها ----------
     public function searchMedicines(Request $request)
     {
         $pharmacyId = $this->getPharmacyId();
@@ -253,36 +298,178 @@ class PharmacyRequestController extends Controller
         return response()->json(['status' => 'success', 'data' => $medicines]);
     }
 
-
-
-    public function removeItem($id, $itemId)
-    {
-        DB::table('user_pharmacy_request_medicines')
-            ->where('id', $itemId)
-            ->where('user_pharmacy_request_id', $id)
-            ->delete();
-
-        $this->updateRequestTotalPrice($id);
-
-        return response()->json(['status' => 'success', 'message' => 'دارو با موفقیت حذف شد.']);
-    }
-
+    // ---------- updateStatus: تایید نهایی و ارسال به وضعیت 1 ----------
     public function updateStatus(Request $request, $id)
     {
         $pharmacyId = $this->getPharmacyId();
-        $status = $request->input('status');
+        $newStatus  = (int) $request->input('status');
 
-        DB::table('users_pharmacy_requests')
+        if ($newStatus !== 1) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'فقط وضعیت 1 (در انتظار پرداخت) از این طریق قابل تغییر است.'
+            ], 422);
+        }
+
+        $affected = DB::table('users_pharmacy_requests')
             ->where('id', $id)
             ->where('pharmacy_id', $pharmacyId)
+            ->where('status', 0)
             ->update([
-                'status' => $status,
+                'status'     => 1,
                 'updated_at' => now()
             ]);
 
-        return response()->json(['status' => 'success', 'message' => 'وضعیت با موفقیت تغییر یافت.']);
+        if ($affected === 0) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'امکان تغییر وضعیت وجود ندارد.'
+            ], 403);
+        }
+
+        return response()->json(['status' => 'success', 'message' => 'تایید نهایی انجام شد.']);
     }
 
+    // ---------- markAsPreparing: 1 -> 2 ----------
+    public function markAsPreparing($id)
+    {
+        $pharmacyId = $this->getPharmacyId();
+
+        $affected = DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->where('pharmacy_id', $pharmacyId)
+            ->where('status', 1)
+            ->update([
+                'status' => 2,
+                'updated_at' => now()
+            ]);
+
+        if ($affected === 0) {
+            return response()->json(['status' => 'error', 'message' => 'تغییر وضعیت مجاز نیست.'], 403);
+        }
+
+        return response()->json(['status' => 'success', 'message' => 'وضعیت به "در حال آماده‌سازی" تغییر یافت.']);
+    }
+
+    // ---------- markAsReadyForDelivery: 2 -> 3 ----------
+    public function markAsReadyForDelivery($id)
+    {
+        $pharmacyId = $this->getPharmacyId();
+
+        $affected = DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->where('pharmacy_id', $pharmacyId)
+            ->where('status', 2)
+            ->update([
+                'status' => 3,
+                'updated_at' => now()
+            ]);
+
+        if ($affected === 0) {
+            return response()->json(['status' => 'error', 'message' => 'تغییر وضعیت مجاز نیست.'], 403);
+        }
+
+        return response()->json(['status' => 'success', 'message' => 'وضعیت به "آماده ارسال" تغییر یافت.']);
+    }
+
+    // ---------- markAsDelivering: 3 -> 4 ----------
+    public function markAsDelivering($id)
+    {
+        $pharmacyId = $this->getPharmacyId();
+
+        $affected = DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->where('pharmacy_id', $pharmacyId)
+            ->where('status', 3)
+            ->update([
+                'status' => 4,
+                'updated_at' => now()
+            ]);
+
+        if ($affected === 0) {
+            return response()->json(['status' => 'error', 'message' => 'تغییر وضعیت مجاز نیست.'], 403);
+        }
+
+        return response()->json(['status' => 'success', 'message' => 'وضعیت به "در حال ارسال" تغییر یافت.']);
+    }
+
+    // ---------- markAsDelivered: 4 -> 5 ----------
+    public function markAsDelivered($id)
+    {
+        $pharmacyId = $this->getPharmacyId();
+
+        $affected = DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->where('pharmacy_id', $pharmacyId)
+            ->where('status', 4)
+            ->update([
+                'status' => 5,
+                'updated_at' => now()
+            ]);
+
+        if ($affected === 0) {
+            return response()->json(['status' => 'error', 'message' => 'تغییر وضعیت مجاز نیست.'], 403);
+        }
+
+        return response()->json(['status' => 'success', 'message' => 'وضعیت به "تحویل شده" تغییر یافت.']);
+    }
+
+    // ---------- markAsCompleted: 5 -> 6 ----------
+    public function markAsCompleted($id)
+    {
+        $pharmacyId = $this->getPharmacyId();
+
+        $affected = DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->where('pharmacy_id', $pharmacyId)
+            ->where('status', 5)
+            ->update([
+                'status' => 6,
+                'updated_at' => now()
+            ]);
+
+        if ($affected === 0) {
+            return response()->json(['status' => 'error', 'message' => 'تغییر وضعیت مجاز نیست.'], 403);
+        }
+
+        return response()->json(['status' => 'success', 'message' => 'سفارش تکمیل شد.']);
+    }
+
+    // ---------- cancelRequest: لغو (0 یا 1 -> 7) ----------
+    public function cancelRequest($id)
+    {
+        $pharmacyId = $this->getPharmacyId();
+
+        $affected = DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->where('pharmacy_id', $pharmacyId)
+            ->whereIn('status', [0, 1])
+            ->update([
+                'status' => 7,
+                'updated_at' => now()
+            ]);
+
+        if ($affected === 0) {
+            return response()->json(['status' => 'error', 'message' => 'فقط درخواست‌های با وضعیت 0 یا 1 قابل لغو هستند.'], 403);
+        }
+
+        return response()->json(['status' => 'success', 'message' => 'درخواست لغو شد.']);
+    }
+
+    // ---------- stats: آمار درخواست‌ها ----------
+    public function stats(Request $request)
+    {
+        $pharmacyId = $this->getPharmacyId();
+
+        $stats = [
+            'total_requests'   => DB::table('users_pharmacy_requests')->where('pharmacy_id', $pharmacyId)->count(),
+            'pending_requests' => DB::table('users_pharmacy_requests')->where('pharmacy_id', $pharmacyId)->where('status', 0)->count(),
+        ];
+
+        return response()->json(['status' => 'success', 'data' => $stats]);
+    }
+
+    // ---------- متدهای کمکی ----------
     private function updateRequestTotalPrice($requestId)
     {
         $total = DB::table('user_pharmacy_request_medicines')
