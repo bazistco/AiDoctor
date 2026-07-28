@@ -181,7 +181,7 @@ class LabController extends Controller
                     'visit_type' => $request->visit_type,
                     'request_type_id' => $requestTypeId,
                     'user_prescription_id' => $prescriptionId,
-                    'status' => 0,
+                    'status' => isset($labId)?2:0,
                     'total_price' => $totalPrice,
                     'created_at' => now(),
                     'updated_at' => now(),

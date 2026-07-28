@@ -158,7 +158,10 @@ class LabRequestController extends Controller
         $query = DB::table('users_labs_requests as ulr')
             ->join('users as u', 'u.id', '=', 'ulr.user_id')
             ->leftJoin('users_prescriptions as up', 'up.id', '=', 'ulr.user_prescription_id')
-            ->where('ulr.lab_id', $labId)
+            ->where(function ($query) use ($labId) {
+                $query->where('ulr.lab_id', $labId)
+                    ->orWhereNull('ulr.lab_id');
+            })
             ->select(
                 'ulr.id as request_id',
                 'ulr.visit_type',
@@ -218,7 +221,7 @@ class LabRequestController extends Controller
                 }
 
                 // تخصیص آرایه آزمایش‌ها به درخواست (اگر آزمایشی نداشت آرایه خالی می‌دهد)
-                $item->tests = $tests->get($item->request_id, [])->values()->all();
+                $item->tests = $tests->get($item->request_id, collect())->values()->all();
             }
         }
 
@@ -227,6 +230,9 @@ class LabRequestController extends Controller
 
 
 
+    /**
+     * جزئیات یک درخواست + لیست آزمایش‌های آن
+     */
     /**
      * جزئیات یک درخواست + لیست آزمایش‌های آن
      */
@@ -243,9 +249,14 @@ class LabRequestController extends Controller
             ->join('users as u', 'u.id', '=', 'ulr.user_id')
             ->leftJoin('users_prescriptions as up', 'up.id', '=', 'ulr.user_prescription_id')
             ->where('ulr.id', $id)
-            ->where('ulr.lab_id', $labId)
+            ->where(function ($query) use ($labId) {
+                $query->where('ulr.lab_id', $labId)
+                    ->orWhereNull('ulr.lab_id');
+            })
             ->select(
                 'ulr.id',
+                'ulr.lab_id',
+                'ulr.address_id',
                 'ulr.status',
                 'ulr.visit_type',
                 'ulr.created_at',
@@ -258,56 +269,198 @@ class LabRequestController extends Controller
             ->first();
 
         if (!$labRequest) {
-            // استفاده از تریت ApiResponse برای پاسخ‌دهی یکسان
             return $this->error('درخواست یافت نشد.', 404);
         }
 
-        // ۲. واکشی آزمایش‌های مربوط به این درخواست
-        // این کوئری بر اساس ساختار lab_request_test_packs.lab_test_id -> labs_tests.id نوشته شده
+        if ($labRequest->address_id) {
+            $address = DB::table('addresses')->where('id', $labRequest->address_id)->first();
+            $labRequest->address = @$address->address;
+        }
+        // ۲. واکشی آزمایش‌ها و جوین با جدول نتایج (lab_request_results)
         $tests = DB::table('lab_request_test_packs as lrtp')
             ->join('labs_tests as lt', 'lt.id', '=', 'lrtp.lab_test_id')
             ->join('test_packs as tp', 'tp.id', '=', 'lt.test_pack_id')
+            // اضافه شدن جوین برای دریافت فایل نتیجه:
+            ->leftJoin('lab_request_results as lrr', 'lrr.lab_request_test_pack_id', '=', 'lrtp.id')
             ->where('lrtp.lab_request_id', $id)
-            // اطمینان از اینکه آیتم‌های آزمایش متعلق به همین آزمایشگاه هستند
             ->where('lt.lab_id', $labId)
-            ->select('tp.name', 'lt.price')
+            ->select(
+                'lrtp.id as test_pack_id',
+                'tp.name',
+                'lt.price',
+                'lrr.file_path as result_file' // خواندن مسیر فایل از جدول نتایج
+            )
             ->get();
 
-        // ۳. پردازش و آماده‌سازی داده‌ها برای ارسال به فرانت‌اند
+        $baseUrl = 'http://185.222.163.113:7000/'; // آدرس پایه برای فایل‌ها
+
+        // پردازش آزمایش‌ها برای ساخت URL کامل نتیجه
+        $processedTests = $tests->map(function ($test) use ($baseUrl) {
+            $resultFileUrl = null;
+            if (!empty($test->result_file)) {
+                $resultFileUrl = str_starts_with($test->result_file, 'http')
+                    ? $test->result_file
+                    : $baseUrl . ltrim($test->result_file, '/');
+            }
+
+            return [
+                'test_pack_id' => $test->test_pack_id,
+                'name'         => $test->name,
+                'price'        => $test->price,
+                'result_file'  => $resultFileUrl,
+            ];
+        });
+
+        // ۳. پردازش و آماده‌سازی داده‌ها نسخه
         $prescriptionDetails = $labRequest->prescription_details ? json_decode($labRequest->prescription_details) : null;
         $files = [];
         $prescriptionCode = null;
         $prescriptionType = 'none';
 
-        // فرض می‌کنیم در جدول prescription_types شناسه 1 برای "دیجیتال" و 2 برای "فایل" است
-        if ($labRequest->prescription_type_id == 1) {
+        // نوع ۱: دیجیتال | نوع ۲: فایل
+        if ($labRequest->prescription_type_id == 2) {
             $prescriptionType = 'digital';
             $prescriptionCode = $prescriptionDetails->code ?? null;
-        } elseif ($labRequest->prescription_type_id == 2) {
+        } elseif ($labRequest->prescription_type_id == 3) {
             $prescriptionType = 'file';
-            // فایل‌ها ممکن است به صورت آرایه در فیلد details->files ذخیره شده باشند
             if (isset($prescriptionDetails->files) && is_array($prescriptionDetails->files)) {
-                $files = $prescriptionDetails->files;
+                $files = array_map(function($path) use ($baseUrl) {
+                    if (str_starts_with($path, 'http')) return $path;
+                    return $baseUrl . ltrim($path, '/');
+                }, $prescriptionDetails->files);
             }
         }
 
         $data = [
             'id' => $labRequest->id,
-            'code' => sprintf('LAB-%06d', $labRequest->id), // ساخت یک کد خوانا برای نمایش
-            'status' => (int) $labRequest->status, // 0:pending, 1:confirmed, 2:rejected
-            'type' => $labRequest->visit_type == 0 ? 'home' : 'in-person', // 0: در منزل, 1: حضوری
-            'scheduledDate' => $labRequest->created_at, // تاریخ میلادی ارسال می‌شود و فرانت آن را شمسی می‌کند
+            'address' => $labRequest->address,
+            'code' => sprintf('LAB-%06d', $labRequest->id),
+            'is_assigned' => !is_null($labRequest->lab_id),
+            'status' => (int) $labRequest->status,
+            'type' => $labRequest->visit_type == 0 ? 'home' : 'in-person',
+            'scheduledDate' => $labRequest->created_at,
             'patientName' => $labRequest->patient_name,
             'patientPhone' => $labRequest->patient_phone,
             'prescriptionType' => $prescriptionType,
             'prescriptionCode' => $prescriptionCode,
             'prescriptionFiles' => $files,
-            'tests' => $tests,
-            'totalPrice' => $labRequest->total_price ?? $tests->sum('price'), // اولویت با قیمت کل ذخیره شده در درخواست
+            'tests' => $processedTests,
+            'totalPrice' => $labRequest->total_price ?? $tests->sum('price'),
         ];
 
-        // استفاده از تریت ApiResponse برای پاسخ‌دهی
         return $this->success($data);
+    }
+
+
+
+
+    /**
+     * پذیرش درخواستی که فاقد آزمایشگاه است (تخصیص به آزمایشگاه فعلی)
+     */
+    public function acceptRequest(Request $request, $id)
+    {
+        $labId = $request->lab_id; // دریافت شناسه آزمایشگاه از میدل‌ور
+
+        DB::beginTransaction();
+        try {
+            // ۱. بررسی وجود درخواست
+            $labRequest = DB::table('users_labs_requests')->where('id', $id)->first();
+
+            if (!$labRequest) {
+                return $this->error('درخواست یافت نشد.', 404);
+            }
+
+            // ۲. بررسی اینکه آیا درخواست قبلاً توسط آزمایشگاه دیگری گرفته شده است یا خیر
+            if (!is_null($labRequest->lab_id) && $labRequest->lab_id != $labId) {
+                return $this->error('این درخواست قبلاً توسط آزمایشگاه دیگری پذیرش شده است.', 403);
+            }
+
+            // ۳. اگر قبلاً توسط همین آزمایشگاه پذیرش شده باشد
+            if ($labRequest->lab_id == $labId) {
+                return $this->success(null, 'این درخواست قبلاً توسط شما پذیرش شده است و می‌توانید آزمایش‌ها را اختصاص دهید.');
+            }
+
+            // ۴. پذیرش درخواست (پر کردن lab_id)
+            DB::table('users_labs_requests')->where('id', $id)->update([
+                'lab_id' => $labId,
+                'updated_at' => now(),
+            ]);
+
+            DB::commit();
+
+            return $this->success(null, 'درخواست با موفقیت توسط شما پذیرش شد. اکنون می‌توانید آزمایش‌ها را تخصیص دهید.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return $this->error('خطا در پذیرش درخواست: ' . $e->getMessage(), 500);
+        }
+    }
+
+
+    public function uploadResult(Request $request, $id)
+    {
+        $request->validate([
+            'test_pack_id' => 'required|integer',
+            'file' => 'required|file|mimes:jpeg,png,jpg,gif,pdf|max:5120',
+            'note' => 'nullable|string',
+        ]);
+
+        $file = $request->file('file');
+        $testPackId = $request->input('test_pack_id');
+
+        // ذخیره فایل جدید
+        $path = $file->store('lab_result', 'public');
+        $filePath = 'storage/' . $path;
+
+        // بررسی وجود نتیجه از قبل
+        $existingResult = DB::table('lab_request_results')
+            ->where('lab_request_id', $id)
+            ->where('lab_request_test_pack_id', $testPackId)
+            ->first();
+
+        if ($existingResult) {
+            // (اختیاری) پاک کردن فایل قبلی از سرور برای جلوگیری از اشغال فضا
+            // $oldPath = str_replace('storage/', '', $existingResult->file_path);
+            // Storage::disk('public')->delete($oldPath);
+
+            // آپدیت رکورد موجود
+            DB::table('lab_request_results')
+                ->where('id', $existingResult->id)
+                ->update([
+                    'file_path' => $filePath,
+                    'file_name' => $file->getClientOriginalName(),
+                    'mime_type' => $file->getClientMimeType(),
+                    'note' => $request->input('note'),
+                    'updated_at' => now(),
+                ]);
+
+            $resultId = $existingResult->id;
+            $message = 'نتیجه آزمایش با موفقیت بروزرسانی شد';
+            $statusCode = 200;
+
+        } else {
+            // ایجاد رکورد جدید
+            $resultId = DB::table('lab_request_results')->insertGetId([
+                'lab_request_id' => $id,
+                'lab_request_test_pack_id' => $testPackId,
+                'file_path' => $filePath,
+                'file_name' => $file->getClientOriginalName(),
+                'mime_type' => $file->getClientMimeType(),
+                'status' => 1,
+                'note' => $request->input('note'),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $message = 'نتیجه آزمایش با موفقیت آپلود شد';
+            $statusCode = 201;
+        }
+
+        return response()->json([
+            'message' => $message,
+            'result_id' => $resultId,
+            'file_path' => $path
+        ], $statusCode);
     }
 
 
@@ -362,4 +515,128 @@ class LabRequestController extends Controller
             'rejected'  => $rejected,
         ]);
     }
+    // متد جدید برای دریافت لیست آزمایش‌های تعریف شده برای این آزمایشگاه (جهت نمایش در دراپ‌داون فرانت)
+    public function getAvailableTests(Request $request)
+    {
+        $labId = $request->lab_id;
+        $tests = DB::table('labs_tests as lt')
+            ->join('test_packs as tp', 'tp.id', '=', 'lt.test_pack_id')
+            ->where('lt.lab_id', $labId)
+            ->select('lt.id as lab_test_id', 'tp.name', 'lt.price')
+            ->get();
+
+        return $this->success($tests);
+    }
+
+    // اصلاح متد ثبت آزمایش برای درخواست
+    public function assignTestPacks(Request $request, $id)
+    {
+        $labId = $request->lab_id;
+
+        $request->validate([
+            'lab_test_ids' => 'required|array',
+            'lab_test_ids.*' => 'integer|exists:labs_tests,id'
+        ]);
+
+        $labTestIds = $request->input('lab_test_ids');
+
+        DB::beginTransaction();
+        try {
+            // ۱. بررسی وجود درخواست
+            $labRequest = DB::table('users_labs_requests')
+                ->where('id', $id)
+                ->where('lab_id', $labId)
+                ->first();
+
+            if (!$labRequest) {
+                return $this->error('درخواست یافت نشد.', 404);
+            }
+
+            // ۲. محاسبه مجموع هزینه آزمایش‌های انتخاب شده از جدول labs_tests
+            $labTests = DB::table('labs_tests')
+                ->whereIn('id', $labTestIds)
+                ->where('lab_id', $labId)
+                ->get();
+
+            $totalPrice = $labTests->sum('price');
+
+            // ۳. حذف تست‌های قبلی این درخواست (در صورت ویرایش مجدد)
+            DB::table('lab_request_test_packs')->where('lab_request_id', $id)->delete();
+
+            // ۴. آماده‌سازی دیتا برای ثبت در جدول واسط
+            $insertData = [];
+            $now = now();
+            foreach ($labTests as $test) {
+                $insertData[] = [
+                    'lab_request_id' => $id,
+                    'lab_test_id' => $test->id, // در ساختار شما این فیلد lab_test_id است
+                    // اگر فیلد قیمت هنگام ثبت در دیتابیس دارید، اینجا اضافه کنید
+                    // 'price_at_request' => $test->price,
+                ];
+            }
+
+            // ۵. درج در جدول واسط
+            if(count($insertData) > 0) {
+                DB::table('lab_request_test_packs')->insert($insertData);
+            }
+
+            // ۶. آپدیت قیمت کل در جدول درخواست اصلی و تغییر وضعیت به 0 (در انتظار پرداخت)
+            DB::table('users_labs_requests')->where('id', $id)->update([
+                'total_price' => $totalPrice,
+                'status' => 0, // 0: در انتظار پرداخت
+                'updated_at' => $now,
+            ]);
+
+            DB::commit();
+
+            return $this->success([
+                'total_price' => $totalPrice
+            ], 'آزمایش‌ها با موفقیت ثبت و هزینه به‌روزرسانی شد.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return $this->error('خطا در ثبت اطلاعات: ' . $e->getMessage(), 500);
+        }
+    }
+    // متد جدید برای حذف تمام آزمایش‌های تخصیص داده شده به یک درخواست
+    public function unassignTestPacks(Request $request, $id)
+    {
+        $labId = $request->lab_id;
+
+        DB::beginTransaction();
+        try {
+            // ۱. بررسی وجود درخواست
+            $labRequest = DB::table('users_labs_requests')
+                ->where('id', $id)
+                ->where('lab_id', $labId)
+                ->first();
+
+            if (!$labRequest) {
+                return $this->error('درخواست یافت نشد.', 404);
+            }
+
+            // ۲. حذف تست‌ها از جدول واسط
+            DB::table('lab_request_test_packs')
+                ->where('lab_request_id', $id)
+                ->delete();
+
+            // ۳. صفر کردن قیمت و بازگردانی وضعیت به 0
+            DB::table('users_labs_requests')->where('id', $id)->update([
+                'total_price' => 0,
+                'status' => 0,
+                'updated_at' => now(),
+            ]);
+
+            DB::commit();
+
+            return $this->success([], 'آزمایش‌های قبلی با موفقیت حذف شدند و می‌توانید مجدداً انتخاب کنید.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return $this->error('خطا در حذف اطلاعات: ' . $e->getMessage(), 500);
+        }
+    }
+
+
+
 }

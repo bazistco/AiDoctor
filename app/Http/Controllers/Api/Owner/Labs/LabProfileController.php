@@ -65,7 +65,36 @@ class LabProfileController extends Controller
 
         return $this->success($lab);
     }
+    public function toggleStatus(Request $request)
+    {
+        // دریافت شناسه کاربر احراز‌شده
+        $userId = auth()->id();
+        if (!$userId) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
 
+        // یافتن آزمایشگاه مرتبط با این کاربر
+        $lab = DB::table('labs_info')->where('user_id', $userId)->first();
+
+        if (!$lab) {
+            return response()->json(['message' => 'آزمایشگاه یافت نشد'], 404);
+        }
+
+        // تغییر وضعیت (۰ ← ۱ یا برعکس)
+        $newStatus = $lab->status == 1 ? 0 : 1;
+
+        // به‌روزرسانی در دیتابیس
+        DB::table('labs_info')
+            ->where('user_id', $userId)
+            ->update(['status' => $newStatus]);
+
+        // بازگرداندن وضعیت جدید به کلاینت
+        return response()->json([
+            'status' => $newStatus,
+            'message' => 'وضعیت با موفقیت تغییر کرد',
+            'isActive' => (bool) $newStatus // برای استفاده مستقیم در فرانت‌اند
+        ]);
+    }
     public function update(Request $request)
     {
         $labId = $request->lab_id;

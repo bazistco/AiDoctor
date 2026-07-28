@@ -116,7 +116,7 @@ class UserOrderController extends Controller
             case 'lab':
                 return match ((int) $status) {
                     0 => 'درخواست جدید',
-                    1 => 'پرداخت شده',
+                    1 => 'در انتظار پرداخت',
                     2 => 'در انتظار نمونه‌گیری',
                     3 => 'در انتظار اعلام نتیجه',
                     4 => 'تکمیل شده',

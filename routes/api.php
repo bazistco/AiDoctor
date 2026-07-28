@@ -156,6 +156,8 @@ Route::group(['prefix' => 'user'],function (){
         Route::post('/labs/requests', [\App\Http\Controllers\Api\LabController::class, 'storeRequest']);
         Route::get('/labs/requests', [\App\Http\Controllers\Api\LabController::class, 'getUserRequests']);
         Route::get('/labs/requests/{id}', [\App\Http\Controllers\Api\LabController::class, 'getUserRequestDetail']);
+        Route::get('/labs-requests/{id}', [\App\Http\Controllers\Api\UserLabRequestController::class, 'show']);
+        Route::get('/labs-requests/{id}/pay', [\App\Http\Controllers\Api\UserLabRequestController::class, 'pay']);
 
         Route::prefix('reservations')->group(function () {
             // رزرو موقت اسلات (15 دقیقه)

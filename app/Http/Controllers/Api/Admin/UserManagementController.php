@@ -171,7 +171,7 @@ class UserManagementController extends Controller
     {
         $slug = Str::slug($name . '-' . $userId);
 
-        DB::table('lab_info')->insert([
+        DB::table('labs_info')->insert([
             'user_id' => $userId,
             'name' => $name,
             'slug' => $slug,
@@ -179,7 +179,7 @@ class UserManagementController extends Controller
             'technical_manager' => $details['technical_manager'] ?? null,
             'work_hours' => $details['work_hours'] ?? null,
             'min_order_amount' => $details['min_order_amount'] ?? 0,
-            'status' => 0,
+            'status' => 1,
             'address' => $details['address'] ?? null,
             'lat' => $details['lat'] ?? null,
             'lng' => $details['lng'] ?? null,
@@ -196,7 +196,7 @@ class UserManagementController extends Controller
             'user_id' => $userId,
             'name' => $name,
             'slug' => $slug,
-            'status' => 0,
+            'status' => 1,
             'image' => $details['image'] ?? null,
             'lat' => $details['lat'] ?? null,
             'lng' => $details['lng'] ?? null,

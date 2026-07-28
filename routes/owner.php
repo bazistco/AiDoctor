@@ -69,17 +69,22 @@ Route::prefix('lab')->name('lab.')->group(function () {
         Route::get('/finance', [LabProfileController::class, 'finance'])->name('profile.finance');
         Route::get('/profile', [LabProfileController::class, 'show'])->name('profile.show');
         Route::put('/profile', [LabProfileController::class, 'update'])->name('profile.update');
+        Route::put('/status', [LabProfileController::class, 'toggleStatus'])->name('profile.status');
 
         // Tests
+        Route::get('/tests/available', [LabRequestController::class, 'getAvailableTests']);
+        Route::get('/test-packs', [LabTestController::class, 'getTestPacks'])->name('test-packs.index');
         Route::get('/tests', [LabTestController::class, 'index'])->name('tests.index');
         Route::post('/tests', [LabTestController::class, 'store'])->name('tests.store');
         Route::get('/tests/{id}', [LabTestController::class, 'show'])->name('tests.show');
         Route::put('/tests/{id}', [LabTestController::class, 'update'])->name('tests.update');
         Route::delete('/tests/{id}', [LabTestController::class, 'destroy'])->name('tests.destroy');
-        Route::get('/test-packs', [LabTestController::class, 'getTestPacks'])->name('test-packs.index');
         // Requests
+        Route::post('requests/{id}/accept', [LabRequestController::class, 'acceptRequest']);
+        Route::delete('/requests/{id}/assign-tests', [LabRequestController::class, 'unassignTestPacks']);
+        Route::post('/requests/{id}/assign-tests', [LabRequestController::class, 'assignTestPacks']);
         Route::get('results', [LabRequestController::class, 'getResults']);
-
+        Route::post('/requests/{id}/results', [LabRequestController::class, 'uploadResult']);
         Route::get('/schedule', [LabRequestController::class, 'schedule']);
         Route::get('/requests', [LabRequestController::class, 'index'])->name('requests.index');
         Route::get('/requests/stats', [LabRequestController::class, 'stats'])->name('requests.stats');
