@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Api\Controllers\Auth\AuthController;
+use App\Http\Controllers\Api\Admin\AdminServiceController;
 use App\Http\Controllers\Api\Admin\AppointmentManagementController;
 use App\Http\Controllers\Api\AppointmentController;
 use App\Http\Controllers\Api\ChatController;
@@ -10,13 +11,45 @@ use App\Http\Controllers\Api\MedicalRequestController;
 use App\Http\Controllers\Api\PeriodShareController;
 use App\Http\Controllers\Api\PeriodTrackerController;
 use App\Http\Controllers\Api\ReservationController;
+use App\Http\Controllers\Api\ReviewController;
+use App\Http\Controllers\Api\MedicalServiceProviderController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\UserPharmacyRequestController;
 use App\Http\Controllers\FileUploadController;
+use App\Http\Controllers\TourController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
+Route::prefix('tours')->group(function () {
+    Route::get('/', [TourController::class, 'index']);
+    Route::post('/', [TourController::class, 'store']);
+});
+Route::get('/tours/{id}', [TourController::class, 'show']);       // دریافت جزئیات یک تور برای صفحه دعوت
+Route::post('/tours/{id}/join', [TourController::class, 'join']);
+Route::get('/tours/{id}/participants', [TourController::class, 'getParticipants']);
+Route::put('/tours/{id}/participants', [TourController::class, 'updateParticipant']);
+Route::delete('/tours/{id}/participants/{mobile}', [TourController::class, 'removeParticipant']);
 
+Route::any('pg/call_back', function (Request $request) {
+   return response()->json(['success'=>1,'data'=>$request->all() ?? []]) ;
+});
+Route::post('/send-date-invite', function (Request $request) {
+    $token = "182541559:ERwiwkliF-Q4fg29DE-rdDu9halqRh5cIaU"; // بهتر است این را در فایل .env بگذارید
+    $chatId = "6068713488";
+
+    $message = "💖 دعوت به قرار پذیرفته شد!\n\n📅 تاریخ: {$request->date}\n⏰ ساعت: {$request->time}\n🍽 سفارش/غذا: {$request->food}";
+
+    $response = Http::post("https://tapi.bale.ai/bot{$token}/sendMessage", [
+        'chat_id' => $chatId,
+        'text' => $message,
+    ]);
+
+    if ($response->successful()) {
+        return response()->json(['status' => 'success']);
+    }
+
+    return response()->json(['status' => 'error'], 500);
+});
 Route::post('/upload', [FileUploadController::class, 'upload']);
 
 Route::get('/user', function (Request $request) {
@@ -124,14 +157,26 @@ Route::group(['prefix' => 'user'],function (){
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:3,1');
     Route::post('verify',[AuthController::class,'verify']);
     Route::middleware('auth:sanctum')->group(function () {
+
+        Route::get('/providers/{type}/{id}', [MedicalServiceProviderController::class, 'show']);
+
+        Route::get('/providers', [MedicalServiceProviderController::class, 'index']);
+
+        Route::post('/reviews', [ReviewController::class, 'storeReview']);
+        Route::get('/provider/reviews', [ReviewController::class, 'getProviderReviews']);
+
         Route::get('/period-tracker', [PeriodTrackerController::class, 'show']);
+
         Route::post('/period-tracker/init', [PeriodTrackerController::class, 'storeOrUpdate']);
 
         Route::post('/period-tracker/log', [PeriodTrackerController::class, 'storePeriodLog']);
+
         Route::get('/period-tracker/logs', [PeriodTrackerController::class, 'logs']);
 
         Route::post('/period-tracker/daily-log', [PeriodTrackerController::class, 'storeDailyLog']);
+
         Route::get('/period-tracker/daily-logs', [PeriodTrackerController::class, 'dailyLogsByMonth']);
+
         Route::get('/period-tracker/daily-log/{date}', [PeriodTrackerController::class, 'dailyLogByDate']);
 
         // --- بخش پارتنر (Partner Sync) ---
@@ -143,6 +188,7 @@ Route::group(['prefix' => 'user'],function (){
         Route::delete('/period-tracker/share-link', [PeriodShareController::class, 'disable']);
         Route::get('/period-tracker/share-link', [PeriodShareController::class, 'activeLink']);
         Route::get('/orders', [\App\Http\Controllers\Api\UserOrderController::class,'index' ]);
+        Route::get('/finance_orders', [\App\Http\Controllers\Api\UserOrderController::class,'getUserOrders' ]);
 
         Route::post('/pharmacy-requests', [UserPharmacyRequestController::class, 'storeRequest']);
         Route::get('pharmacy-requests/{id}', [UserPharmacyRequestController::class, 'show']);
@@ -183,6 +229,8 @@ Route::group(['prefix' => 'user'],function (){
     Route::middleware('auth:sanctum')->prefix('diagnosis')->group(function () {
 
         Route::get('/doctors', [DiagnosisController::class, 'getDoctorsList']);
+        Route::get('/keywords/suggest', [DiagnosisController::class, 'suggestKeywords']);
+
 
         Route::get('/doctors/{doctorId}/schedule', [DiagnosisController::class, 'getDoctorWithSchedule']);
 
@@ -248,7 +296,10 @@ Route::group(['prefix' => 'admin'],function (){
 
     Route::post('/login', [\App\Http\Controllers\Api\AdminAuthController::class, 'login'])->middleware('throttle:3,1');
     Route::middleware(['auth:sanctum',\App\Http\Middleware\CheckApiAdmin::class])->group(function () {
-
+        Route::get('/services', [AdminServiceController::class, 'index']);
+        Route::post('/services', [AdminServiceController::class, 'store']);
+        Route::patch('/services/{id}/status', [AdminServiceController::class, 'updateStatus']);
+        Route::delete('/services/{id}', [AdminServiceController::class, 'destroy']);
         Route::post('/users', [\App\Http\Controllers\Api\Admin\UserManagementController::class, 'store']);
         Route::get('users', [\App\Http\Controllers\Api\Admin\UserController::class, 'index']);
         Route::get('users/{id}', [\App\Http\Controllers\Api\Admin\UserController::class, 'show']);
@@ -273,6 +324,8 @@ Route::group(['prefix' => 'doctor'], function () {
     Route::post('/login', [\App\Http\Controllers\Api\Doctor\DoctorAuthController::class, 'login'])->middleware('throttle:3,1');
 
     Route::middleware(['auth:sanctum', 'role:doctor'])->group(function () {
+        Route::get('/dashboard', [\App\Http\Controllers\Api\Doctor\DoctorDashboardController::class, 'index']);
+
         Route::get('/schedule/calendar-summary', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'getCalendarSummary']);
         Route::get('/schedule/slots', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'getSlotsByDate']);
         Route::post('/schedule/generate-slots', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'generateSlotsForDate']);

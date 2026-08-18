@@ -455,6 +455,9 @@ class LabRequestController extends Controller
             $message = 'نتیجه آزمایش با موفقیت آپلود شد';
             $statusCode = 201;
         }
+        $updatedRows = DB::table('users_labs_requests')
+            ->where('id', $id)
+            ->update(['status' => 4]);
 
         return response()->json([
             'message' => $message,
@@ -583,7 +586,7 @@ class LabRequestController extends Controller
             // ۶. آپدیت قیمت کل در جدول درخواست اصلی و تغییر وضعیت به 0 (در انتظار پرداخت)
             DB::table('users_labs_requests')->where('id', $id)->update([
                 'total_price' => $totalPrice,
-                'status' => 0, // 0: در انتظار پرداخت
+                'status' => 1, // 1: در انتظار پرداخت
                 'updated_at' => $now,
             ]);
 

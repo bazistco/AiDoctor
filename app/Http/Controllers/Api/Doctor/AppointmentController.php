@@ -414,6 +414,15 @@ class AppointmentController
         $request->validate([
             'notes' => 'required|string|max:2000',
         ]);
+        $appointment=DB::table('appointment_slots')
+            ->where('id', $appointmentId)
+            ->where('doctor_id', $doctorId)->first();
+        if ($appointment->status =='done') {
+            return response()->json([
+                'status' => false,
+                'message' => 'نوبت در وضعیت اضافه کردن نتیجه نیست',
+            ], 403);
+        }
 
         $updated = DB::table('appointment_slots')
             ->where('id', $appointmentId)

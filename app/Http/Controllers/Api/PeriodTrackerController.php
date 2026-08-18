@@ -191,6 +191,9 @@ class PeriodTrackerController extends Controller
             'flow_level' => ['nullable', 'integer', 'min:1', 'max:5'],
             'discharge_type' => ['nullable', 'string', 'max:50'],
             'symptoms' => ['nullable', 'array'],
+            'water' => ['nullable', 'integer', 'min:0'],              // ← اضافه شد
+            'calorie' => ['nullable', 'integer', 'min:0'],            // ← اضافه شد
+            'physical_symptoms' => ['nullable', 'array'],             // ← اضافه شد
             'took_medicine' => ['nullable', 'boolean'],
             'medicine_note' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string'],
@@ -219,6 +222,9 @@ class PeriodTrackerController extends Controller
             'flow_level' => $request->flow_level,
             'discharge_type' => $request->discharge_type,
             'symptoms' => $request->symptoms ? json_encode($request->symptoms, JSON_UNESCAPED_UNICODE) : null,
+            'water' => $request->water ?? 0,                                                        // ← اضافه شد
+            'calorie' => $request->calorie ?? 0,                                                    // ← اضافه شد
+            'physical_symptoms' => $request->physical_symptoms ? json_encode($request->physical_symptoms, JSON_UNESCAPED_UNICODE) : null, // ← اضافه شد
             'took_medicine' => $request->has('took_medicine') ? (int)$request->took_medicine : 0,
             'medicine_note' => $request->medicine_note,
             'notes' => $request->notes,
@@ -239,8 +245,11 @@ class PeriodTrackerController extends Controller
             $dailyLog = DB::table('period_daily_logs')->where('id', $id)->first();
         }
 
-        if ($dailyLog && $dailyLog->symptoms) {
-            $dailyLog->symptoms = json_decode($dailyLog->symptoms, true);
+        if ($dailyLog) {
+            $dailyLog->symptoms = $dailyLog->symptoms ? json_decode($dailyLog->symptoms, true) : [];
+            $dailyLog->physical_symptoms = $dailyLog->physical_symptoms ? json_decode($dailyLog->physical_symptoms, true) : []; // ← اضافه شد
+            $dailyLog->water = (int) $dailyLog->water;     // ← اطمینان از عدد بودن
+            $dailyLog->calorie = (int) $dailyLog->calorie; // ← اطمینان از عدد بودن
         }
 
         return response()->json([
@@ -278,7 +287,10 @@ class PeriodTrackerController extends Controller
 
         $logs->transform(function ($item) {
             $item->symptoms = $item->symptoms ? json_decode($item->symptoms, true) : [];
+            $item->physical_symptoms = $item->physical_symptoms ? json_decode($item->physical_symptoms, true) : []; // ← اضافه شد
             $item->took_medicine = (bool) $item->took_medicine;
+            $item->water = (int) $item->water;      // ← اضافه شد
+            $item->calorie = (int) $item->calorie;  // ← اضافه شد
             return $item;
         });
 
@@ -307,7 +319,10 @@ class PeriodTrackerController extends Controller
         }
 
         $log->symptoms = $log->symptoms ? json_decode($log->symptoms, true) : [];
+        $log->physical_symptoms = $log->physical_symptoms ? json_decode($log->physical_symptoms, true) : []; // ← اضافه شد
         $log->took_medicine = (bool) $log->took_medicine;
+        $log->water = (int) $log->water;      // ← اضافه شد
+        $log->calorie = (int) $log->calorie;  // ← اضافه شد
 
         return response()->json([
             'status' => true,

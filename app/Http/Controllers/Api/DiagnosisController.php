@@ -280,6 +280,7 @@ class DiagnosisController extends Controller
         $doctors = DB::table('doctor_info')
             ->join('users', 'doctor_info.user_id', '=', 'users.id')
             ->where('doctor_info.specialty_id', $specialty->id)
+            ->whereNull('users.deleted_at')
             ->select(
                 'doctor_info.id',
                 'doctor_info.user_id',
@@ -748,9 +749,30 @@ class DiagnosisController extends Controller
             ], 500);
         }
     }
-    public function getDoctorsList()
+    public function suggestKeywords(Request $request)
+    {
+        $query = $request->input('q');
+        if (!$query) {
+            return response()->json(['success' => true, 'data' => []]);
+        }
+
+        $keywords = DB::table('keywords')
+            ->where('word', 'LIKE', '%' . $query . '%')
+            ->orderBy('search_volume', 'desc')
+            ->limit(5)
+            ->pluck('word');
+
+        // آپدیت کردن search_volume در پس‌زمینه (اختیاری)
+        DB::table('keywords')->where('word', $query)->increment('search_volume');
+
+        return response()->json(['success' => true, 'data' => $keywords]);
+    }
+
+    // ۲. آپدیت متد لیست پزشکان
+    public function getDoctorsList(Request $request)
     {
         $tomorrow = now()->addDay()->format('Y-m-d');
+        $searchTerm = $request->input('query');
 
         $query = DB::table('users')
             ->join('doctor_info', 'users.id', '=', 'doctor_info.user_id')
@@ -760,51 +782,65 @@ class DiagnosisController extends Controller
                     ->where('appointment_slots.status', 'available')
                     ->where('appointment_slots.slot_date', $tomorrow);
             })
+            // 1. ابتدا فیلدهای اصلی را انتخاب کنید
             ->select(
-                'users.id',
-                'users.name as firstName',
-                'users.gender',
-                'specialties.name as specialty',
-                'doctor_info.visit_price',
-                'doctor_info.experience',
-                'doctor_info.rating',
-                'doctor_info.image_url as image',
-                'doctor_info.is_vip',
-                'doctor_info.lat',
-                'doctor_info.lng',
-                'doctor_info.bio',
-                'doctor_info.address',
-                'doctor_info.phone',
-                'doctor_info.visit_count',
-                'doctor_info.appointments',
-                'doctor_info.medical_code as medicalCode',
-                'doctor_info.rank',
-                'doctor_info.reviews',
-                'doctor_info.recommendation',
-                DB::raw('COUNT(appointment_slots.id) as availability'),
-                'doctor_info.city',
-                'doctor_info.province'
-            )
-            ->where('users.role', 'doctor')
-            ->groupBy(
-                'users.id', 'users.name', 'users.gender',
-                'specialties.name', 'doctor_info.visit_price',
+                'users.id', 'users.name as firstName', 'users.gender',
+                'specialties.name as specialty', 'doctor_info.visit_price',
                 'doctor_info.experience', 'doctor_info.rating',
-                'doctor_info.image_url', 'doctor_info.is_vip',
-                'doctor_info.lat', 'doctor_info.lng',
-                'doctor_info.bio', 'doctor_info.address',
-                'doctor_info.phone', 'doctor_info.visit_count',
-                'doctor_info.appointments', 'doctor_info.medical_code',
-                'doctor_info.rank', 'doctor_info.reviews',
-                'doctor_info.recommendation', 'doctor_info.city',
-                'doctor_info.province'
-            )
-            ->orderBy('doctor_info.is_vip', 'desc')
+                'doctor_info.image_url as image', 'doctor_info.is_vip',
+                'doctor_info.lat', 'doctor_info.lng', 'doctor_info.bio',
+                'doctor_info.address', 'doctor_info.phone', 'doctor_info.visit_count',
+                'doctor_info.appointments', 'doctor_info.medical_code as medicalCode',
+                'doctor_info.rank', 'doctor_info.reviews', 'doctor_info.recommendation',
+                DB::raw('COUNT(appointment_slots.id) as availability'),
+                'doctor_info.city', 'doctor_info.province'
+            );
+
+        // 2. سپس بر اساس شرط، فیلدهای اضافی را اضافه (addSelect) کنید
+        if (!empty($searchTerm)) {
+            $query->leftJoin('doctor_keyword_subscriptions as dks', function($join) {
+                $join->on('users.id', '=', 'dks.doctor_id')
+                    ->where('dks.is_active', 1)
+                    ->where('dks.expires_at', '>', now());
+            })
+                ->leftJoin('keywords', function($join) use ($searchTerm) {
+                    $join->on('dks.keyword_id', '=', 'keywords.id')
+                        ->where('keywords.word', 'LIKE', '%' . $searchTerm . '%');
+                });
+
+            // اصلاح جایگاه COALESCE و MAX
+            $query->addSelect(DB::raw('COALESCE(MAX(dks.tier_level), 0) as search_rank'));
+
+            $query->where(function($q) use ($searchTerm) {
+                $q->where('users.name', 'LIKE', '%' . $searchTerm . '%')
+                    ->orWhere('specialties.name', 'LIKE', '%' . $searchTerm . '%')
+                    ->orWhere('keywords.word', 'LIKE', '%' . $searchTerm . '%');
+            });
+        } else {
+            $query->addSelect(DB::raw('0 as search_rank'));
+        }
+
+        $query->where('users.role', 'doctor')
+            ->whereNull('users.deleted_at')
+            ->groupBy(
+                'users.id', 'users.name', 'users.gender', 'specialties.name',
+                'doctor_info.visit_price', 'doctor_info.experience', 'doctor_info.rating',
+                'doctor_info.image_url', 'doctor_info.is_vip', 'doctor_info.lat',
+                'doctor_info.lng', 'doctor_info.bio', 'doctor_info.address',
+                'doctor_info.phone', 'doctor_info.visit_count', 'doctor_info.appointments',
+                'doctor_info.medical_code', 'doctor_info.rank', 'doctor_info.reviews',
+                'doctor_info.recommendation', 'doctor_info.city', 'doctor_info.province'
+            );
+
+        if (!empty($searchTerm)) {
+            $query->orderBy('search_rank', 'desc');
+        }
+
+        $query->orderBy('doctor_info.is_vip', 'desc')
             ->orderBy('doctor_info.rating', 'desc');
 
         $doctors = $query->get();
 
-        // اضافه کردن تگ‌ها
         $doctorIds = $doctors->pluck('id');
         $tags = DB::table('doctor_tags')
             ->join('tags', 'doctor_tags.tag_id', '=', 'tags.id')
@@ -814,9 +850,7 @@ class DiagnosisController extends Controller
             ->groupBy('user_id');
 
         $doctors = $doctors->map(function($doctor) use ($tags) {
-            $doctor->tags = isset($tags[$doctor->id])
-                ? $tags[$doctor->id]->pluck('name')->toArray()
-                : [];
+            $doctor->tags = isset($tags[$doctor->id]) ? $tags[$doctor->id]->pluck('name')->toArray() : [];
             return $doctor;
         });
 
@@ -825,6 +859,7 @@ class DiagnosisController extends Controller
             'data' => $doctors
         ]);
     }
+
     public function getDoctorWithScheduleV1(Request $request, $doctorId)
     {
         // اعتبارسنجی ورودی

@@ -8,6 +8,125 @@ use Illuminate\Support\Facades\DB;
 
 class UserOrderController extends Controller
 {
+    public function getUserOrders(Request $request)
+    {
+        $userId = $request->user()->id;
+
+        // ۱. دریافت سفارشات کاربر
+        $orders = DB::table('doctor.orders as o')
+            ->join('doctor.payment_reasons as pr', 'o.reason_id', '=', 'pr.id')
+            ->where('o.user_id', $userId)
+            ->whereNull('o.deleted_at')
+            ->select(
+                'o.id',
+                'o.amount',
+                'o.status',
+                'o.paid_at',
+                'o.created_at',
+                'o.reason_ref',
+                'pr.slug as reason_slug',
+                'pr.label as reason_label',
+                'pr.target_table'
+            )
+            ->orderBy('o.id', 'desc')
+            ->get();
+
+        if ($orders->isEmpty()) {
+            return response()->json(['success' => true, 'data' => []]);
+        }
+
+        // --- بخش جدید: دریافت تمامی پرداخت‌های مرتبط با این سفارشات (جلوگیری از N+1) ---
+        $orderIds = $orders->pluck('id')->toArray();
+        $payments = DB::table('doctor.payments')
+            ->whereIn('order_id', $orderIds)
+            ->whereNull('deleted_at')
+            ->orderBy('id', 'desc')
+            ->get();
+
+        $groupedPayments = [];
+        foreach ($payments as $payment) {
+            $groupedPayments[$payment->order_id][] = $payment;
+        }
+        // ------------------------------------------------------------------------
+
+        // نقشه ارتباط جداول درخواست با جداول اطلاعات مراکز درمانی
+        $providerMap = [
+            'appointment_slots'            => ['fk' => 'doctor_id',         'info_table' => 'doctor_info'],
+            'users_labs_requests'          => ['fk' => 'lab_id',            'info_table' => 'labs_info'],
+            'users_pharmacy_requests'      => ['fk' => 'pharmacy_id',       'info_table' => 'pharmacies_info'],
+            'user_medical_center_requests' => ['fk' => 'medical_center_id', 'info_table' => 'medical_centers_info'],
+        ];
+
+        $targetRefs = [];
+        foreach ($orders as $order) {
+            if ($order->target_table && $order->reason_ref) {
+                $targetRefs[$order->target_table][] = $order->reason_ref;
+            }
+        }
+
+        // ۲. دریافت اطلاعات درخواست‌ها و جمع‌آوری شناسه‌های مراکز درمانی
+        $requestDetails = [];
+        $providerIdsToFetch = [];
+
+        foreach ($targetRefs as $table => $refs) {
+            $uniqueRefs = array_unique($refs);
+            $records = DB::table("doctor.{$table}")->whereIn('id', $uniqueRefs)->get();
+
+            foreach ($records as $record) {
+                $requestDetails[$table][$record->id] = $record;
+
+                if (isset($providerMap[$table])) {
+                    $fk = $providerMap[$table]['fk'];
+                    $infoTable = $providerMap[$table]['info_table'];
+
+                    if (isset($record->$fk) && $record->$fk) {
+                        $providerIdsToFetch[$infoTable][] = $record->$fk;
+                    }
+                }
+            }
+        }
+
+        // ۳. دریافت اطلاعات مراکز درمانی به صورت یکجا
+        $providerDetails = [];
+        foreach ($providerIdsToFetch as $infoTable => $ids) {
+            $uniqueIds = array_unique($ids);
+            $providers = DB::table("doctor.{$infoTable}")->whereIn('user_id', $uniqueIds)->get();
+
+            foreach ($providers as $provider) {
+                $providerDetails[$infoTable][$provider->user_id] = $provider;
+            }
+        }
+
+        // ۴. اتصال اطلاعات درخواست، مرکز درمانی و پرداخت‌ها به هر سفارش
+        $formattedOrders = $orders->map(function ($order) use ($requestDetails, $providerMap, $providerDetails, $groupedPayments) {
+            $order->request_info = null;
+            $order->provider_info = null;
+            $order->payments = $groupedPayments[$order->id] ?? []; // اضافه شدن لیست پرداخت‌ها
+
+            if ($order->target_table && $order->reason_ref) {
+                $reqRecord = $requestDetails[$order->target_table][$order->reason_ref] ?? null;
+                $order->request_info = $reqRecord;
+
+                if ($reqRecord && isset($providerMap[$order->target_table])) {
+                    $fk = $providerMap[$order->target_table]['fk'];
+                    $infoTable = $providerMap[$order->target_table]['info_table'];
+
+                    if (isset($reqRecord->$fk)) {
+                        $order->provider_info = $providerDetails[$infoTable][$reqRecord->$fk] ?? null;
+                    }
+                }
+            }
+
+            unset($order->target_table);
+
+            return $order;
+        });
+
+        return response()->json([
+            'success' => true,
+            'data'    => $formattedOrders
+        ]);
+    }
     public function index(Request $request)
     {
         $user = $request->user();
