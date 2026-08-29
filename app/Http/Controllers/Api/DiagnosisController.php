@@ -512,7 +512,9 @@ class DiagnosisController extends Controller
                     'message' => 'دکتر مورد نظر یافت نشد'
                 ], 404);
             }
-
+            if (isset($doctor->image_url)) {
+                $doctor->image_url = asset('storage/' . $doctor->image_url);
+            }
             // محاسبه بازه زمانی
             $startDate = $request->input('start_date', now()->format('Y-m-d'));
 
@@ -769,7 +771,7 @@ class DiagnosisController extends Controller
     }
 
     // ۲. آپدیت متد لیست پزشکان
-    public function getDoctorsList(Request $request)
+    public function getDoctorsListV0(Request $request)
     {
         $tomorrow = now()->addDay()->format('Y-m-d');
         $searchTerm = $request->input('query');
@@ -777,6 +779,13 @@ class DiagnosisController extends Controller
         $query = DB::table('users')
             ->join('doctor_info', 'users.id', '=', 'doctor_info.user_id')
             ->join('specialties', 'doctor_info.specialty_id', '=', 'specialties.id')
+            ->leftJoin('doctor_subscriptions as ds', function ($join) {
+                $join->on('users.id', '=', 'ds.doctor_id')
+                    ->where('ds.status', 1)
+                    ->whereNotNull('ds.expires_at')
+                    ->where('ds.expires_at', '>', now());
+            })
+            ->leftJoin('doctor_plans as dp', 'ds.plan_id', '=', 'dp.id')
             ->leftJoin('appointment_slots', function($join) use ($tomorrow) {
                 $join->on('users.id', '=', 'appointment_slots.doctor_id')
                     ->where('appointment_slots.status', 'available')
@@ -793,6 +802,8 @@ class DiagnosisController extends Controller
                 'doctor_info.appointments', 'doctor_info.medical_code as medicalCode',
                 'doctor_info.rank', 'doctor_info.reviews', 'doctor_info.recommendation',
                 DB::raw('COUNT(appointment_slots.id) as availability'),
+                // اگر پلن فعال نداشته باشد، صفر برمی‌گردد
+                DB::raw('COALESCE(MAX(dp.tier_level), 0) as plan_rank'),
                 'doctor_info.city', 'doctor_info.province'
             );
 
@@ -809,7 +820,7 @@ class DiagnosisController extends Controller
                 });
 
             // اصلاح جایگاه COALESCE و MAX
-            $query->addSelect(DB::raw('COALESCE(MAX(dks.tier_level), 0) as search_rank'));
+          //  $query->addSelect(DB::raw('COALESCE(MAX(dks.tier_level), 0) as search_rank'));
 
             $query->where(function($q) use ($searchTerm) {
                 $q->where('users.name', 'LIKE', '%' . $searchTerm . '%')
@@ -817,7 +828,7 @@ class DiagnosisController extends Controller
                     ->orWhere('keywords.word', 'LIKE', '%' . $searchTerm . '%');
             });
         } else {
-            $query->addSelect(DB::raw('0 as search_rank'));
+          //  $query->addSelect(DB::raw('0 as search_rank'));
         }
 
         $query->where('users.role', 'doctor')
@@ -833,7 +844,8 @@ class DiagnosisController extends Controller
             );
 
         if (!empty($searchTerm)) {
-            $query->orderBy('search_rank', 'desc');
+            $query->orderBy('plan_rank', 'desc');
+          //  $query->orderBy('search_rank', 'desc');
         }
 
         $query->orderBy('doctor_info.is_vip', 'desc')
@@ -850,6 +862,7 @@ class DiagnosisController extends Controller
             ->groupBy('user_id');
 
         $doctors = $doctors->map(function($doctor) use ($tags) {
+            $doctor->image = asset('storage/' . $doctor->image);
             $doctor->tags = isset($tags[$doctor->id]) ? $tags[$doctor->id]->pluck('name')->toArray() : [];
             return $doctor;
         });
@@ -859,6 +872,277 @@ class DiagnosisController extends Controller
             'data' => $doctors
         ]);
     }
+
+    public function getDoctorsList(Request $request)
+    {
+        $now = now();
+        $tomorrow = $now->copy()->addDay()->format('Y-m-d');
+        $searchTerm = trim((string) $request->input('query', ''));
+        $searcherIp = request()->ip();
+        $userAgent = request()->userAgent(); // دریافت User Agent کاربر جهت ثبت در لاگ امنیتی
+        $searcherId = auth()->check() ? auth()->id() : null;
+
+        /*
+         * مرحله اول: شناسایی کلمات کلیدی و دریافت "قیمت پایه نمایش" آن‌ها
+         */
+        $detectedKeywords = collect();
+        $keywordPrices = []; // آرایه‌ای برای نگهداری قیمت هر کلمه [id => price]
+        $keywordWords = [];
+        if ($searchTerm !== '') {
+            $detectedKeywords = DB::table('keywords')
+                ->where('word', '=', $searchTerm)
+                ->select('id', 'word', 'base_impression_tariff') // قیمت پایه استخراج می‌شود
+                ->get();
+
+            // ساخت یک آرایه کلید-مقدار برای دسترسی سریع به قیمت کلمات در زمان ثبت لاگ و کسر کیف پول
+            $keywordPrices = $detectedKeywords->pluck('base_impression_tariff', 'id')->toArray();
+            $keywordWords = $detectedKeywords->pluck('word', 'id')->toArray();
+        }
+
+        $detectedKeywordIds = $detectedKeywords->pluck('id')->all();
+
+        $query = DB::table('users')
+            ->join('doctor_info', 'users.id', '=', 'doctor_info.user_id')
+            ->join('specialties', 'doctor_info.specialty_id', '=', 'specialties.id')
+
+            // --- جدید: اتصال به جدول کیف پول برای دریافت موجودی در لحظه ---
+            ->leftJoin('wallets', 'users.id', '=', 'wallets.user_id')
+
+            ->leftJoin('doctor_subscriptions as ds', function ($join) use ($now) {
+                $join->on('users.id', '=', 'ds.doctor_id')
+                    ->where('ds.status', 1)
+                    ->whereNotNull('ds.expires_at')
+                    ->where('ds.expires_at', '>', $now);
+            })
+            ->leftJoin('doctor_plans as dp', 'ds.plan_id', '=', 'dp.id')
+            ->leftJoin('appointment_slots', function ($join) use ($tomorrow) {
+                $join->on('users.id', '=', 'appointment_slots.doctor_id')
+                    ->where('appointment_slots.status', 'available')
+                    ->where('appointment_slots.slot_date', $tomorrow);
+            })
+            ->select(
+                'users.id',
+                'users.name as firstName',
+                'users.gender',
+                'specialties.name as specialty',
+                'doctor_info.visit_price',
+                'doctor_info.experience',
+                'doctor_info.rating',
+                'doctor_info.image_url as image',
+                'doctor_info.is_vip',
+                'doctor_info.lat',
+                'doctor_info.lng',
+                'doctor_info.bio',
+                'doctor_info.address',
+                'doctor_info.phone',
+                'doctor_info.visit_count',
+                'doctor_info.appointments',
+                'doctor_info.medical_code as medicalCode',
+                'doctor_info.rank',
+                'doctor_info.reviews',
+                'doctor_info.recommendation',
+                'doctor_info.city',
+                'doctor_info.province',
+                DB::raw('COUNT(DISTINCT appointment_slots.id) as availability'),
+                // --- جدید: دریافت شناسه و موجودی کیف پول پزشک ---
+                'wallets.id as wallet_id',
+                'wallets.balance as wallet_balance'
+            );
+
+        if (!empty($detectedKeywordIds)) {
+            $query
+                ->leftJoin('doctor_keyword_subscriptions as dks', function ($join) use ($detectedKeywordIds, $now) {
+                    $join->on('users.id', '=', 'dks.doctor_id')
+                        ->where('dks.is_active', 1)
+                        ->whereNotNull('dks.expires_at')
+                        ->where('dks.expires_at', '>', $now)
+                        ->whereIn('dks.keyword_id', $detectedKeywordIds);
+                })
+                ->leftJoin('keywords as matched_keywords', 'dks.keyword_id', '=', 'matched_keywords.id')
+                ->addSelect(
+                // استخراج Tier Level برای رتبه‌بندی
+                    DB::raw("
+                    COALESCE(MAX(CASE WHEN dks.keyword_id IS NOT NULL AND dp.tier_level IS NOT NULL THEN dp.tier_level ELSE 0 END), 0) AS search_rank
+                "),
+                    // استخراج Multiplier (ضریب) برای محاسبه هزینه
+                    DB::raw("
+                    COALESCE(MAX(CASE WHEN dks.keyword_id IS NOT NULL AND dp.multiplier IS NOT NULL THEN dp.multiplier ELSE 1 END), 1) AS plan_multiplier
+                "),
+                    // استخراج نام کلمات
+                    DB::raw("
+                    GROUP_CONCAT(DISTINCT matched_keywords.word ORDER BY matched_keywords.word SEPARATOR '|||') AS matched_keywords_raw
+                "),
+                    // استخراج ID کلمات (برای بررسی در لاگ و کیف پول ضروری است)
+                    DB::raw("
+                    GROUP_CONCAT(DISTINCT matched_keywords.id SEPARATOR ',') AS matched_keyword_ids
+                ")
+                );
+        } else {
+            $query->addSelect(
+                DB::raw('0 AS search_rank'),
+                DB::raw('1 AS plan_multiplier'),
+                DB::raw("NULL AS matched_keywords_raw"),
+                DB::raw("NULL AS matched_keyword_ids")
+            );
+        }
+
+        if ($searchTerm !== '') {
+            $query->where(function ($q) use ($searchTerm, $detectedKeywordIds) {
+                $q->where('users.name', 'LIKE', '%' . $searchTerm . '%')
+                    ->orWhere('specialties.name', 'LIKE', '%' . $searchTerm . '%');
+
+                if (!empty($detectedKeywordIds)) {
+                    $q->orWhereIn('dks.keyword_id', $detectedKeywordIds);
+                }
+            });
+        }
+
+        $query
+            ->where('users.role', 'doctor')
+            ->whereNull('users.deleted_at')
+            ->groupBy(
+                'users.id', 'users.name', 'users.gender', 'specialties.name',
+                'doctor_info.visit_price', 'doctor_info.experience', 'doctor_info.rating',
+                'doctor_info.image_url', 'doctor_info.is_vip', 'doctor_info.lat',
+                'doctor_info.lng', 'doctor_info.bio', 'doctor_info.address',
+                'doctor_info.phone', 'doctor_info.visit_count', 'doctor_info.appointments',
+                'doctor_info.medical_code', 'doctor_info.rank', 'doctor_info.reviews',
+                'doctor_info.recommendation', 'doctor_info.city', 'doctor_info.province',
+                // --- اضافه شدن فیلدهای کیف پول به GroupBy ---
+                'wallets.id', 'wallets.balance'
+            );
+
+        if (!empty($detectedKeywordIds)) {
+            $query->orderByDesc('search_rank');
+        }
+
+        $query
+            ->orderByDesc('doctor_info.is_vip')
+            ->orderByDesc('doctor_info.rating');
+
+        $doctors = $query->get();
+
+        /*
+         * -------------------------------------------------------------
+         * محاسبه هزینه، کسر از کیف پول و ثبت لاگ (Real-time Billing)
+         * با استفاده از Database Transaction برای حفظ یکپارچگی مالی
+         * -------------------------------------------------------------
+         */
+        DB::transaction(function () use ($doctors, $keywordPrices,$keywordWords, $searcherIp, $userAgent, $searcherId) {
+            $currentTime = now();
+
+            foreach ($doctors as $doctor) {
+                if ($doctor->search_rank > 0 && !empty($doctor->matched_keyword_ids)) {
+                    $keywordIds = array_unique(explode(',', $doctor->matched_keyword_ids));
+
+                    $multiplier = (float) ($doctor->plan_multiplier ?? 1);
+                    $walletId = $doctor->wallet_id;
+                    $currentBalance = (float) ($doctor->wallet_balance ?? 0); // موجودی لحظه‌ایِ لود شده
+
+                    foreach ($keywordIds as $kId) {
+                        $keywordWord = $keywordWords[$kId] ?? 'نامشخص'; // <-- اضافه شود
+                        $basePrice = (float) ($keywordPrices[$kId] ?? 0);
+                        $cost = $basePrice * $multiplier;
+
+                        if ($cost > 0) {
+                            // بررسی: آیا پزشک کیف پول دارد و آیا موجودی برای این کلمه کافی است؟
+                            if ($walletId && $currentBalance >= $cost) {
+
+                                // 1. کسر مبلغ از متغیر موجودی لوکال (برای کلمات بعدی همین پزشک در این حلقه)
+                                $currentBalance -= $cost;
+
+                                // 2. درج در لاگ نمایش و دریافت ID رکورد (insertGetId)
+                                $logId = DB::table('keyword_consumption_logs')->insertGetId([
+                                    'doctor_id'   => $doctor->id,
+                                    'keyword_id'  => $kId,
+                                    'ip_address'  => $searcherIp,
+                                    'user_id'     => $searcherId,
+                                    'action_type' => 'impression',
+                                    'cost'        => $cost,
+                                    'created_at'  => $currentTime,
+                                ]);
+
+                                // 3. درج در جدول تراکنش‌های کیف پول
+                                DB::table('wallet_transactions')->insert([
+                                    'wallet_id'     => $walletId,
+                                    'type'          => 2, // 2 = Debit (برداشت)
+                                    'amount'        => $cost,
+                                    'balance_after' => $currentBalance,
+                                    'subject_type'  => 7, // 7 = معرف نوع عملیات (keyword-impression)
+                                    'subject_id'    => $logId, // لینک کردن تراکنش مالی به لاگ سیستم
+                                    'description'   => "کسر هزینه نمایش برای کلمه کلیدی {$keywordWord} (شناسه: {$kId})",                                    'created_at'    => $currentTime,
+                                    'ip_address'    => $searcherIp,
+                                    'user_agent'    => $userAgent,
+                                ]);
+
+                                // 4. آپدیت موجودی کیف پول پزشک در دیتابیس
+                                DB::table('wallets')
+                                    ->where('id', $walletId)
+                                    ->update([
+                                        'balance'    => $currentBalance,
+                                        'updated_at' => $currentTime
+                                    ]);
+
+                            } else {
+                                // 5. موجودی کافی نیست (یا کاربر کیف پول ندارد) -> غیرفعال‌سازی هوشمند اشتراک
+                                DB::table('doctor_keyword_subscriptions')
+                                    ->where('doctor_id', $doctor->id)
+                                    ->where('keyword_id', $kId)
+                                    ->update([
+                                        'is_active'  => 0,
+                                        'updated_at' => $currentTime
+                                    ]);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        /* ------------------------------------------------------------- */
+
+        // دریافت تگ‌ها برای کش کردن و Map نهایی
+        $doctorIds = $doctors->pluck('id');
+
+        $tags = DB::table('doctor_tags')
+            ->join('tags', 'doctor_tags.tag_id', '=', 'tags.id')
+            ->whereIn('doctor_tags.user_id', $doctorIds)
+            ->select('doctor_tags.user_id', 'tags.name')
+            ->get()
+            ->groupBy('user_id');
+
+        $doctors = $doctors->map(function ($doctor) use ($tags) {
+            $doctor->image = $doctor->image ? asset('storage/' . ltrim($doctor->image, '/')) : null;
+            $doctor->tags = isset($tags[$doctor->id]) ? $tags[$doctor->id]->pluck('name')->values()->toArray() : [];
+            $doctor->matched_keywords = !empty($doctor->matched_keywords_raw) ? explode('|||', $doctor->matched_keywords_raw) : [];
+
+            // پاک‌سازی فیلدهای اضافه و حساس (مالی) از خروجی نهایی API
+            unset($doctor->matched_keywords_raw);
+            unset($doctor->matched_keyword_ids);
+            unset($doctor->plan_multiplier);
+            unset($doctor->wallet_id);
+            unset($doctor->wallet_balance);
+
+            return $doctor;
+        });
+
+        // مخفی‌سازی قیمت کلمات از دید کاربر در کلاینت (افزایش امنیت)
+        $cleanDetectedKeywords = $detectedKeywords->map(function($kw) {
+            return [
+                'id' => $kw->id,
+                'word' => $kw->word
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'detected_keywords' => $cleanDetectedKeywords,
+            'query' => $searchTerm,
+            'data' => $doctors,
+        ]);
+    }
+
+
+
 
     public function getDoctorWithScheduleV1(Request $request, $doctorId)
     {
@@ -917,7 +1201,9 @@ class DiagnosisController extends Controller
                     'message' => 'دکتر مورد نظر یافت نشد'
                 ], 404);
             }
-
+            if (!empty($doctor->image_url)) {
+                $doctor->image_url = asset('storage/' . $doctor->image_url);
+            }
             // دریافت تگ‌های دکتر
             $tags = DB::table('doctor_tags')
                 ->join('tags', 'doctor_tags.tag_id', '=', 'tags.id')

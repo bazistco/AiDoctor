@@ -325,6 +325,7 @@ Route::group(['prefix' => 'doctor'], function () {
 
     Route::middleware(['auth:sanctum', 'role:doctor'])->group(function () {
         Route::get('/dashboard', [\App\Http\Controllers\Api\Doctor\DoctorDashboardController::class, 'index']);
+        Route::put('/profile', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'updateProfile']);
 
         Route::get('/schedule/calendar-summary', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'getCalendarSummary']);
         Route::get('/schedule/slots', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'getSlotsByDate']);
@@ -338,6 +339,31 @@ Route::group(['prefix' => 'doctor'], function () {
         Route::get('/profile', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'getProfile']);
         Route::get('/my-rooms', [\App\Http\Controllers\Api\Doctor\ChatController::class, 'getMyRooms']);
         Route::get('/chat/{roomId}/messages', [\App\Http\Controllers\Api\Doctor\ChatController::class, 'getRoomMessages']);
+        Route::get('/plans', [\App\Http\Controllers\Api\Doctor\DoctorPanelSubscriptionController::class, 'getPlans']);
+        Route::get('/my-plan', [\App\Http\Controllers\Api\Doctor\DoctorPanelSubscriptionController::class, 'getMyPlan']);
+        Route::post('/plans/subscribe', [\App\Http\Controllers\Api\Doctor\DoctorPanelSubscriptionController::class, 'subscribeToPlan']);
+        Route::prefix('keywords')->group(function () {
+            Route::delete('/{id}', [\App\Http\Controllers\Api\Doctor\DoctorPanelKeywordController::class, 'deleteKeyword']);
+
+            // لیست کلمات قابل خرید (با قابلیت جستجو)
+            Route::get('/available', [\App\Http\Controllers\Api\Doctor\DoctorPanelKeywordController::class, 'getAvailableKeywords']);
+
+            // لیست کمپین‌های فعال/غیرفعال پزشک
+            Route::get('/mine', [\App\Http\Controllers\Api\Doctor\DoctorPanelKeywordController::class, 'getMyKeywords']);
+
+            // خرید/اشتراک در کلمه کلیدی جدید (محافظت شده با محدودکننده درخواست)
+            Route::post('/subscribe', [\App\Http\Controllers\Api\Doctor\DoctorPanelKeywordController::class, 'subscribeToKeyword'])
+                ->middleware('throttle:10,1');
+
+            // تغییر وضعیت کمپین (فعال/متوقف کردن)
+            Route::patch('/{id}/toggle-status', [\App\Http\Controllers\Api\Doctor\DoctorPanelKeywordController::class, 'toggleKeywordStatus']);
+
+            // گزارش ریز تراکنش‌ها و کلیک‌ها
+            Route::get('/logs', [\App\Http\Controllers\Api\Doctor\DoctorPanelKeywordController::class, 'getConsumptionLogs']);
+
+            // دیتای نمودار ۳۰ روزه
+            Route::get('/chart', [\App\Http\Controllers\Api\Doctor\DoctorPanelKeywordController::class, 'getDailyConsumptionChart']);
+        });
     });
 
 });

@@ -6,7 +6,8 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 class UserController extends Controller
 {
     /**
@@ -64,6 +65,35 @@ class UserController extends Controller
             );
 
             DB::commit();
+            // ==========================================
+            // 🔸 ارسال پیام خوش‌آمدگویی در Novu
+            // ==========================================
+            $dbUser = DB::table('users')->where('id', $userId)->first(['novu_subscriber_id']);
+
+            if ($dbUser && !empty($dbUser->novu_subscriber_id)) {
+                try {
+                    $novuUrl = 'http://185.222.163.113:3000/v1' . '/events/trigger';
+                    $novuApiKey = '9bf460e9cafb98ca32e7da42e36a5217';
+
+                    Http::withHeaders([
+                        'Authorization' => 'ApiKey ' . $novuApiKey,
+                        'Content-Type' => 'application/json',
+                    ])->post($novuUrl, [
+                        'name' => 'welcome-msg',
+                        'to' => [
+                            'subscriberId' => $dbUser->novu_subscriber_id
+                        ],
+                        'payload' => [
+                            'title' => 'به مدیران خوش آمدید',
+                            'msg'   => "کاربر گرامی {$fullName} عزیز، اطلاعات پروفایل شما با موفقیت تکمیل شد.",
+                            'link'  => 'http://mediraai.com' // لینک دلخواه برای هدایت کاربر
+                        ]
+                    ]);
+                } catch (\Exception $e) {
+                    // ثبت در لاگ تا اگر Novu قطع بود، کاربر ارور پروفایل نبیند
+                    Log::error('Novu Trigger Error (welcome-msg): ' . $e->getMessage());
+                }
+            }
 
             return response()->json([
                 'success' => true,
@@ -96,6 +126,7 @@ class UserController extends Controller
                     'users.phone',
                     'users.gender',
                     'users.avatar',
+                    'users.novu_subscriber_id',
                     'users.created_at',
                     'user_plans.plan_type',
                     'user_plans.start_date',
@@ -179,6 +210,8 @@ class UserController extends Controller
                         'phone' => $user->phone,
                         'gender' => $user->gender,
                         'avatar' => $user->avatar,
+                        'novu_subscriber_id' => $user->novu_subscriber_id,
+                        'is_verify' => $isVerify,
                         'created_at' => $user->created_at,
                         'height' => $user->height,
                         'weight' => $user->weight,
