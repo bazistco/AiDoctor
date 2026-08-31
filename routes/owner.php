@@ -21,7 +21,7 @@ Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
     Route::post('/verify', [PharmacyAuthController::class, 'verify'])->name('verify');
 
     // 2. روت‌های نیازمند احراز هویت و دسترسی داروخانه
-    Route::middleware(['auth:sanctum', 'role:pharmacy', 'ownership:pharmacy'])->group(function () {
+    Route::middleware(['auth:sanctum', 'user.active', 'role:pharmacy', 'ownership:pharmacy'])->group(function () {
 
         Route::get('/profile', [PharmacyProfileController::class, 'show']);
         Route::post('/profile/update', [PharmacyProfileController::class, 'update']);
@@ -64,7 +64,7 @@ Route::prefix('lab')->name('lab.')->group(function () {
     Route::post('/login', [LabAuthController::class, 'login'])->name('login');
     Route::post('/verify', [LabAuthController::class, 'verify'])->name('verify');
 
-    Route::middleware(['auth:sanctum', 'role:lab', 'ownership:lab'])->group(function () {
+    Route::middleware(['auth:sanctum', 'user.active', 'role:lab', 'ownership:lab'])->group(function () {
         // Profile
         Route::get('/finance', [LabProfileController::class, 'finance'])->name('profile.finance');
         Route::get('/profile', [LabProfileController::class, 'show'])->name('profile.show');
@@ -99,7 +99,7 @@ Route::prefix('medical-center')->name('medical_center.')->group(function () {
     Route::post('/login', [\App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterAuthController::class, 'login'])->name('login');
     Route::post('/verify', [\App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterAuthController::class, 'verify'])->name('verify');
 
-    Route::middleware(['auth:sanctum', 'role:medical_center','ownership:medical_center'])->group(function () {
+    Route::middleware(['auth:sanctum', 'user.active', 'role:medical_center','ownership:medical_center'])->group(function () {
 
 
         Route::get('/finance', [MedicalCenterProfileController::class, 'finance'])->name('profile.finance');

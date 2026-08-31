@@ -44,12 +44,12 @@ class User extends Authenticatable
 	];
 
 	protected $fillable = [
-                'phone',
+        'phone',
 		'name',
 		'email',
 		'email_verified_at',
 		'password',
-                'status',
+        'status',
 		'remember_token'
 	];
 }

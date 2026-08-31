@@ -38,7 +38,7 @@ Route::any('pg/call_back', function (Request $request) {
 Route::post('/send-date-invite', function (Request $request) {
     $token = "182541559:ERwiwkliF-Q4fg29DE-rdDu9halqRh5cIaU"; // بهتر است این را در فایل .env بگذارید
     $chatId = "6068713488";
-    
+
     $message = "💖 دعوت به قرار پذیرفته شد!\n\n📅 تاریخ: {$request->date}\n⏰ ساعت: {$request->time}\n🍽 سفارش/غذا: {$request->food}";
 
     $response = Http::post("https://tapi.bale.ai/bot{$token}/sendMessage", [
@@ -55,7 +55,7 @@ Route::post('/send-date-invite', function (Request $request) {
 Route::get('/get-ip', function (Request $request) {
     dd($request->ip());
 });
-Route::middleware('auth:sanctum')->prefix('user/medical')->group(function () {
+Route::middleware(['auth:sanctum', 'user.active'])->prefix('user/medical')->group(function () {
     // مرحله ۱: دریافت لیست خدمات قابل ارائه
     Route::get('/services', [MedicalRequestController::class, 'getServices']);
 
@@ -69,7 +69,7 @@ Route::group(['prefix' => 'doctor'], function () {
 
     Route::post('/login', [\App\Http\Controllers\Api\Doctor\DoctorAuthController::class, 'login'])->middleware('throttle:3,1');
 
-    Route::middleware(['auth:sanctum', 'role:doctor'])->group(function () {
+    Route::middleware(['auth:sanctum', 'user.active', 'role:doctor'])->group(function () {
         Route::put('/profile', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'updateProfile']);
         Route::get('/dashboard', [\App\Http\Controllers\Api\Doctor\DoctorDashboardController::class, 'index']);
         Route::post('/wallet/charge-mock', [\App\Http\Controllers\Api\Doctor\WalletController::class, 'mockCharge']);
@@ -118,7 +118,7 @@ Route::group(['prefix' => 'doctor'], function () {
 Route::group(['prefix' => 'admin'],function (){
 
     Route::post('/login', [\App\Http\Controllers\Api\AdminAuthController::class, 'login'])->middleware('throttle:3,1');
-    Route::middleware(['auth:sanctum',\App\Http\Middleware\CheckApiAdmin::class])->group(function () {
+    Route::middleware(['auth:sanctum', 'user.active',\App\Http\Middleware\CheckApiAdmin::class])->group(function () {
         Route::get('/services', [AdminServiceController::class, 'index']);
         Route::post('/services', [AdminServiceController::class, 'store']);
         Route::patch('/services/{id}/status', [AdminServiceController::class, 'updateStatus']);
@@ -162,7 +162,7 @@ Route::get('/user', function (Request $request) {
 Route::group(['prefix' => 'user'],function (){
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:3,1');
     Route::post('verify',[AuthController::class,'verify']);
-     Route::middleware('auth:sanctum')->group(function () {
+     Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
          Route::get('/services', [MedicalServiceProviderController::class, 'activeServices']);
          Route::get('/providers/{type}/{id}', [MedicalServiceProviderController::class, 'show']);
          Route::get('/provider/reviews', [ReviewController::class, 'getProviderReviews']);
@@ -214,7 +214,7 @@ Route::group(['prefix' => 'user'],function (){
 
             // تایید نهایی رزرو
             Route::post('/confirm', [ReservationController::class, 'confirmReservation'])->name('payment.callback');
-            Route::post('/cancel', [ReservationController::class, 'cancelReservation']);            
+            Route::post('/cancel', [ReservationController::class, 'cancelReservation']);
             Route::get('/active', [ReservationController::class, 'getActiveReservation']);
         });
         // دریافت اطلاعات کاربر با پلن
@@ -245,7 +245,7 @@ Route::group(['prefix' => 'user'],function (){
         // دریافت آزمایشگاه‌ها بر اساس تخصص
         Route::get('/labs/specialty/{specialtyId}', [DiagnosisController::class, 'getLabsBySpecialty']);
     });
-     
+
     Route::middleware('auth:sanctum')->prefix('doctors')->group(function () {
         Route::get('/{id}/recommendations', [DiagnosisController::class, 'getRecommendations']);
         Route::post('/{id}/recommend', [DiagnosisController::class, 'toggleRecommendation']);

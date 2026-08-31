@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\CheckUserActive;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
@@ -43,6 +44,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'api.check.admin' => \App\Http\Middleware\CheckApiAdmin::class,
             'role'      => \App\Http\Middleware\CheckRole::class,
             'ownership' => \App\Http\Middleware\CheckOwnership::class,
+            'user.active' => CheckUserActive::class,
         ]);
         $middleware->redirectGuestsTo(function ($request) { // No type hint here, or use fully qualified
             if ($request->expectsJson() || $request->is('api/*') || $request->is('ai/*')) {
