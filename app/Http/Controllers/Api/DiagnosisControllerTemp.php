@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
-class DiagnosisController extends Controller
+class DiagnosisControllerTemp extends Controller
 {
     private string $ApiUrl = 'http://185.222.163.113:8000';
 
@@ -145,7 +145,7 @@ class DiagnosisController extends Controller
 
         if ($type == 0)
         {
-            $primarySpecialty = $diagnosisData['specialty']['primary'] ?? null; 
+            $primarySpecialty = $diagnosisData['specialty']['primary'] ?? null;
         }
         else{
             $primarySpecialty = $diagnosisData['diagnosis']['specialty']['primary'] ?? null;

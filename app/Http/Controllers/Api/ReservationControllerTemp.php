@@ -12,9 +12,9 @@ use App\Models\AppointmentSlot;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
 
-class ReservationController extends Controller
+class ReservationControllerTemp extends Controller
 {
-    
+
 public function getAppointments(Request $request)
 {
     // دریافت پارامترهای صفحه‌بندی از درخواست
