@@ -101,7 +101,8 @@ Route::prefix('medical-center')->name('medical_center.')->group(function () {
 
     Route::middleware(['auth:sanctum', 'user.active', 'role:medical_center','ownership:medical_center'])->group(function () {
 
-
+        Route::get('/dashboard', [MedicalCenterProfileController::class, 'dashboard']);
+        Route::post('/toggle-status', [MedicalCenterProfileController::class, 'toggleStatus']);
         Route::get('/finance', [MedicalCenterProfileController::class, 'finance'])->name('profile.finance');
         Route::get('/profile', [MedicalCenterProfileController::class, 'show'])->name('profile.show');
         Route::put('/profile', [MedicalCenterProfileController::class, 'update'])->name('profile.update');

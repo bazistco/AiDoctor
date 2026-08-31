@@ -120,9 +120,12 @@ class MedicalRequestController extends Controller
             $serviceIds = $request->input('service_ids');
 
             $centers = DB::table('medical_centers_info as mc')
+                ->join('users as u', 'mc.user_id', '=', 'u.id')
                 ->join('medical_center_services as mcs', 'mc.user_id', '=', 'mcs.medical_center_id')
                 ->whereIn('mcs.medical_service_id', $serviceIds)
                 ->where('mcs.status', 1)
+                ->where('u.status', 1)
+                ->where('mc.status', 1)
                 ->select(
                     'mc.user_id as id',
                     'mc.name',

@@ -92,4 +92,94 @@ class MedicalCenterProfileController extends Controller
 
         return $this->success(null, 'پروفایل مرکز درمانی بروزرسانی شد');
     }
+    public function dashboard(Request $request)
+    {
+        $userId = $request->user()->id;
+
+        // استخراج نام و وضعیت از جدول medical_centers_info
+        $center = DB::table('medical_centers_info')
+            ->where('user_id', $userId)
+            ->select('name', 'status')
+            ->first();
+
+        if (!$center) {
+            return response()->json([
+                'status'  => 404,
+                'message' => 'اطلاعات مرکز درمانی یافت نشد'
+            ], 404);
+        }
+
+        // چارت ۷ روز اخیر با مقادیر پیش‌فرض 0
+        $chartData = [];
+        for ($i = 6; $i >= 0; $i--) {
+            $date = Carbon::today()->subDays($i);
+            $chartData[] = [
+                'day'   => $date->locale('fa')->isoFormat('dddd'),
+                'date'  => $date->toDateString(),
+                'count' => 0,
+            ];
+        }
+
+        return response()->json([
+            'status' => 200,
+            'data'   => [
+                'profile' => [
+                    'name'        => $center->name ?? 'مرکز درمانی',
+                    'isAvailable' => (bool) ($center->status == 1),
+                    'status'      => (int) ($center->status ?? 0),
+                    'rating'      => 0,
+                ],
+                'stats' => [
+                    'newCount'           => 0,
+                    'todayVisits'        => 0,
+                    'completedThisMonth' => 0,
+                    'revenue'            => 0,
+                ],
+                'chartData'      => $chartData,
+                'recentRequests' => [],
+            ]
+        ], 200);
+    }
+
+    /**
+     * تاگل وضعیت (0 / 1) فیلد status در جدول medical_centers_info
+     */
+    public function toggleStatus(Request $request)
+    {
+        $userId = $request->user()->id;
+
+        $center = DB::table('medical_centers_info')
+            ->where('user_id', $userId)
+            ->first();
+
+        if (!$center) {
+            return response()->json([
+                'status'  => 404,
+                'message' => 'اطلاعات مرکز درمانی یافت نشد'
+            ], 404);
+        }
+
+        // اگر مقدار status مستقیماً ارسال شده بود اعمال شود، در غیر این صورت تاگل (معکوس) شود
+        if ($request->has('status')) {
+            $newStatus = filter_var($request->input('status'), FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+        } else {
+            $newStatus = ($center->status == 1) ? 0 : 1;
+        }
+
+        DB::table('medical_centers_info')
+            ->where('user_id', $userId)
+            ->update([
+                'status'     => $newStatus,
+                'updated_at' => now(),
+            ]);
+
+        return response()->json([
+            'status'  => 200,
+            'message' => $newStatus == 1 ? 'وضعیت با موفقیت فعال شد.' : 'وضعیت با موفقیت غیرفعال شد.',
+            'data'    => [
+                'status'      => $newStatus,
+                'isAvailable' => (bool) ($newStatus == 1),
+            ]
+        ], 200);
+    }
 }
