@@ -89,6 +89,7 @@ class AppointmentManagementController extends Controller
         $statusMap = [
             'available' => ['text' => 'available', 'color' => 'gray'],
             'booked' => ['text' => 'booked', 'color' => 'blue'],
+            'booked' => ['text' => 'booked', 'color' => 'blue'],
             'done' => ['text' => 'done', 'color' => 'green'],
             'canceled' => ['text' => 'canceled', 'color' => 'red'],
         ];

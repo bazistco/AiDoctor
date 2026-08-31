@@ -45,7 +45,6 @@ class AdminAuthController extends Controller
                 'message' => 'شما دسترسی ادمین ندارید.',
             ], 403);
         }
-
         // ۵) ساخت توکن Sanctum
         $token = $user->createToken('admin-token', ['admin'])->plainTextToken;
 

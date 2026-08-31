@@ -10,8 +10,8 @@ use App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterRequestController
 use App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterServiceController;
 use App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterStaffController;
 use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyAuthController;
-use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyProfileController;
 use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyRequestController;
+use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyProfileController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
@@ -56,8 +56,8 @@ Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
         });
 
     });
-
 });
+
 // Lab Owner Routes
 Route::prefix('lab')->name('lab.')->group(function () {
     // Authentication
@@ -71,7 +71,6 @@ Route::prefix('lab')->name('lab.')->group(function () {
         Route::put('/profile', [LabProfileController::class, 'update'])->name('profile.update');
         Route::put('/status', [LabProfileController::class, 'toggleStatus'])->name('profile.status');
 
-        // Tests
         Route::get('/tests/available', [LabRequestController::class, 'getAvailableTests']);
         Route::get('/test-packs', [LabTestController::class, 'getTestPacks'])->name('test-packs.index');
         Route::get('/tests', [LabTestController::class, 'index'])->name('tests.index');
@@ -94,8 +93,6 @@ Route::prefix('lab')->name('lab.')->group(function () {
 });
 
 
-// Pharmacy Owner Routes
-
 // Medical Center Owner Routes
 Route::prefix('medical-center')->name('medical_center.')->group(function () {
 
@@ -103,6 +100,7 @@ Route::prefix('medical-center')->name('medical_center.')->group(function () {
     Route::post('/verify', [\App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterAuthController::class, 'verify'])->name('verify');
 
     Route::middleware(['auth:sanctum', 'role:medical_center','ownership:medical_center'])->group(function () {
+
 
         Route::get('/finance', [MedicalCenterProfileController::class, 'finance'])->name('profile.finance');
         Route::get('/profile', [MedicalCenterProfileController::class, 'show'])->name('profile.show');
@@ -140,6 +138,7 @@ Route::prefix('medical-center')->name('medical_center.')->group(function () {
 
         // درخواست‌های پرسنل
         Route::get('/staff/{staffId}/requests', [MedicalCenterRequestController::class, 'staffAssignedRequests']);
+
 
     });
     // Profile

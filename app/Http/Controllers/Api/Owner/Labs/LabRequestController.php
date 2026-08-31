@@ -458,7 +458,7 @@ class LabRequestController extends Controller
         $updatedRows = DB::table('users_labs_requests')
             ->where('id', $id)
             ->update(['status' => 4]);
-
+        
         return response()->json([
             'message' => $message,
             'result_id' => $resultId,

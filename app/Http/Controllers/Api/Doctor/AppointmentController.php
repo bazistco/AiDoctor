@@ -273,8 +273,8 @@ class AppointmentController
             ->join('users as u', 'u.id', '=', 'ap.patient_id')
             ->select(
                 'ap.id',
-                'ap.patient_id',
                 'ap.ai_session_token',
+                'ap.patient_id',
                 'u.name as patient_name',
                 'u.phone as patient_phone',
                 'ap.slot_date',
@@ -347,7 +347,8 @@ class AppointmentController
         $aiDiagnoses = [];
 
         if ($uniqueAiSessions->isNotEmpty()) {
-            $latestSessionId = $appointment->ai_session_token;
+           // $latestSessionId = $uniqueAiSessions->first()->session_id;
+            $latestSessionId =  $appointment->ai_session_token;
 
             // فقط پیام‌های آخرین سشن را کامل می‌گیریم
             $latestSessionMessages = DB::table('ai_messages')
@@ -414,15 +415,6 @@ class AppointmentController
         $request->validate([
             'notes' => 'required|string|max:2000',
         ]);
-        $appointment=DB::table('appointment_slots')
-            ->where('id', $appointmentId)
-            ->where('doctor_id', $doctorId)->first();
-        if ($appointment->status =='done') {
-            return response()->json([
-                'status' => false,
-                'message' => 'نوبت در وضعیت اضافه کردن نتیجه نیست',
-            ], 403);
-        }
 
         $updated = DB::table('appointment_slots')
             ->where('id', $appointmentId)

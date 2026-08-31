@@ -62,11 +62,12 @@ class UserController extends Controller
 
         if ($request->filled('city'))
             $query->where('c.name', $request->city);
-       $query->orderBy('u.created_at', 'DESC');
+        $query->orderBy('u.created_at', 'DESC');
         $perPage = $request->get('per_page', 8);
         $page    = $request->get('page', 1);
         $total   = (clone $query)->count();
         $users   = $query->offset(($page - 1) * $perPage)->limit($perPage)->get();
+
         return response()->json([
             'success' => true,
             'data'    => [
@@ -106,15 +107,21 @@ class UserController extends Controller
 
     public function destroy(int $id)
     {
-        DB::table('users')->where('id', $id)->update(['deleted_at' => now()]);
+          DB::table('users')->where('id', $id)->update(['deleted_at' => now()]);
         return response()->json(['success' => true]);
     }
 
-    public function bulkDelete(Request $request)
+    public function bulkStatus(Request $request)
+    {
+        $request->validate(['ids' => 'required|array', 'ids.*' => 'integer', 'status' => 'required|in:0,1']);
+        DB::table('users')->whereIn('id', $request->ids)->update(['status' => $request->status, 'updated_at' => now()]);
+        return response()->json(['success' => true]);
+    }
+
+      public function bulkDelete(Request $request)
     {
         $request->validate(['ids' => 'required|array', 'ids.*' => 'integer']);
         DB::table('users')->whereIn('id', $request->ids)->update(['deleted_at' => now()]);
         return response()->json(['success' => true]);
     }
-
 }

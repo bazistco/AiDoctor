@@ -176,32 +176,36 @@ class FinancialService
                 description: "واریز از درگاه {$payment->gateway} - RefID: {$refId}"
             );
 
-            // 5.2: برداشت بابت سفارش از کیف پول کاربر
-            $this->recordWalletTransaction(
-                userId: $payment->user_id,
-                type: 2, // withdrawal
-                subjectId: 2, // order
-                subjectRef: $payment->order_id,
-                amount: $payment->amount,
-                description: "پرداخت سفارش #{$payment->order_id}"
-            );
 
-            // 5.3: واریز به کیف پول سرویس‌دهنده
-            if (!is_null($providerId)) {
+            if ($payment->reason_id != 2) {
+
+                // 5.2: برداشت بابت سفارش از کیف پول کاربر
                 $this->recordWalletTransaction(
-                    userId: $providerId,
-                    type: 1, // deposit
+                    userId: $payment->user_id,
+                    type: 2, // withdrawal
                     subjectId: 2, // order
                     subjectRef: $payment->order_id,
                     amount: $payment->amount,
-                    description: $providerId_payment_description ?? "دریافت مبلغ بابت سفارش #{$payment->order_id}"
+                    description: "پرداخت سفارش #{$payment->order_id}"
                 );
 
-                Log::info('Provider wallet credited', [
-                    'provider_id' => $providerId,
-                    'order_id' => $payment->order_id,
-                    'amount' => $payment->amount,
-                ]);
+                // 5.3: واریز به کیف پول سرویس‌دهنده
+                if (!is_null($providerId)) {
+                    $this->recordWalletTransaction(
+                        userId: $providerId,
+                        type: 1, // deposit
+                        subjectId: 2, // order
+                        subjectRef: $payment->order_id,
+                        amount: $payment->amount,
+                        description: $providerId_payment_description ?? "دریافت مبلغ بابت سفارش #{$payment->order_id}"
+                    );
+
+                    Log::info('Provider wallet credited', [
+                        'provider_id' => $providerId,
+                        'order_id' => $payment->order_id,
+                        'amount' => $payment->amount,
+                    ]);
+                }
             }
 
             Log::info('Wallet transactions recorded', [

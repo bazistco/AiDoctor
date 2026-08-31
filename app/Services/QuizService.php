@@ -586,77 +586,77 @@ class QuizService
                     ]
                 ]
             ],
-            'غدد' => [
-                'specialty' => 'غدد',
-                'title' => 'فرم تکمیلی غدد و متابولیسم',
-                'description' => 'لطفاً اطلاعات تکمیلی زیر را برای بررسی دقیق‌تر مشکل غدد درون‌ریز خود پاسخ دهید',
-                'questions' => [
-                    [
-                        'id' => 'weight_change',
-                        'question' => 'آیا اخیراً تغییر وزن غیرعادی داشته‌اید؟',
-                        'type' => 'select',
-                        'options' => ['افزایش وزن ناگهانی', 'کاهش وزن ناگهانی', 'بدون تغییر', 'نوسان وزن'],
-                        'required' => true,
-                        'placeholder' => null
-                    ],
-                    [
-                        'id' => 'fatigue',
-                        'question' => 'آیا خستگی و ضعف مفرط دارید؟',
-                        'type' => 'radio',
-                        'options' => ['بله - شدید', 'بله - متوسط', 'خفیف', 'خیر'],
-                        'required' => true,
-                        'placeholder' => null
-                    ],
-                    [
-                        'id' => 'thirst_urination',
-                        'question' => 'آیا تشنگی زیاد یا ادرار مکرر دارید؟',
-                        'type' => 'radio',
-                        'options' => ['بله - هر دو', 'فقط تشنگی زیاد', 'فقط ادرار مکرر', 'خیر'],
-                        'required' => true,
-                        'placeholder' => null
-                    ],
-                    [
-                        'id' => 'thyroid_symptoms',
-                        'question' => 'کدام علائم تیروئیدی را تجربه می‌کنید؟',
-                        'type' => 'select',
-                        'options' => ['تپش قلب و عصبی بودن', 'سردی مفرط و کندی', 'تورم گردن', 'هیچکدام'],
-                        'required' => true,
-                        'placeholder' => null
-                    ],
-                    [
-                        'id' => 'diabetes_history',
-                        'question' => 'آیا سابقه دیابت در خانواده دارید؟',
-                        'type' => 'radio',
-                        'options' => ['بله - والدین', 'بله - خواهر/برادر', 'بله - سایر بستگان', 'خیر'],
-                        'required' => true,
-                        'placeholder' => null
-                    ],
-                    [
-                        'id' => 'menstrual_issues',
-                        'question' => 'آیا اختلال قاعدگی یا مشکلات هورمونی جنسی دارید؟',
-                        'type' => 'radio',
-                        'options' => ['بله', 'خیر', 'مرد هستم'],
-                        'required' => true,
-                        'placeholder' => null
-                    ],
-                    [
-                        'id' => 'hair_skin_changes',
-                        'question' => 'آیا تغییرات پوستی یا ریزش مو دارید؟',
-                        'type' => 'radio',
-                        'options' => ['بله - ریزش مو', 'بله - خشکی پوست', 'بله - هر دو', 'خیر'],
-                        'required' => true,
-                        'placeholder' => null
-                    ],
-                    [
-                        'id' => 'blood_sugar_symptoms',
-                        'question' => 'آیا علائم کاهش یا افزایش قند خون دارید؟',
-                        'type' => 'select',
-                        'options' => ['لرزش و گرسنگی ناگهانی', 'خواب‌آلودگی بعد از غذا', 'هر دو', 'هیچکدام'],
-                        'required' => true,
-                        'placeholder' => null
-                    ]
-                ]
-            ],
+          'غدد' => [
+    'specialty' => 'غدد',
+    'title' => 'فرم تکمیلی غدد و متابولیسم',
+    'description' => 'لطفاً اطلاعات تکمیلی زیر را برای بررسی دقیق‌تر مشکل غدد درون‌ریز خود پاسخ دهید',
+    'questions' => [
+        [
+            'id' => 'weight_change',
+            'question' => 'آیا اخیراً تغییر وزن غیرعادی داشته‌اید؟',
+            'type' => 'select',
+            'options' => ['افزایش وزن ناگهانی', 'کاهش وزن ناگهانی', 'بدون تغییر', 'نوسان وزن'],
+            'required' => true,
+            'placeholder' => null
+        ],
+        [
+            'id' => 'fatigue',
+            'question' => 'آیا خستگی و ضعف مفرط دارید؟',
+            'type' => 'radio',
+            'options' => ['بله - شدید', 'بله - متوسط', 'خفیف', 'خیر'],
+            'required' => true,
+            'placeholder' => null
+        ],
+        [
+            'id' => 'thirst_urination',
+            'question' => 'آیا تشنگی زیاد یا ادرار مکرر دارید؟',
+            'type' => 'radio',
+            'options' => ['بله - هر دو', 'فقط تشنگی زیاد', 'فقط ادرار مکرر', 'خیر'],
+            'required' => true,
+            'placeholder' => null
+        ],
+        [
+            'id' => 'thyroid_symptoms',
+            'question' => 'کدام علائم تیروئیدی را تجربه می‌کنید؟',
+            'type' => 'select',
+            'options' => ['تپش قلب و عصبی بودن', 'سردی مفرط و کندی', 'تورم گردن', 'هیچکدام'],
+            'required' => true,
+            'placeholder' => null
+        ],
+        [
+            'id' => 'diabetes_history',
+            'question' => 'آیا سابقه دیابت در خانواده دارید؟',
+            'type' => 'radio',
+            'options' => ['بله - والدین', 'بله - خواهر/برادر', 'بله - سایر بستگان', 'خیر'],
+            'required' => true,
+            'placeholder' => null
+        ],
+        [
+            'id' => 'menstrual_issues',
+            'question' => 'آیا اختلال قاعدگی یا مشکلات هورمونی جنسی دارید؟',
+            'type' => 'radio',
+            'options' => ['بله', 'خیر', 'مرد هستم'],
+            'required' => true,
+            'placeholder' => null
+        ],
+        [
+            'id' => 'hair_skin_changes',
+            'question' => 'آیا تغییرات پوستی یا ریزش مو دارید؟',
+            'type' => 'radio',
+            'options' => ['بله - ریزش مو', 'بله - خشکی پوست', 'بله - هر دو', 'خیر'],
+            'required' => true,
+            'placeholder' => null
+        ],
+        [
+            'id' => 'blood_sugar_symptoms',
+            'question' => 'آیا علائم کاهش یا افزایش قند خون دارید؟',
+            'type' => 'select',
+            'options' => ['لرزش و گرسنگی ناگهانی', 'خواب‌آلودگی بعد از غذا', 'هر دو', 'هیچکدام'],
+            'required' => true,
+            'placeholder' => null
+        ]
+    ]
+],
 
         ];
     }

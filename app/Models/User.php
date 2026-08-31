@@ -8,7 +8,6 @@ namespace App\Models;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 
@@ -30,8 +29,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
  */
 class User extends Authenticatable
 {
-    use HasApiTokens , SoftDeletes;
-
+    use HasApiTokens;
 
 	protected $table = 'users';
 
@@ -45,12 +43,12 @@ class User extends Authenticatable
 	];
 
 	protected $fillable = [
-        'phone',
+                'phone',
 		'name',
 		'email',
 		'email_verified_at',
 		'password',
-        'status',
+                'status',
 		'remember_token'
 	];
 }

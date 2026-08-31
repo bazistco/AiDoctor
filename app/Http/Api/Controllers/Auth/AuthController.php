@@ -177,7 +177,6 @@ class AuthController extends Controller
                 Log::error('Novu API Exception: ' . $e->getMessage());
             }
         }
-
         // اگر کاربر تازه ساخته شد، پروفایل و پلن پیش‌فرض ایجاد کن
         if ($user->wasRecentlyCreated) {
             // ایجاد پروفایل خالی

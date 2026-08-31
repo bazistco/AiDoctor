@@ -107,7 +107,6 @@ class ReservationController extends Controller
             // دریافت slot_id
             $userReservationData = json_decode(Redis::get($userReservationKey), true);
             $slotId = $userReservationData['slot_id'];
-
             // بررسی وجود اطلاعات رزرو
             $slotReservationKey = "slot:reservation:{$slotId}";
             $reservationData = Redis::get($slotReservationKey);
@@ -259,11 +258,11 @@ class ReservationController extends Controller
         // اعتبارسنجی ورودی
         $validated = $request->validate([
             'slot_id' => 'required|integer|exists:appointment_slots,id',
-            'session_id' => 'nullable',
-        ]);
+            'session_id' => 'nullable|string',
+            ]);
 
+        $sessionId = $validated['session_id'] ?? null;
         $slotId = $validated['slot_id'];
-        $sessionId = $validated['session_id'];
         $userId = $request->user()->id;
 
         // بررسی وجود اسلات در دیتابیس
@@ -382,7 +381,7 @@ class ReservationController extends Controller
                 'payment_id' => $paymentId,
                 'authority' => $authority,
                 'amount' => $amount,
-                'ai_session_token' => $sessionId,
+                'session_id' => $sessionId,
                 'reserved_at' => Carbon::now()->toDateTimeString(),
             ];
 
@@ -578,7 +577,7 @@ class ReservationController extends Controller
                 paymentId: $paymentId,
                 authority: $authority,
                 refId: $refId,
-                providerId: $reservationData['user_id']
+                providerId: $reservationData['doctor_id']
             );
 
             if (!$paymentCompleted) {
@@ -609,7 +608,8 @@ class ReservationController extends Controller
 
             // به‌روزرسانی اسلات در دیتابیس
             $slot->update([
-                'order_id'=>$orderId,
+                'ai_session_token' => $reservationData['session_id'] ?? null,
+                 'order_id'=>$orderId,
                 'status' => 'booked',
                 'patient_id' => $userId,
                 'booking_time' => Carbon::now(),

@@ -8,13 +8,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+
 class UserController extends Controller
 {
-    /**
-     * @route POST /api/user/profile/update
-     * @description بروزرسانی اطلاعات پروفایل هماهنگ با فرانت‌اند
-     */
-    public function updateProfile(Request $request)
+
+      public function updateProfile(Request $request)
     {
         try {
             $userId = $request->user()->id;
@@ -27,8 +25,8 @@ class UserController extends Controller
                 'age' => 'nullable|integer|min:1|max:120',
                 'weight' => 'nullable|numeric|min:10|max:500',
                 'height' => 'nullable|numeric|min:50|max:250',
-                'province'   => 'nullable|integer|min:1|max:31',   // اضافه شد
-                'city'       => 'nullable|integer|min:1',           // اضافه شد
+                 'province'   => 'nullable|integer|min:1|max:31',   // اضافه شد
+                'city'       => 'nullable|integer|min:1',   
             ]);
 
             if ($validator->fails()) {
@@ -109,6 +107,7 @@ class UserController extends Controller
             ], 500);
         }
     }
+
     public function getProfile(Request $request)
     {
         try {
@@ -138,8 +137,8 @@ class UserController extends Controller
                     'user_profiles.weight',
                     'user_profiles.age',
                     'user_profiles.birth_date',
-                    'user.city_id',
-                    'user.province_id',
+                    'users.city_id',
+                    'users.province_id',
                     'user_profiles.address',
                     'user_profiles.postal_code',
                     'user_profiles.blood_type',
@@ -157,7 +156,7 @@ class UserController extends Controller
                     'message' => 'کاربر یافت نشد'
                 ], 404);
             }
-            if ($user->status == 0) {
+               if ($user->status == 0) {
                 return response()->json([
                     'success' => false,
                     'message' => 'شما مجاز نیستید'
@@ -179,16 +178,16 @@ class UserController extends Controller
 
             // اگر پروفایل نداشت، پروفایل پایه بساز
             if (!$user->height && !$user->weight && !$user->age) {
-                $genders = ['male', 'female'];
+                 $genders = ['male', 'female'];
                 DB::table('user_profiles')->insert([
                     'user_id' => $userId,
                     'created_at' => now(),
                     'updated_at' => now(),
                     'age' => rand(18, 65),
-                    'weight' => rand(50, 120),
-                    'height' => rand(150, 195),
-                    'gender' => $genders[rand(0, 1)],
-                    'birth_date' => now(),
+                'weight' => rand(50, 120),
+                'height' => rand(150, 195),
+                'gender' => $genders[rand(0, 1)],
+                'birth_date' => now()
                 ]);
             }
 
@@ -198,7 +197,8 @@ class UserController extends Controller
                 $heightInMeters = $user->height / 100;
                 $bmi = round($user->weight / ($heightInMeters * $heightInMeters), 2);
             }
-
+            $isVerify = !empty($user->name) && in_array($user->gender, [0, 1], true);
+   
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -211,7 +211,7 @@ class UserController extends Controller
                         'gender' => $user->gender,
                         'avatar' => $user->avatar,
                         'novu_subscriber_id' => $user->novu_subscriber_id,
-                        'is_verify' => $isVerify,
+                          'is_verify' => $isVerify,
                         'created_at' => $user->created_at,
                         'height' => $user->height,
                         'weight' => $user->weight,

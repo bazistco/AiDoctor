@@ -11,133 +11,39 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str;
 
 class DiagnosisController extends Controller
 {
     private string $ApiUrl = 'http://185.222.163.113:8000';
 
-    public function getRecommendations($id)
-    {
-        $recommenders = DB::table('doctor_recommendations')
-            ->join('users', 'doctor_recommendations.recommender_id', '=', 'users.id')
-            ->join('doctor_info', 'users.id', '=', 'doctor_info.user_id')
-            ->leftJoin('specialties', 'doctor_info.specialty_id', '=', 'specialties.id') // اضافه کردن جوین با جدول تخصص‌ها
-            ->where('doctor_recommendations.recommended_id', $id)
-            ->select(
-                'users.id',
-                'users.name',
-                'specialties.name as specialty_name', // دریافت نام تخصص
-                'doctor_info.image_url'
-            )
-            ->get();
-
-        // بررسی اینکه آیا کاربر فعلی (اگر پزشک است) این پزشک را پیشنهاد داده یا خیر
-        $isRecommendedByMe = false;
-        $userId = auth()->id();
-
-        if ($userId) {
-            $exists = DB::table('doctor_recommendations')
-                ->where('recommender_id', $userId)
-                ->where('recommended_id', $id)
-                ->exists();
-            $isRecommendedByMe = $exists;
-        }
-
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'recommenders' => $recommenders,
-                'is_recommended_by_me' => $isRecommendedByMe
-            ]
-        ]);
-    }
-
-
-
-    // ثبت یا لغو پیشنهاد پزشک
-    public function toggleRecommendation(Request $request, $id)
-    {
-        $recommenderId = auth()->id();
-
-        // اطمینان از اینکه کاربر درخواست دهنده خودش پزشک است (بر اساس نقش)
-        $userRole = DB::table('users')->where('id', $recommenderId)->value('role');
-        if ($userRole !== 'doctor') {
-            return response()->json(['message' => 'فقط پزشکان می‌توانند همکاران را پیشنهاد دهند'], 403);
-        }
-
-        if ($recommenderId == $id) {
-            return response()->json(['message' => 'شما نمی‌توانید خودتان را پیشنهاد دهید'], 400);
-        }
-
-        $exists = DB::table('doctor_recommendations')
-            ->where('recommender_id', $recommenderId)
-            ->where('recommended_id', $id)
-            ->exists();
-
-        if ($exists) {
-            // حذف پیشنهاد (لغو)
-            DB::table('doctor_recommendations')
-                ->where('recommender_id', $recommenderId)
-                ->where('recommended_id', $id)
-                ->delete();
-
-            return response()->json(['success' => true, 'message' => 'پیشنهاد شما لغو شد', 'is_recommended' => false]);
-        } else {
-            // ثبت پیشنهاد جدید
-            DB::table('doctor_recommendations')->insert([
-                'recommender_id' => $recommenderId,
-                'recommended_id' => $id,
-                'created_at' => now()
-            ]);
-
-            return response()->json(['success' => true, 'message' => 'پزشک با موفقیت پیشنهاد داده شد', 'is_recommended' => true]);
-        }
-    }
-  public function chat(Request $request): JsonResponse
+    public function chat(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'messages' => 'required|array|min:1',
             'messages.*.role' => 'required|in:user,assistant',
-            'messages.*.content' => 'required|string',
-            'session_id' => 'nullable|string|uuid', // ← اضافه کن
-        ]);
-
+            'messages.*.content' => 'required|string',]);
         $messages = $validated['messages'];
 
-        // اگر فرانت session_id فرستاده، استفاده کن؛ وگرنه یکی جدید بساز
-        $sessionId = $validated['session_id'] ?? (string) Str::uuid();
+        $firstUserMsg = collect($messages)->first(fn($m) => $m['role'] === 'user');
+        $history = collect($messages)->slice(1)->values()->toArray(); // بقیه به عنوان history
 
-        $firstUserMsg = collect($messages)->last(fn($m) => $m['role'] === 'user');
-        $history = collect($messages)->slice(1)->values()->toArray();
+
 
         try {
-            DB::table('ai_messages')->insert([
-                'user_id'    => auth()->id(),
-                'session_id' => $sessionId, // ← از session_id یکتا استفاده کن
-                'role'       => 'user',
-                'content'    => $firstUserMsg['content'],
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-
             $response = Http::timeout(30)
                 ->post("http://185.222.163.113:8000/chat", [
                     'symptoms' => $firstUserMsg['content'],
-                    'history'  => $history,
-                ]);
+                    'history'  => $history,]);
 
             if (!$response->successful()) {
                 return response()->json(['success' => false, 'message' => 'خطا در دریافت پاسخ'], 500);
             }
 
             $data = $response->json();
-            $status = $data['status'] ?? null;
-            $diagnosisData = null;
 
+            // اگر تشخیص نهایی رسید، غنی‌سازی کن
             if (($data['status'] ?? null) === 'complete' && isset($data['diagnosis'])) {
-                $data = $this->enrichDiagnosisData($data, 1);
-                $diagnosisData = $data;
+                $data = $this->enrichDiagnosisData($data,1);
 
                 if (auth()->check()) {
                     $userId = auth()->id();
@@ -151,22 +57,7 @@ class DiagnosisController extends Controller
                 }
             }
 
-            DB::table('ai_messages')->insert([
-                'user_id'        => auth()->id(),
-                'session_id'     => $sessionId, // ← همان session_id
-                'role'           => 'assistant',
-                'content'        => $data['message'] ?? '',
-                'status'         => $status,
-                'diagnosis_data' => $diagnosisData ? json_encode($diagnosisData) : null,
-                'created_at'     => now(),
-                'updated_at'     => now(),
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'data' => $data,
-                'session_id' => $sessionId, // ← برگردون به فرانت
-            ]);
+            return response()->json(['success' => true, 'data' => $data]);
 
         } catch (\Exception $e) {
             Log::error('Chat API Error', ['message' => $e->getMessage()]);
@@ -187,7 +78,6 @@ class DiagnosisController extends Controller
         ]);
 
         try {
-
             // فراخوانی API خارجی
             $response = Http::timeout(30)
                 ->post("http://185.222.163.113:8000/diagnose", $validated);
@@ -255,7 +145,7 @@ class DiagnosisController extends Controller
 
         if ($type == 0)
         {
-            $primarySpecialty = $diagnosisData['specialty']['primary'] ?? null;
+            $primarySpecialty = $diagnosisData['specialty']['primary'] ?? null; 
         }
         else{
             $primarySpecialty = $diagnosisData['diagnosis']['specialty']['primary'] ?? null;
@@ -279,10 +169,8 @@ class DiagnosisController extends Controller
         $doctors = DB::table('doctor_info')
             ->join('users', 'doctor_info.user_id', '=', 'users.id')
             ->where('doctor_info.specialty_id', $specialty->id)
-            ->whereNull('users.deleted_at')
             ->select(
                 'doctor_info.id',
-                'doctor_info.user_id',
                 'doctor_info.name',
                 'doctor_info.image_url',
                 'doctor_info.rating',
@@ -298,7 +186,7 @@ class DiagnosisController extends Controller
             ->get()
             ->map(function ($doctor) {
                 return [
-                    'id' => $doctor->user_id,
+                    'id' => $doctor->id,
                     'name' => $doctor->name,
                     'image_url' => $doctor->image_url,
                     'rating' => (float) $doctor->rating,
@@ -511,9 +399,7 @@ class DiagnosisController extends Controller
                     'message' => 'دکتر مورد نظر یافت نشد'
                 ], 404);
             }
-            if (!empty($doctor->image_url)) {
-                $doctor->image_url = asset('storage/' . $doctor->image_url);
-            }
+
             // محاسبه بازه زمانی
             $startDate = $request->input('start_date', now()->format('Y-m-d'));
 
@@ -750,159 +636,14 @@ class DiagnosisController extends Controller
             ], 500);
         }
     }
-    public function suggestKeywords(Request $request)
-    {
-        $query = $request->input('q');
-        if (!$query) {
-            return response()->json(['success' => true, 'data' => []]);
-        }
-
-        $keywords = DB::table('keywords')
-            ->where('word', 'LIKE', '%' . $query . '%')
-            ->orderBy('search_volume', 'desc')
-            ->limit(5)
-            ->pluck('word');
-
-        // آپدیت کردن search_volume در پس‌زمینه (اختیاری)
-        DB::table('keywords')->where('word', $query)->increment('search_volume');
-
-        return response()->json(['success' => true, 'data' => $keywords]);
-    }
-
-    // ۲. آپدیت متد لیست پزشکان
-    public function getDoctorsListV0(Request $request)
+    public function getDoctorsList()
     {
         $tomorrow = now()->addDay()->format('Y-m-d');
-        $searchTerm = $request->input('query');
 
         $query = DB::table('users')
             ->join('doctor_info', 'users.id', '=', 'doctor_info.user_id')
             ->join('specialties', 'doctor_info.specialty_id', '=', 'specialties.id')
             ->leftJoin('appointment_slots', function($join) use ($tomorrow) {
-                $join->on('users.id', '=', 'appointment_slots.doctor_id')
-                    ->where('appointment_slots.status', 'available')
-                    ->where('appointment_slots.slot_date', $tomorrow);
-            })
-            // 1. ابتدا فیلدهای اصلی را انتخاب کنید
-            ->select(
-                'users.id', 'users.name as firstName', 'users.gender',
-                'specialties.name as specialty', 'doctor_info.visit_price',
-                'doctor_info.experience', 'doctor_info.rating',
-                'doctor_info.image_url as image', 'doctor_info.is_vip',
-                'doctor_info.lat', 'doctor_info.lng', 'doctor_info.bio',
-                'doctor_info.address', 'doctor_info.phone', 'doctor_info.visit_count',
-                'doctor_info.appointments', 'doctor_info.medical_code as medicalCode',
-                'doctor_info.rank', 'doctor_info.reviews', 'doctor_info.recommendation',
-                DB::raw('COUNT(appointment_slots.id) as availability'),
-                'doctor_info.city', 'doctor_info.province'
-            );
-
-        // 2. سپس بر اساس شرط، فیلدهای اضافی را اضافه (addSelect) کنید
-        if (!empty($searchTerm)) {
-            $query->leftJoin('doctor_keyword_subscriptions as dks', function($join) {
-                $join->on('users.id', '=', 'dks.doctor_id')
-                    ->where('dks.is_active', 1)
-                    ->where('dks.expires_at', '>', now());
-            })
-                ->leftJoin('keywords', function($join) use ($searchTerm) {
-                    $join->on('dks.keyword_id', '=', 'keywords.id')
-                        ->where('keywords.word', 'LIKE', '%' . $searchTerm . '%');
-                });
-
-            // اصلاح جایگاه COALESCE و MAX
-            $query->addSelect(DB::raw('COALESCE(MAX(dks.tier_level), 0) as search_rank'));
-
-            $query->where(function($q) use ($searchTerm) {
-                $q->where('users.name', 'LIKE', '%' . $searchTerm . '%')
-                    ->orWhere('specialties.name', 'LIKE', '%' . $searchTerm . '%')
-                    ->orWhere('keywords.word', 'LIKE', '%' . $searchTerm . '%');
-            });
-        } else {
-            $query->addSelect(DB::raw('0 as search_rank'));
-        }
-
-        $query->where('users.role', 'doctor')
-            ->whereNull('users.deleted_at')
-            ->groupBy(
-                'users.id', 'users.name', 'users.gender', 'specialties.name',
-                'doctor_info.visit_price', 'doctor_info.experience', 'doctor_info.rating',
-                'doctor_info.image_url', 'doctor_info.is_vip', 'doctor_info.lat',
-                'doctor_info.lng', 'doctor_info.bio', 'doctor_info.address',
-                'doctor_info.phone', 'doctor_info.visit_count', 'doctor_info.appointments',
-                'doctor_info.medical_code', 'doctor_info.rank', 'doctor_info.reviews',
-                'doctor_info.recommendation', 'doctor_info.city', 'doctor_info.province'
-            );
-
-        if (!empty($searchTerm)) {
-            $query->orderBy('search_rank', 'desc');
-        }
-
-        $query->orderBy('doctor_info.is_vip', 'desc')
-            ->orderBy('doctor_info.rating', 'desc');
-
-        $doctors = $query->get();
-
-        $doctorIds = $doctors->pluck('id');
-        $tags = DB::table('doctor_tags')
-            ->join('tags', 'doctor_tags.tag_id', '=', 'tags.id')
-            ->whereIn('doctor_tags.user_id', $doctorIds)
-            ->select('doctor_tags.user_id', 'tags.name')
-            ->get()
-            ->groupBy('user_id');
-
-        $doctors = $doctors->map(function($doctor) use ($tags) {
-            $doctor->image = asset('storage/' . $doctor->image);
-            $doctor->tags = isset($tags[$doctor->id]) ? $tags[$doctor->id]->pluck('name')->toArray() : [];
-            return $doctor;
-        });
-
-        return response()->json([
-            'success' => true,
-            'data' => $doctors
-        ]);
-    }
-
-    public function getDoctorsList(Request $request)
-    {
-        $now = now();
-        $tomorrow = $now->copy()->addDay()->format('Y-m-d');
-        $searchTerm = trim((string) $request->input('query', ''));
-        $searcherIp = request()->ip();
-        $userAgent = request()->userAgent();
-        $searcherId = auth()->check() ? auth()->id() : null;
-
-        /*
-         * مرحله اول: شناسایی کلمات کلیدی و دریافت "قیمت پایه نمایش" آن‌ها
-         */
-        $detectedKeywords = collect();
-        $keywordPrices = [];
-        $keywordWords = [];
-
-        if ($searchTerm !== '') {
-            // تطابق دقیق کلمه کلیدی با عبارت جستجو
-            $detectedKeywords = DB::table('keywords')
-                ->where('word', '=', $searchTerm)
-                ->select('id', 'word', 'base_impression_tariff')
-                ->get();
-
-            $keywordPrices = $detectedKeywords->pluck('base_impression_tariff', 'id')->toArray();
-            $keywordWords = $detectedKeywords->pluck('word', 'id')->toArray();
-        }
-
-        $detectedKeywordIds = $detectedKeywords->pluck('id')->all();
-
-        $query = DB::table('users')
-            ->join('doctor_info', 'users.id', '=', 'doctor_info.user_id')
-            ->join('specialties', 'doctor_info.specialty_id', '=', 'specialties.id')
-            ->leftJoin('wallets', 'users.id', '=', 'wallets.user_id')
-            ->leftJoin('doctor_subscriptions as ds', function ($join) use ($now) {
-                $join->on('users.id', '=', 'ds.doctor_id')
-                    ->where('ds.status', 1)
-                    ->whereNotNull('ds.expires_at')
-                    ->where('ds.expires_at', '>', $now);
-            })
-            ->leftJoin('doctor_plans as dp', 'ds.plan_id', '=', 'dp.id')
-            ->leftJoin('appointment_slots', function ($join) use ($tomorrow) {
                 $join->on('users.id', '=', 'appointment_slots.doctor_id')
                     ->where('appointment_slots.status', 'available')
                     ->where('appointment_slots.slot_date', $tomorrow);
@@ -928,157 +669,31 @@ class DiagnosisController extends Controller
                 'doctor_info.rank',
                 'doctor_info.reviews',
                 'doctor_info.recommendation',
+                DB::raw('COUNT(appointment_slots.id) as availability'),
                 'doctor_info.city',
-                'doctor_info.province',
-                DB::raw('COUNT(DISTINCT appointment_slots.id) as availability'),
-                'wallets.id as wallet_id',
-                'wallets.balance as wallet_balance'
-            );
-
-        if (!empty($detectedKeywordIds)) {
-            $query
-                ->leftJoin('doctor_keyword_subscriptions as dks', function ($join) use ($detectedKeywordIds, $now) {
-                    $join->on('users.id', '=', 'dks.doctor_id')
-                        ->where('dks.is_active', 1)
-                        ->whereNotNull('dks.expires_at')
-                        ->where('dks.expires_at', '>', $now)
-                        ->whereIn('dks.keyword_id', $detectedKeywordIds);
-                })
-                ->leftJoin('keywords as matched_keywords', 'dks.keyword_id', '=', 'matched_keywords.id')
-                ->addSelect(
-                    DB::raw("
-                    COALESCE(MAX(CASE WHEN dks.keyword_id IS NOT NULL AND dp.tier_level IS NOT NULL THEN dp.tier_level ELSE 0 END), 0) AS search_rank
-                "),
-                    DB::raw("
-                    COALESCE(MAX(CASE WHEN dks.keyword_id IS NOT NULL AND dp.multiplier IS NOT NULL THEN dp.multiplier ELSE 1 END), 1) AS plan_multiplier
-                "),
-                    DB::raw("
-                    GROUP_CONCAT(DISTINCT matched_keywords.word ORDER BY matched_keywords.word SEPARATOR '|||') AS matched_keywords_raw
-                "),
-                    DB::raw("
-                    GROUP_CONCAT(DISTINCT matched_keywords.id SEPARATOR ',') AS matched_keyword_ids
-                ")
-                );
-        } else {
-            $query->addSelect(
-                DB::raw('0 AS search_rank'),
-                DB::raw('1 AS plan_multiplier'),
-                DB::raw("NULL AS matched_keywords_raw"),
-                DB::raw("NULL AS matched_keyword_ids")
-            );
-        }
-
-        if ($searchTerm !== '') {
-            $query->where(function ($q) use ($searchTerm, $detectedKeywordIds) {
-                $q->where('users.name', 'LIKE', '%' . $searchTerm . '%')
-                    ->orWhere('specialties.name', 'LIKE', '%' . $searchTerm . '%');
-
-                if (!empty($detectedKeywordIds)) {
-                    $q->orWhereIn('dks.keyword_id', $detectedKeywordIds);
-                }
-            });
-        }
-
-        $query
+                'doctor_info.province'
+            )
             ->where('users.role', 'doctor')
-            ->whereNull('users.deleted_at')
             ->groupBy(
-                'users.id', 'users.name', 'users.gender', 'specialties.name',
-                'doctor_info.visit_price', 'doctor_info.experience', 'doctor_info.rating',
-                'doctor_info.image_url', 'doctor_info.is_vip', 'doctor_info.lat',
-                'doctor_info.lng', 'doctor_info.bio', 'doctor_info.address',
-                'doctor_info.phone', 'doctor_info.visit_count', 'doctor_info.appointments',
-                'doctor_info.medical_code', 'doctor_info.rank', 'doctor_info.reviews',
-                'doctor_info.recommendation', 'doctor_info.city', 'doctor_info.province',
-                'wallets.id', 'wallets.balance'
-            );
+                'users.id', 'users.name', 'users.gender',
+                'specialties.name', 'doctor_info.visit_price',
+                'doctor_info.experience', 'doctor_info.rating',
+                'doctor_info.image_url', 'doctor_info.is_vip',
+                'doctor_info.lat', 'doctor_info.lng',
+                'doctor_info.bio', 'doctor_info.address',
+                'doctor_info.phone', 'doctor_info.visit_count',
+                'doctor_info.appointments', 'doctor_info.medical_code',
+                'doctor_info.rank', 'doctor_info.reviews',
+                'doctor_info.recommendation', 'doctor_info.city',
+                'doctor_info.province'
+            )
+            ->orderBy('doctor_info.is_vip', 'desc')
+            ->orderBy('doctor_info.rating', 'desc');
 
-        if (!empty($detectedKeywordIds)) {
-            $query->orderByDesc('search_rank');
-        }
+        $doctors = $query->get();
 
-        $query
-            ->orderByDesc('doctor_info.is_vip')
-            ->orderByDesc('doctor_info.rating');
-
-        // صفحه‌بندی: ۲۵ پزشک در هر صفحه
-        $doctorsPaginator = $query->paginate(25);
-        $doctors = $doctorsPaginator->getCollection(); // Collection از آیتم‌های صفحه جاری
-
-        /*
-         * محاسبه هزینه، کسر از کیف پول و ثبت لاگ (Real-time Billing)
-         */
-        DB::transaction(function () use ($doctors, $keywordPrices, $keywordWords, $searcherIp, $userAgent, $searcherId) {
-            $currentTime = now();
-
-            foreach ($doctors as $doctor) {
-                if ($doctor->search_rank > 0 && !empty($doctor->matched_keyword_ids)) {
-                    $keywordIds = array_unique(explode(',', $doctor->matched_keyword_ids));
-                    $multiplier = (float) ($doctor->plan_multiplier ?? 1);
-                    $walletId = $doctor->wallet_id;
-                    $currentBalance = (float) ($doctor->wallet_balance ?? 0);
-
-                    foreach ($keywordIds as $kId) {
-                        $keywordWord = $keywordWords[$kId] ?? 'نامشخص';
-                        $basePrice = (float) ($keywordPrices[$kId] ?? 0);
-                        $cost = $basePrice * $multiplier;
-
-                        if ($cost > 0) {
-                            if ($walletId && $currentBalance >= $cost) {
-                                // کسر از موجودی لوکال
-                                $currentBalance -= $cost;
-
-                                // ثبت لاگ نمایش
-                                $logId = DB::table('keyword_consumption_logs')->insertGetId([
-                                    'doctor_id'   => $doctor->id,
-                                    'keyword_id'  => $kId,
-                                    'ip_address'  => $searcherIp,
-                                    'user_id'     => $searcherId,
-                                    'action_type' => 'impression',
-                                    'cost'        => $cost,
-                                    'created_at'  => $currentTime,
-                                ]);
-
-                                // ثبت تراکنش کیف پول
-                                DB::table('wallet_transactions')->insert([
-                                    'wallet_id'     => $walletId,
-                                    'type'          => 2, // Debit
-                                    'amount'        => $cost,
-                                    'balance_after' => $currentBalance,
-                                    'subject_type'  => 7,
-                                    'subject_id'    => $logId,
-                                    'description'   => "کسر هزینه نمایش برای کلمه کلیدی {$keywordWord} (شناسه: {$kId})",
-                                    'created_at'    => $currentTime,
-                                    'ip_address'    => $searcherIp,
-                                    'user_agent'    => $userAgent,
-                                ]);
-
-                                // به‌روزرسانی موجودی کیف پول
-                                DB::table('wallets')
-                                    ->where('id', $walletId)
-                                    ->update([
-                                        'balance'    => $currentBalance,
-                                        'updated_at' => $currentTime
-                                    ]);
-                            } else {
-                                // غیرفعال‌سازی اشتراک در صورت ناکافی بودن موجودی
-                                DB::table('doctor_keyword_subscriptions')
-                                    ->where('doctor_id', $doctor->id)
-                                    ->where('keyword_id', $kId)
-                                    ->update([
-                                        'is_active'  => 0,
-                                        'updated_at' => $currentTime
-                                    ]);
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        // دریافت تگ‌ها برای پزشکان صفحه جاری
+        // اضافه کردن تگ‌ها
         $doctorIds = $doctors->pluck('id');
-
         $tags = DB::table('doctor_tags')
             ->join('tags', 'doctor_tags.tag_id', '=', 'tags.id')
             ->whereIn('doctor_tags.user_id', $doctorIds)
@@ -1086,46 +701,18 @@ class DiagnosisController extends Controller
             ->get()
             ->groupBy('user_id');
 
-        // نگاشت نهایی داده‌ها
-        $mappedDoctors = $doctors->map(function ($doctor) use ($tags) {
-            $doctor->image = $doctor->image ? asset('storage/' . ltrim($doctor->image, '/')) : null;
-            $doctor->tags = isset($tags[$doctor->id]) ? $tags[$doctor->id]->pluck('name')->values()->toArray() : [];
-            $doctor->matched_keywords = !empty($doctor->matched_keywords_raw) ? explode('|||', $doctor->matched_keywords_raw) : [];
-
-            // حذف فیلدهای حساس مالی
-            unset($doctor->matched_keywords_raw);
-            unset($doctor->matched_keyword_ids);
-            unset($doctor->plan_multiplier);
-            unset($doctor->wallet_id);
-            unset($doctor->wallet_balance);
-
+        $doctors = $doctors->map(function($doctor) use ($tags) {
+            $doctor->tags = isset($tags[$doctor->id])
+                ? $tags[$doctor->id]->pluck('name')->toArray()
+                : [];
             return $doctor;
         });
 
-        // مخفی‌سازی قیمت کلمات از خروجی
-        $cleanDetectedKeywords = $detectedKeywords->map(function ($kw) {
-            return [
-                'id'   => $kw->id,
-                'word' => $kw->word
-            ];
-        });
-
         return response()->json([
-            'success'           => true,
-            'detected_keywords' => $cleanDetectedKeywords,
-            'query'             => $searchTerm,
-            'data'              => $mappedDoctors,
-            'pagination'        => [
-                'current_page' => $doctorsPaginator->currentPage(),
-                'last_page'    => $doctorsPaginator->lastPage(),
-                'per_page'     => $doctorsPaginator->perPage(),
-                'total'        => $doctorsPaginator->total(),
-            ],
+            'success' => true,
+            'data' => $doctors
         ]);
     }
-
-
-
     public function getDoctorWithScheduleV1(Request $request, $doctorId)
     {
         // اعتبارسنجی ورودی
@@ -1183,9 +770,7 @@ class DiagnosisController extends Controller
                     'message' => 'دکتر مورد نظر یافت نشد'
                 ], 404);
             }
-            if (!empty($doctor->image_url)) {
-                $doctor->image_url = asset('storage/' . $doctor->image_url);
-            }
+
             // دریافت تگ‌های دکتر
             $tags = DB::table('doctor_tags')
                 ->join('tags', 'doctor_tags.tag_id', '=', 'tags.id')

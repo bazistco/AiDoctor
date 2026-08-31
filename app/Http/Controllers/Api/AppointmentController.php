@@ -14,109 +14,107 @@ class AppointmentController extends Controller
 {
 
     public function generateWeeklySlotsForAllDoctors()
-    {
-        // بازه زمانی: از امروز تا ۷ روز آینده
-        $fromDate = Carbon::today();
-        $toDate = Carbon::today()->addDays(7);
+{
+    // بازه زمانی: از امروز تا ۷ روز آینده
+    $fromDate = Carbon::today();
+    $toDate = Carbon::today()->addDays(7);
+    
+    $totalGeneratedCount = 0;
 
-        $totalGeneratedCount = 0;
+    // دریافت تنظیمات نوبت‌دهی همه پزشکان
+    $allDoctorsSettings = DB::table('doctor_appointment_settings')->get();
 
-        // دریافت تنظیمات نوبت‌دهی همه پزشکان
-        $allDoctorsSettings = DB::table('doctor_appointment_settings')->get();
+    foreach ($allDoctorsSettings as $settings) {
+        $doctorId = $settings->doctor_id;
 
-        foreach ($allDoctorsSettings as $settings) {
-            $doctorId = $settings->doctor_id;
+        // دریافت تمام روزهای کاری فعال این پزشک و ایندکس کردن بر اساس روز هفته
+        $workingDays = DB::table('doctor_working_days')
+            ->where('doctor_id', $doctorId)
+            ->where('is_active', true)
+            ->get()
+            ->keyBy('day_of_week');
 
-            // دریافت تمام روزهای کاری فعال این پزشک و ایندکس کردن بر اساس روز هفته
-            $workingDays = DB::table('doctor_working_days')
-                ->where('doctor_id', $doctorId)
-                ->where('is_active', true)
-                ->get()
-                ->keyBy('day_of_week');
+        // اگر پزشک هیچ روز کاری فعالی ندارد، به سراغ پزشک بعدی برو
+        if ($workingDays->isEmpty()) {
+            continue;
+        }
 
-            // اگر پزشک هیچ روز کاری فعالی ندارد، به سراغ پزشک بعدی برو
-            if ($workingDays->isEmpty()) {
+        // دریافت استثنائات (مرخصی‌ها) در این هفته برای این پزشک
+        $exceptions = DB::table('doctor_exceptions')
+            ->where('doctor_id', $doctorId)
+            ->whereBetween('exception_date', [$fromDate->toDateString(), $toDate->toDateString()])
+            ->pluck('exception_date')
+            ->toArray();
+
+        $currentDate = $fromDate->copy();
+
+        while ($currentDate->lte($toDate)) {
+            $dayOfWeek = $currentDate->dayOfWeek; // 0 (یکشنبه) تا 6 (شنبه)
+            $dateString = $currentDate->toDateString();
+
+            // اگر این تاریخ در لیست استثنائات (مرخصی) بود، رد شو
+            if (in_array($dateString, $exceptions)) {
+                $currentDate->addDay();
                 continue;
             }
 
-            // دریافت استثنائات (مرخصی‌ها) در این هفته برای این پزشک
-            $exceptions = DB::table('doctor_exceptions')
-                ->where('doctor_id', $doctorId)
-                ->whereBetween('exception_date', [$fromDate->toDateString(), $toDate->toDateString()])
-                ->pluck('exception_date')
-                ->toArray();
+            // پیدا کردن رکورد روز کاری برای این روز خاص
+            $workingDay = $workingDays->get($dayOfWeek);
 
-            $currentDate = $fromDate->copy();
-
-            while ($currentDate->lte($toDate)) {
-                $dayOfWeek = $currentDate->dayOfWeek; // 0 (یکشنبه) تا 6 (شنبه)
-                $dateString = $currentDate->toDateString();
-
-                // اگر این تاریخ در لیست استثنائات (مرخصی) بود، رد شو
-                if (in_array($dateString, $exceptions)) {
-                    $currentDate->addDay();
-                    continue;
-                }
-
-                // پیدا کردن رکورد روز کاری برای این روز خاص
-                $workingDay = $workingDays->get($dayOfWeek);
-
-                // اگر پزشک در این روز هفته کار نمی‌کند، رد شو
-                if (!$workingDay) {
-                    $currentDate->addDay();
-                    continue;
-                }
-
-                // دریافت ساعات کاری بر اساس doctor_working_day_id (تغییر کلیدی در اینجا اعمال شد)
-                $workingHours = DB::table('doctor_working_hours')
-                    ->where('doctor_working_day_id', $workingDay->id)
-                    ->get();
-
-                foreach ($workingHours as $hours) {
-                    $startTime = Carbon::parse($dateString . ' ' . $hours->start_time);
-                    $endTime = Carbon::parse($dateString . ' ' . $hours->end_time);
-
-                    while ($startTime->copy()->addMinutes($settings->duration_minutes)->lte($endTime)) {
-                        $slotEnd = $startTime->copy()->addMinutes($settings->duration_minutes);
-
-                        // بررسی برای جلوگیری از ثبت اسلات تکراری
-                        $exists = DB::table('appointment_slots')
-                            ->where('doctor_id', $doctorId)
-                            ->where('slot_date', $dateString)
-                            ->where('start_time', $startTime->toTimeString())
-                            ->exists();
-
-                        if (!$exists) {
-                            DB::table('appointment_slots')->insert([
-                                'doctor_id' => $doctorId,
-                                'slot_date' => $dateString,
-                                'start_time' => $startTime->toTimeString(),
-                                'end_time' => $slotEnd->toTimeString(),
-                                'status' => 'available',
-                                'created_at' => now(),
-                                'updated_at' => now(),
-                            ]);
-                            $totalGeneratedCount++;
-                        }
-
-                        // رفتن به اسلات بعدی (با در نظر گرفتن زمان استراحت بین نوبت‌ها)
-                        $startTime->addMinutes($settings->duration_minutes + ($settings->buffer_minutes ?? 0));
-                    }
-                }
-
-                // رفتن به روز بعد
+            // اگر پزشک در این روز هفته کار نمی‌کند، رد شو
+            if (!$workingDay) {
                 $currentDate->addDay();
+                continue;
             }
-        }
 
-        return response()->json([
-            'success' => true,
-            'message' => "تولید اسلات‌ها با موفقیت انجام شد. {$totalGeneratedCount} اسلات جدید برای تمامی پزشکان ایجاد شد.",
-            'generated_count' => $totalGeneratedCount
-        ]);
+            // دریافت ساعات کاری بر اساس doctor_working_day_id (تغییر کلیدی در اینجا اعمال شد)
+            $workingHours = DB::table('doctor_working_hours')
+                ->where('doctor_working_day_id', $workingDay->id)
+                ->get();
+
+            foreach ($workingHours as $hours) {
+                $startTime = Carbon::parse($dateString . ' ' . $hours->start_time);
+                $endTime = Carbon::parse($dateString . ' ' . $hours->end_time);
+
+                while ($startTime->copy()->addMinutes($settings->duration_minutes)->lte($endTime)) {
+                    $slotEnd = $startTime->copy()->addMinutes($settings->duration_minutes);
+
+                    // بررسی برای جلوگیری از ثبت اسلات تکراری
+                    $exists = DB::table('appointment_slots')
+                        ->where('doctor_id', $doctorId)
+                        ->where('slot_date', $dateString)
+                        ->where('start_time', $startTime->toTimeString())
+                        ->exists();
+
+                    if (!$exists) {
+                        DB::table('appointment_slots')->insert([
+                            'doctor_id' => $doctorId,
+                            'slot_date' => $dateString,
+                            'start_time' => $startTime->toTimeString(),
+                            'end_time' => $slotEnd->toTimeString(),
+                            'status' => 'available',
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                        $totalGeneratedCount++;
+                    }
+
+                    // رفتن به اسلات بعدی (با در نظر گرفتن زمان استراحت بین نوبت‌ها)
+                    $startTime->addMinutes($settings->duration_minutes + ($settings->buffer_minutes ?? 0));
+                }
+            }
+
+            // رفتن به روز بعد
+            $currentDate->addDay();
+        }
     }
 
-
+    return response()->json([
+        'success' => true,
+        'message' => "تولید اسلات‌ها با موفقیت انجام شد. {$totalGeneratedCount} اسلات جدید برای تمامی پزشکان ایجاد شد.",
+        'generated_count' => $totalGeneratedCount
+    ]);
+}
     public function getAppointments(Request $request)
     {
         // دریافت پارامترهای صفحه‌بندی از درخواست

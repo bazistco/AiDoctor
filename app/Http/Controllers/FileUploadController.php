@@ -21,7 +21,7 @@ class FileUploadController extends Controller
             $fileName = time() . '_' . Str::random(10) . '.' . $file->getClientOriginalExtension();
 
             // ذخیره فایل در storage/app/public/uploads
-            $path = $file->storeAs('uploads', $fileName, 'public');
+            $path = $file->storeAs('assets/img/fit', $fileName, 'public');
 
             // ساخت URL کامل فایل
             $url = asset('storage/' . $path);

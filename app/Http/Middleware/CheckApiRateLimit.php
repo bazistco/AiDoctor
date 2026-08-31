@@ -24,7 +24,7 @@ class CheckApiRateLimit
             ->first();
 
         $planType = $userPlan ? $userPlan->plan_type : 'basic';
-        $dailyLimit = $planType === 'basic' ? 2 : 5;
+        $dailyLimit = $planType === 'basic' ? 10 : 15;
 
         // شمارش درخواست‌های امروز
         $today = Carbon::today();

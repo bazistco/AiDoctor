@@ -11,10 +11,6 @@ use Illuminate\Support\Facades\Validator;
 class ChatController extends Controller
 {
 
-    /**
-     * دریافت پیام‌های یک روم برای پنل ادمین
-     * خروجی دقیقاً منطبق با interface ApiChatDetails در فرانت‌اند
-     */
     public function getAdminRoomMessages(Request $request, int $roomId): JsonResponse
     {
 
@@ -71,7 +67,6 @@ class ChatController extends Controller
             'appointment_id'  => $appointment_id,
         ]);
     }
-
     public function getPatientRooms(Request $request)
     {
         $perPage = $request->get('per_page', 15);

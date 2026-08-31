@@ -24,7 +24,7 @@ class CheckOwnership
                 'message' => 'احراز هویت نشده',
             ], 401);
         }
-
+       
         $tableMap = [
             'lab'            => 'labs_info',
             'pharmacy'       => 'pharmacies_info',

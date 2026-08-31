@@ -13,6 +13,7 @@ class DoctorAuthController extends Controller
 {
     public function login(Request $request)
     {
+
         // ۱) اعتبارسنجی ورودی
         $validator = validator($request->all(), [
             'mobile'   => ['required', 'string'],
@@ -31,6 +32,7 @@ class DoctorAuthController extends Controller
 
         // ۲) جستجوی کاربر
         $user = User::where('phone', $validated['mobile'])->first();
+
         // ۳) بررسی وجود کاربر و صحت رمز (پیام یکسان برای امنیت)
         if (! $user || ! Hash::check($validated['password'], $user->password)) {
             return response()->json([
