@@ -107,7 +107,7 @@ class PharmacyProfileController extends Controller
 
     public function show(Request $request)
     {
-        return $this->success(DB::table('pharmacies_info')->where('id', $request->pharmacy_id)->first());
+        return $this->success(DB::table('pharmacies_info')->where('user_id', auth()->id())->first());
     }
 
     public function update(Request $request)
