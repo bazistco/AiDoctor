@@ -245,6 +245,55 @@ class AuthController extends Controller
             'data' => ['access_token' => $token],
         ]);
     }
+    /**
+     * لاگ‌اوت مادر (Master Logout)
+     * حذف تمامی توکن‌های فعال کاربر در تمامی دستگاه‌ها
+     */
+    public function logoutAll(Request $request)
+    {
+        // دریافت کاربر احراز هویت شده از ریکوئست
+        $user = $request->user();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthenticated'
+            ], 401);
+        }
+
+        // حذف تمام توکن‌های متصل به این کاربر در دیتابیس (جدول personal_access_tokens)
+        $user->tokens()->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Successfully logged out from all devices.'
+        ], 200);
+    }
+
+    /**
+     * لاگ‌اوت معمولی (فقط از همین دستگاه/توکن فعلی)
+     * (اختیاری: در صورتی که نیاز داشتید کاربر فقط از نشست فعلی خارج شود)
+     */
+    public function logout(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthenticated'
+            ], 401);
+        }
+
+        // حذف فقط همین توکنی که با آن درخواست ارسال شده است
+        $user->currentAccessToken()->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Successfully logged out.'
+        ], 200);
+    }
+
 
     /**
      * تبدیل اعداد فارسی و عربی به انگلیسی

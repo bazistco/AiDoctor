@@ -8,9 +8,7 @@ use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\FileUploadController;
 use App\Jobs\SendWelcomeEmail;
-use Illuminate\Support\Facades\Redis;
 use App\Http\Controllers\Api\ReservationController;
-use App\Http\Controllers\Api\AppointmentController;
 use App\Http\Controllers\Api\MedicalRequestController;
 use App\Http\Controllers\Api\UserPharmacyRequestController;
 use App\Http\Controllers\Api\PeriodShareController;
@@ -149,7 +147,12 @@ Route::get('/t', function (Request $request) {
 });
 
 Route::post('/upload', [FileUploadController::class, 'upload']);
+Route::middleware('auth:sanctum')->group(function () {
 
+    Route::post('/logout-all', [AuthController::class, 'logoutAll']);
+
+    Route::post('/logout', [AuthController::class, 'logout']);
+});
 Route::middleware('auth:sanctum')->prefix('user/addresses')->group(function () {
     Route::get('/', [App\Http\Controllers\Api\AddressController::class, 'index']);
     Route::post('/', [App\Http\Controllers\Api\AddressController::class, 'store']);
