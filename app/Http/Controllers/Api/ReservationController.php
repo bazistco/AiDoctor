@@ -3,110 +3,84 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\FinancialService;
 use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
 use App\Models\AppointmentSlot;
 use Illuminate\Validation\ValidationException;
-use Illuminate\Support\Facades\DB;
+
 
 class ReservationController extends Controller
 {
-    
-public function getAppointments(Request $request)
-{
-    // دریافت پارامترهای صفحه‌بندی از درخواست
-    $perPage = $request->get('per_page', 15);
-    $page = $request->get('page', 1);
-    $offset = ($page - 1) * $perPage;
+    private FinancialService $financialService;
 
-    // ۱. دریافت اطلاعات نوبت‌ها و بیماران با صفحه‌بندی
-    $query = DB::table('appointment_slots as a')
-        ->join('users as u', 'a.patient_id', '=', 'u.id')
-        ->join('cities as c', 'u.city_id', '=', 'c.id')
-        ->join('provinces as p', 'u.province_id', '=', 'p.id')
-        ->select(
-            'a.id', 'a.slot_date', 'a.status', 'a.start_time', 'a.doctor_id',
-            'u.name as patient_name', 'u.phone as patient_phone',
-            'p.name as province_name', 'c.name as city_name'
-        );
+    public function __construct(FinancialService $financialService)
+    {
+        $this->financialService = $financialService;
+    }
+    public function getAppointments()
+    {
+        // ۱. دریافت اطلاعات نوبت‌ها و بیماران
+        $appointments = DB::table('appointment_slots as a')
+            ->join('users as u', 'a.patient_id', '=', 'u.id')
+            ->join('cities as c', 'u.city_id', '=', 'c.id')
+            ->join('provinces as p', 'u.province_id', '=', 'p.id')
+            ->select(
+                'a.id', 'a.slot_date', 'a.status', 'a.start_time', 'a.doctor_id',
+                'u.name as patient_name', 'u.phone as patient_phone',
+                'p.name as province_name', 'c.name as city_name'
+            )
+            ->get();
 
-    // گرفتن تعداد کل رکوردها
-    $total = $query->count();
+        $doctorIds = $appointments->pluck('doctor_id')->unique()->toArray();
 
-    // اعمال صفحه‌بندی
-    $appointments = $query->orderBy('a.slot_date', 'desc')
-        ->orderBy('a.start_time', 'desc')
-        ->limit($perPage)
-        ->offset($offset)
-        ->get();
+        // ۲. دریافت اطلاعات پزشکان و تخصص‌ها
+        $doctors = DB::table('doctor_info as df')
+            ->join('specialties as s', 'df.specialty_id', '=', 's.id')
+            ->whereIn('df.user_id', $doctorIds)
+            ->select('df.user_id', 'df.name as doctor_name', 's.name as specialty')
+            ->get()
+            ->keyBy('user_id');
 
-    $doctorIds = $appointments->pluck('doctor_id')->unique()->toArray();
+        // ۳. فرمت‌دهی نهایی برای خروجی وب‌سرویس
+        $result = $appointments->map(function ($item) use ($doctors) {
+            $doctor = $doctors->get($item->doctor_id);
 
-    // ۲. دریافت اطلاعات پزشکان و تخصص‌ها
-    $doctors = DB::table('doctor_info as df')
-        ->join('specialties as s', 'df.specialty_id', '=', 's.id')
-        ->whereIn('df.user_id', $doctorIds)
-        ->select('df.user_id', 'df.name as doctor_name', 's.name as specialty')
-        ->get()
-        ->keyBy('user_id');
+            // تبدیل وضعیت دیتابیس به متن فارسی و استایل مناسب
+            $statusMap = [
+                'booked'    => ['text' => 'رزرو شده', 'color' => 'blue'],
+                'available' => ['text' => 'آزاد', 'color' => 'gray'],
+                'completed' => ['text' => 'انجام شده', 'color' => 'green'], // اگر در آینده اضافه شد
+            ];
 
-    // ۳. فرمت‌دهی نهایی برای خروجی وب‌سرویس
-    $result = $appointments->map(function ($item) use ($doctors) {
-        $doctor = $doctors->get($item->doctor_id);
+            $currentStatus = $statusMap[$item->status] ?? ['text' => $item->status, 'color' => 'default'];
 
-        // تبدیل وضعیت دیتابیس به متن فارسی و استایل مناسب
-        $statusMap = [
-            'booked'    => ['text' => 'رزرو شده', 'color' => 'blue'],
-            'available' => ['text' => 'آزاد', 'color' => 'gray'],
-            'completed' => ['text' => 'انجام شده', 'color' => 'green'],
-            'cancelled' => ['text' => 'لغو شده', 'color' => 'red'],
-        ];
+            return [
+                'id' => $item->id,
+                'patient' => [
+                    'name' => $item->patient_name,
+                    'location' => "{$item->province_name} — {$item->city_name}",
+                ],
+                'mobile' => $item->patient_phone,
+                'doctor' => [
+                    'name' => $doctor ? "دکتر " . $doctor->doctor_name : 'نامشخص',
+                    'specialty' => $doctor ? $doctor->specialty : '-',
+                ],
+                'datetime' => [
+                    // تبدیل تاریخ میلادی دیتابیس به شمسی مشابه تصویر
+                    'date' => $item->slot_date ,
+                    'time' => substr($item->start_time, 0, 5), // تبدیل 09:00:00 به 09:00
+                ],
+                'status' => $currentStatus,
+            ];
+        });
 
-        $currentStatus = $statusMap[$item->status] ?? ['text' => $item->status, 'color' => 'default'];
-
-        return [
-            'id' => $item->id,
-            'patient' => [
-                'name' => $item->patient_name,
-                'location' => "{$item->province_name} — {$item->city_name}",
-            ],
-            'mobile' => $item->patient_phone,
-            'doctor' => [
-                'name' => $doctor ? "دکتر " . $doctor->doctor_name : 'نامشخص',
-                'specialty' => $doctor ? $doctor->specialty : '-',
-            ],
-            'datetime' => [
-                // تبدیل تاریخ میلادی دیتابیس به شمسی مشابه تصویر
-                'date' => Carbon::make($item->slot_date)?->format('Y-m-d') ?? '-',
-                'time' => substr($item->start_time, 0, 5), // تبدیل 09:00:00 به 09:00
-            ],
-            'status' => $currentStatus,
-        ];
-    });
-
-    // ساختار پاسخ با صفحه‌بندی
-    return response()->json([
-        'data' => $result,
-        'meta' => [
-            'current_page' => (int) $page,
-            'per_page' => (int) $perPage,
-            'total' => $total,
-            'last_page' => (int) ceil($total / $perPage),
-            'from' => $offset + 1,
-            'to' => min($offset + $perPage, $total),
-        ],
-        'links' => [
-            'first' => $request->fullUrlWithQuery(['page' => 1]),
-            'last' => $request->fullUrlWithQuery(['page' => ceil($total / $perPage)]),
-            'prev' => $page > 1 ? $request->fullUrlWithQuery(['page' => $page - 1]) : null,
-            'next' => $page < ceil($total / $perPage) ? $request->fullUrlWithQuery(['page' => $page + 1]) : null,
-        ],
-    ]);
-}
-
+        return response()->json($result);
+    }
     /**
      * لغو رزرو موقت کاربر
      */
@@ -131,8 +105,8 @@ public function getAppointments(Request $request)
             }
 
             // دریافت slot_id
-            $slotId = Redis::get($userReservationKey);
-
+            $userReservationData = json_decode(Redis::get($userReservationKey), true);
+            $slotId = $userReservationData['slot_id'];
             // بررسی وجود اطلاعات رزرو
             $slotReservationKey = "slot:reservation:{$slotId}";
             $reservationData = Redis::get($slotReservationKey);
@@ -274,15 +248,22 @@ public function getAppointments(Request $request)
     /**
      * رزرو موقت اسلات (15 دقیقه)
      */
+
+
+    /**
+     * رزرو موقت اسلات + ایجاد سفارش و پرداخت
+     */
     public function reserveSlot(Request $request)
     {
         // اعتبارسنجی ورودی
         $validated = $request->validate([
             'slot_id' => 'required|integer|exists:appointment_slots,id',
-        ]);
+            'session_id' => 'nullable|string',
+            ]);
 
+        $sessionId = $validated['session_id'] ?? null;
         $slotId = $validated['slot_id'];
-        $userId = $request->user()->id; // دریافت user_id از توکن احراز هویت
+        $userId = $request->user()->id;
 
         // بررسی وجود اسلات در دیتابیس
         $slot = AppointmentSlot::find($slotId);
@@ -313,61 +294,166 @@ public function getAppointments(Request $request)
             ], 409);
         }
 
-        // ایجاد توکن منحصر به فرد برای رزرو
-        $reservationToken = Str::uuid()->toString();
+        try {
+            // ═══════════════════════════════════════════════════════
+            // فرآیند مالی: ایجاد سفارش و پرداخت
+            // ═══════════════════════════════════════════════════════
 
-        // اطلاعات رزرو
-        $reservationData = [
-            'user_id' => $userId,
-            'slot_id' => $slotId,
-            'doctor_id' => $slot->doctor_id,
-            'slot_date' => $slot->slot_date,
-            'start_time' => $slot->start_time,
-            'end_time' => $slot->end_time,
-            'token' => $reservationToken,
-            'reserved_at' => Carbon::now()->toDateTimeString(),
-        ];
+            // مبلغ نوبت (در اینجا مبلغ ثابت 100,000 تومان فرض شده)
+            // در پروداکشن باید از جدول doctors یا appointment_slots خوانده شود
+            $amount = 100000; // 100,000 تومان
 
-        // ذخیره در Redis با زمان انقضا 15 دقیقه (900 ثانیه)
-        Redis::setex(
-            $reservationKey,
-            900,
-            json_encode($reservationData)
-        );
+            // ایجاد سفارش
+            $orderId = $this->financialService->createOrder(
+                userId: $userId,
+                reasonId: 1, // appointment (از جدول payment_reasons)
+                reasonRef: $slotId,
+                amount: $amount,
+                description: "رزرو نوبت پزشک در تاریخ {$slot->slot_date} ساعت {$slot->start_time}"
+            );
 
-        // ذخیره کلید مجزا برای کاربر
-        $userReservationKey = "user:reservation:{$userId}:{$reservationToken}";
-        Redis::setex($userReservationKey, 900, $slotId);
+            // ایجاد پرداخت
+            $paymentId = $this->financialService->createPayment(
+                userId: $userId,
+                orderId: $orderId,
+                reasonId: 1, // appointment
+                reasonRef: $slotId,
+                amount: $amount,
+                gateway: 'zarinpal'
+            );
 
-        // محاسبه زمان انقضا
-        $expiresAt = Carbon::now()->addMinutes(15)->toDateTimeString();
+            // ═══════════════════════════════════════════════════════
+            // شبیه‌سازی درگاه زرین‌پال (نمونه)
+            // ═══════════════════════════════════════════════════════
 
-        return response()->json([
-            'success' => true,
-            'message' => 'اسلات با موفقیت برای 15 دقیقه رزرو شد',
-            'data' => [
-                'reservation_token' => $reservationToken,
-                'expires_at' => $expiresAt,
+            // در پروداکشن واقعی باید درخواست به API زرین‌پال ارسال شود
+            $authority = 'A' . str_pad($paymentId, 35, '0', STR_PAD_LEFT); // شبیه‌سازی authority
+            $paymentUrl = "https://payment.zarinpal.com/pg/StartPay/{$authority}";
+
+            // ثبت لاگ درخواست اولیه درگاه
+            \DB::table('payment_gateway_logs')->insert([
+                'payment_id' => $paymentId,
+                'gateway' => 'zarinpal',
+                'step' => 'request',
+                'request_data' => json_encode([
+                    'merchant_id' => 'XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX',
+                    'amount' => $amount,
+                    'callback_url' => route('payment.callback'),
+                    'description' => "پرداخت نوبت #{$slotId}",
+                    'metadata' => [
+                        'mobile' => $request->user()->mobile ?? '',
+                        'email' => $request->user()->email ?? '',
+                    ]
+                ]),
+                'response_data' => json_encode([
+                    'status' => 100,
+                    'authority' => $authority,
+                ]),
+                'ip_address' => request()->ip(),
+                'created_at' => now(),
+            ]);
+
+            // به‌روزرسانی authority در جدول payments
+            \DB::table('payments')
+                ->where('id', $paymentId)
+                ->update([
+                    'authority' => $authority,
+                    'updated_at' => now(),
+                ]);
+
+            // ═══════════════════════════════════════════════════════
+            // رزرو موقت در Redis
+            // ═══════════════════════════════════════════════════════
+
+            // ایجاد توکن منحصر به فرد برای رزرو
+            $reservationToken = Str::uuid()->toString();
+
+            // اطلاعات رزرو
+            $reservationData = [
+                'user_id' => $userId,
                 'slot_id' => $slotId,
+                'doctor_id' => $slot->doctor_id,
                 'slot_date' => $slot->slot_date,
                 'start_time' => $slot->start_time,
                 'end_time' => $slot->end_time,
-            ]
-        ], 200);
+                'token' => $reservationToken,
+                'order_id' => $orderId,
+                'payment_id' => $paymentId,
+                'authority' => $authority,
+                'amount' => $amount,
+                'session_id' => $sessionId,
+                'reserved_at' => Carbon::now()->toDateTimeString(),
+            ];
+
+            // ذخیره در Redis با زمان انقضا 15 دقیقه (900 ثانیه)
+            Redis::setex(
+                $reservationKey,
+                900,
+                json_encode($reservationData)
+            );
+
+            // ذخیره کلید مجزا برای کاربر
+            $userReservationKey = "user:reservation:{$userId}:{$reservationToken}";
+            Redis::setex($userReservationKey, 900, json_encode([
+                'slot_id' => $slotId,
+                'payment_id' => $paymentId,
+                'order_id' => $orderId,
+            ]));
+
+            // محاسبه زمان انقضا
+            $expiresAt = Carbon::now()->addMinutes(15)->toDateTimeString();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'اسلات با موفقیت رزرو شد. لطفاً پرداخت را تکمیل کنید',
+                'data' => [
+                    'reservation_token' => $reservationToken,
+                    'expires_at' => $expiresAt,
+                    'slot_id' => $slotId,
+                    'slot_date' => $slot->slot_date,
+                    'start_time' => $slot->start_time,
+                    'end_time' => $slot->end_time,
+                    'payment' => [
+                        'order_id' => $orderId,
+                        'payment_id' => $paymentId,
+                        'amount' => $amount,
+                        'gateway' => 'zarinpal',
+                        'authority' => $authority,
+                        'payment_url' => $paymentUrl, // لینک پرداخت
+                    ]
+                ]
+            ], 200);
+
+        } catch (\Exception $e) {
+            \Log::error('Slot reservation with payment failed', [
+                'slot_id' => $slotId,
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در رزرو اسلات: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
-     * تایید نهایی رزرو
+     * تایید نهایی رزرو + تکمیل پرداخت
      */
     public function confirmReservation(Request $request)
     {
         // اعتبارسنجی ورودی
         $validated = $request->validate([
             'reservation_token' => 'required|string',
+            'authority' => 'required|string', // از query string callback زرین‌پال
+            'status' => 'required|string', // OK یا NOK
         ]);
 
         $reservationToken = $validated['reservation_token'];
-        $userId = $request->user()->id; // دریافت user_id از توکن احراز هویت
+        $authority = $validated['authority'];
+        $status = $validated['status']; // OK = موفق، NOK = ناموفق
+        $userId = $request->user()->id;
 
         // کلید Redis برای بررسی توکن کاربر
         $userReservationKey = "user:reservation:{$userId}:{$reservationToken}";
@@ -380,8 +466,11 @@ public function getAppointments(Request $request)
             ], 404);
         }
 
-        // دریافت slot_id از Redis
-        $slotId = Redis::get($userReservationKey);
+        // دریافت اطلاعات رزرو از Redis
+        $userReservationData = json_decode(Redis::get($userReservationKey), true);
+        $slotId = $userReservationData['slot_id'];
+        $paymentId = $userReservationData['payment_id'];
+        $orderId = $userReservationData['order_id'];
 
         // کلید Redis برای اطلاعات رزرو
         $reservationKey = "slot:reservation:{$slotId}";
@@ -406,51 +495,162 @@ public function getAppointments(Request $request)
             ], 403);
         }
 
-        // تایید نهایی رزرو در دیتابیس
-        $slot = AppointmentSlot::find($slotId);
+        // بررسی وضعیت پرداخت از callback
+        if ($status !== 'OK') {
+            // پرداخت ناموفق
 
-        if (!$slot) {
+            // به‌روزرسانی وضعیت پرداخت
+            \DB::table('payments')
+                ->where('id', $paymentId)
+                ->update([
+                    'status' => 3, // ناموفق
+                    'updated_at' => now(),
+                ]);
+
+            // به‌روزرسانی وضعیت سفارش
+            \DB::table('orders')
+                ->where('id', $orderId)
+                ->update([
+                    'status' => 3, // لغو شده
+                    'updated_at' => now(),
+                ]);
+
+            // حذف رزرو از Redis
+            Redis::del($reservationKey);
+            Redis::del($userReservationKey);
+
+            // ثبت لاگ callback ناموفق
+            \DB::table('payment_gateway_logs')->insert([
+                'payment_id' => $paymentId,
+                'gateway' => 'zarinpal',
+                'step' => 'callback',
+                'request_data' => json_encode([
+                    'authority' => $authority,
+                    'status' => $status,
+                ]),
+                'response_data' => json_encode([
+                    'result' => 'failed',
+                ]),
+                'ip_address' => request()->ip(),
+                'created_at' => now(),
+            ]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'اسلات مورد نظر یافت نشد'
-            ], 404);
+                'message' => 'پرداخت ناموفق بود. رزرو لغو شد'
+            ], 400);
         }
 
-        // بررسی مجدد وضعیت اسلات
-        if ($slot->status !== 'available') {
-            // حذف کلیدهای Redis
+        try {
+            // ═══════════════════════════════════════════════════════
+            // شبیه‌سازی verify زرین‌پال
+            // ═══════════════════════════════════════════════════════
+
+            // در پروداکشن باید به API verify زرین‌پال درخواست داده شود
+            $refId = 'REF' . time() . rand(1000, 9999); // شبیه‌سازی RefID
+
+            // ثبت لاگ verify موفق
+            \DB::table('payment_gateway_logs')->insert([
+                'payment_id' => $paymentId,
+                'gateway' => 'zarinpal',
+                'step' => 'verify',
+                'request_data' => json_encode([
+                    'merchant_id' => 'XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX',
+                    'authority' => $authority,
+                    'amount' => $reservationData['amount'],
+                ]),
+                'response_data' => json_encode([
+                    'status' => 100,
+                    'ref_id' => $refId,
+                    'card_pan' => '123456******1234',
+                    'card_hash' => 'ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890',
+                ]),
+                'ip_address' => request()->ip(),
+                'created_at' => now(),
+            ]);
+
+            // ═══════════════════════════════════════════════════════
+            // تکمیل پرداخت با FinancialService
+            // ═══════════════════════════════════════════════════════
+
+            $paymentCompleted = $this->financialService->completePayment(
+                paymentId: $paymentId,
+                authority: $authority,
+                refId: $refId,
+                providerId: $reservationData['doctor_id']
+            );
+
+            if (!$paymentCompleted) {
+                throw new \Exception('Payment completion failed (possible duplicate)');
+            }
+
+            // ═══════════════════════════════════════════════════════
+            // تایید نهایی رزرو در دیتابیس
+            // ═══════════════════════════════════════════════════════
+
+            $slot = AppointmentSlot::find($slotId);
+
+            if (!$slot) {
+                throw new \Exception('Slot not found');
+            }
+
+            // بررسی مجدد وضعیت اسلات
+            if ($slot->status !== 'available') {
+                // حذف کلیدهای Redis
+                Redis::del($reservationKey);
+                Redis::del($userReservationKey);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'این اسلات دیگر در دسترس نیست'
+                ], 409);
+            }
+
+            // به‌روزرسانی اسلات در دیتابیس
+            $slot->update([
+                'ai_session_token' => $reservationData['session_id'] ?? null,
+                 'order_id'=>$orderId,
+                'status' => 'booked',
+                'patient_id' => $userId,
+                'booking_time' => Carbon::now(),
+                'reserved_until' => null,
+            ]);
+
+            // حذف کلیدهای موقت از Redis
             Redis::del($reservationKey);
             Redis::del($userReservationKey);
 
             return response()->json([
-                'success' => false,
-                'message' => 'این اسلات دیگر در دسترس نیست'
-            ], 409);
-        }
+                'success' => true,
+                'message' => 'رزرو با موفقیت تایید و پرداخت تکمیل شد',
+                'data' => [
+                    'slot_id' => $slotId,
+                    'slot_date' => $slot->slot_date,
+                    'start_time' => $slot->start_time,
+                    'end_time' => $slot->end_time,
+                    'booking_time' => $slot->booking_time->toDateTimeString(),
+                    'payment' => [
+                        'order_id' => $orderId,
+                        'payment_id' => $paymentId,
+                        'ref_id' => $refId,
+                        'amount' => $reservationData['amount'],
+                        'status' => 'completed',
+                    ]
+                ]
+            ], 200);
 
-        // به‌روزرسانی اسلات در دیتابیس
-        $slot->update([
-            'status' => 'booked',
-            'patient_id' => $userId,
-            'booking_time' => Carbon::now(),
-            'reserved_until' => null, // پاک کردن reserved_until چون رزرو نهایی شد
-        ]);
-
-        // حذف کلیدهای موقت از Redis
-        Redis::del($reservationKey);
-        Redis::del($userReservationKey);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'رزرو با موفقیت تایید شد',
-            'data' => [
+        } catch (\Exception $e) {
+            \Log::error('Reservation confirmation failed', [
                 'slot_id' => $slotId,
-                'slot_date' => $slot->slot_date,
-                'start_time' => $slot->start_time,
-                'end_time' => $slot->end_time,
-                'booking_time' => $slot->booking_time->toDateTimeString(),
-            ]
-        ], 200);
+                'payment_id' => $paymentId,
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در تایید رزرو: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }
-

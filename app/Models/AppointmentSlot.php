@@ -9,6 +9,7 @@ class AppointmentSlot extends Model
     protected $table = 'appointment_slots';
 
     protected $fillable = [
+        'order_id',
         'doctor_id',
         'slot_date',
         'start_time',
@@ -18,6 +19,7 @@ class AppointmentSlot extends Model
         'booking_time',
         'notes',
         'reserved_until',
+        'ai_session_token',
     ];
 
     protected $casts = [

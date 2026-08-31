@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class UserController extends Controller
 {
@@ -23,6 +25,8 @@ class UserController extends Controller
                 'age' => 'nullable|integer|min:1|max:120',
                 'weight' => 'nullable|numeric|min:10|max:500',
                 'height' => 'nullable|numeric|min:50|max:250',
+                 'province'   => 'nullable|integer|min:1|max:31',   // اضافه شد
+                'city'       => 'nullable|integer|min:1',   
             ]);
 
             if ($validator->fails()) {
@@ -40,6 +44,8 @@ class UserController extends Controller
             $fullName = trim($request->first_name . ' ' . $request->last_name);
 
             DB::table('users')->where('id', $userId)->update([
+                'province_id'   => $request->province ?? 1,  // اضافه شد
+                'city_id'       => $request->city ?? 1,       // اضافه شد
                 'name' => $fullName,
                 'gender' => $request->gender, // در دیتابیس شما احتمالا gender در یوزر است
                 'updated_at' => now()
@@ -49,7 +55,7 @@ class UserController extends Controller
             DB::table('user_profiles')->updateOrInsert(
                 ['user_id' => $userId],
                 [
-                     'age' => $request->age?? rand(18, 65),
+                    'age' => $request->age?? rand(18, 65),
                     'weight' => $request->weight??rand(50, 120),
                     'height' => $request->height??rand(150, 195),
                     'updated_at' => now()
@@ -57,6 +63,35 @@ class UserController extends Controller
             );
 
             DB::commit();
+            // ==========================================
+            // 🔸 ارسال پیام خوش‌آمدگویی در Novu
+            // ==========================================
+            $dbUser = DB::table('users')->where('id', $userId)->first(['novu_subscriber_id']);
+
+            if ($dbUser && !empty($dbUser->novu_subscriber_id)) {
+                try {
+                    $novuUrl = 'http://185.222.163.113:3000/v1' . '/events/trigger';
+                    $novuApiKey = '9bf460e9cafb98ca32e7da42e36a5217';
+
+                    Http::withHeaders([
+                        'Authorization' => 'ApiKey ' . $novuApiKey,
+                        'Content-Type' => 'application/json',
+                    ])->post($novuUrl, [
+                        'name' => 'welcome-msg',
+                        'to' => [
+                            'subscriberId' => $dbUser->novu_subscriber_id
+                        ],
+                        'payload' => [
+                            'title' => 'به مدیران خوش آمدید',
+                            'msg'   => "کاربر گرامی {$fullName} عزیز، اطلاعات پروفایل شما با موفقیت تکمیل شد.",
+                            'link'  => 'http://mediraai.com' // لینک دلخواه برای هدایت کاربر
+                        ]
+                    ]);
+                } catch (\Exception $e) {
+                    // ثبت در لاگ تا اگر Novu قطع بود، کاربر ارور پروفایل نبیند
+                    Log::error('Novu Trigger Error (welcome-msg): ' . $e->getMessage());
+                }
+            }
 
             return response()->json([
                 'success' => true,
@@ -85,10 +120,12 @@ class UserController extends Controller
                     'users.id',
                     'users.status',
                     'users.name',
+                    'users.role',
                     'users.email',
                     'users.phone',
                     'users.gender',
                     'users.avatar',
+                    'users.novu_subscriber_id',
                     'users.created_at',
                     'user_plans.plan_type',
                     'user_plans.start_date',
@@ -100,8 +137,8 @@ class UserController extends Controller
                     'user_profiles.weight',
                     'user_profiles.age',
                     'user_profiles.birth_date',
-                    'user_profiles.city',
-                    'user_profiles.province',
+                    'users.city_id',
+                    'users.province_id',
                     'user_profiles.address',
                     'user_profiles.postal_code',
                     'user_profiles.blood_type',
@@ -169,17 +206,19 @@ class UserController extends Controller
                         'id' => $user->id,
                         'name' => $user->name,
                         'email' => $user->email,
+                        'role'=>$user->role,
                         'phone' => $user->phone,
                         'gender' => $user->gender,
                         'avatar' => $user->avatar,
+                        'novu_subscriber_id' => $user->novu_subscriber_id,
                           'is_verify' => $isVerify,
                         'created_at' => $user->created_at,
                         'height' => $user->height,
                         'weight' => $user->weight,
                         'age' => $user->age,
                         'birth_date' => $user->birth_date,
-                        'city' => $user->city,
-                        'province' => $user->province,
+                        'city' => $user->city_id,
+                        'province' => $user->province_id,
                         'address' => $user->address,
                         'postal_code' => $user->postal_code,
                         'blood_type' => $user->blood_type,

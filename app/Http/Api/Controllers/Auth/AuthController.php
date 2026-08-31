@@ -6,9 +6,12 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
@@ -146,7 +149,34 @@ class AuthController extends Controller
                 'message' => 'شما مجاز به ورود نیستید'
             ], 403);
         }
+        if (empty($user->novu_subscriber_id)) {
+            // تولید یک شناسه یکتا برای کاربر در Novu
+            $novuSubscriberId = (string) Str::uuid();
 
+            try {
+                $novuUrl = 'http://185.222.163.113:3000/v1' . '/subscribers';
+                $novuApiKey = '9bf460e9cafb98ca32e7da42e36a5217';
+
+                $response = Http::withHeaders([
+                    'Authorization' => 'ApiKey ' . $novuApiKey,
+                    'Content-Type' => 'application/json',
+                ])->post($novuUrl, [
+                    'subscriberId' => $novuSubscriberId,
+                    'phone' => $phone, // ارسال شماره تماس به Novu (اختیاری ولی مفید برای پیامک)
+                ]);
+
+                // اگر ثبت در Novu موفق بود، شناسه را در دیتابیس ذخیره کن
+                if ($response->successful()) {
+                    $user->novu_subscriber_id = $novuSubscriberId;
+                    $user->save();
+                } else {
+                    // ثبت لاگ در صورت خطای Novu (تا پروسه لاگین کاربر مختل نشود)
+                    Log::error('Novu Subscriber Creation Failed: ' . $response->body());
+                }
+            } catch (\Exception $e) {
+                Log::error('Novu API Exception: ' . $e->getMessage());
+            }
+        }
         // اگر کاربر تازه ساخته شد، پروفایل و پلن پیش‌فرض ایجاد کن
         if ($user->wasRecentlyCreated) {
             // ایجاد پروفایل خالی
