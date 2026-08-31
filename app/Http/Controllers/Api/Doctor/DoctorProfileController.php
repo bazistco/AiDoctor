@@ -9,6 +9,55 @@ use Illuminate\Support\Facades\DB;
 
 class DoctorProfileController extends Controller
 {
+    public function toggleStatus(Request $request)
+    {
+        $userId = $request->user()->id;
+
+        $validated = $request->validate([
+            'status' => 'nullable|in:0,1,true,false',
+        ]);
+
+        try {
+            $doctor = DB::table('doctor_info')->where('user_id', $userId)->first();
+
+            if (!$doctor) {
+                return response()->json([
+                    'status' => 404,
+                    'message' => 'پروفایل پزشک یافت نشد.'
+                ], 404);
+            }
+
+            // تعیین وضعیت جدید (اگر فرانت مقدار فرستاده بود اعمال کند، در غیر این صورت معکوس کند)
+            if ($request->has('status')) {
+                $newStatus = filter_var($validated['status'], FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+            } else {
+                $newStatus = ($doctor->status == 1) ? 0 : 1;
+            }
+
+            DB::table('doctor_info')
+                ->where('user_id', $userId)
+                ->update([
+                    'status' => $newStatus,
+                    'updated_at' => now(),
+                ]);
+
+            return response()->json([
+                'status' => 200,
+                'message' => $newStatus == 1 ? 'وضعیت پزشک به فعال تغییر یافت.' : 'وضعیت پزشک به غیرفعال تغییر یافت.',
+                'data' => [
+                    'status' => $newStatus,
+                    'is_active' => (bool)$newStatus,
+                ]
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 500,
+                'message' => 'خطا در تغییر وضعیت پزشک.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
     public function updateProfile(Request $request)
     {
         $userId = $request->user()->id;
@@ -181,7 +230,7 @@ class DoctorProfileController extends Controller
                 'users.province_id',
                 'users.city_id',
                 'users.is_verify',
-                'users.status',
+                'doctor_info.status',
                 'provinces.name as province_name',
                 'cities.name as city_name',
                 'doctor_info.name as doctor_name',

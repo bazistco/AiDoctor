@@ -68,6 +68,7 @@ Route::group(['prefix' => 'doctor'], function () {
     Route::post('/login', [\App\Http\Controllers\Api\Doctor\DoctorAuthController::class, 'login'])->middleware('throttle:3,1');
 
     Route::middleware(['auth:sanctum', 'user.active', 'role:doctor'])->group(function () {
+        Route::post('/toggle-status', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'toggleStatus']);
         Route::put('/profile', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'updateProfile']);
         Route::get('/dashboard', [\App\Http\Controllers\Api\Doctor\DoctorDashboardController::class, 'index']);
         Route::post('/wallet/charge-mock', [\App\Http\Controllers\Api\Doctor\WalletController::class, 'mockCharge']);

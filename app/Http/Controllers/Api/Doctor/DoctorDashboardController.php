@@ -18,7 +18,7 @@ class DoctorDashboardController extends Controller
             ->join('doctor_info as d', 'u.id', '=', 'd.user_id')
             ->leftJoin('specialties as s', 'd.specialty_id', '=', 's.id')
             ->where('u.id', $doctorId)
-            ->select('u.name', 's.name as specialty')
+            ->select('u.name', 's.name as specialty','d.status')
             ->first();
 
         // ۲. مشاوره‌ها / اتاق‌های فعال
@@ -112,6 +112,7 @@ class DoctorDashboardController extends Controller
                 'name' => $profile->name ?? 'دکتر',
                 'specialty' => $profile->specialty ?? 'نامشخص',
                 'rating' => 5,
+                'status'=>$profile->status ?? 0
             ],
             'stats' => [
                 'todayAppointments' => $todayAppointments,
