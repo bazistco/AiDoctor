@@ -67,6 +67,7 @@ class LabController extends Controller
         $labs = DB::table('labs_tests')
             ->join('labs_info', 'labs_info.user_id', '=', 'labs_tests.lab_id')
             ->join('users', 'users.id', '=', 'labs_info.user_id')
+            ->where('users.status', 1)
             ->where('labs_info.status', 1)
             ->where('labs_tests.status', 1)
             ->whereIn('labs_tests.test_pack_id', $testPackIds)
@@ -97,6 +98,15 @@ class LabController extends Controller
         ]);
     }
 
+    private function isLabActive(int $labId): bool
+    {
+        return DB::table('users as u')
+            ->join('labs_info as df', 'u.id', '=', 'df.user_id')
+            ->where('u.status', 1)
+            ->where('df.status', 1)
+            ->where('u.id', $labId)
+            ->exists();
+    }
     public function storeRequest(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -119,12 +129,21 @@ class LabController extends Controller
                 'errors' => $validator->errors(),
             ], 422);
         }
-
+        $requestTypeId = (int) $request->request_type_id;
+        if ($requestTypeId == 1)
+        {
+            if (!$this->isLabActive($request->lab_id)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'ازمایشگاه مورد نظر در حال حاضر غیرفعال است و امکان رزرو نوبت وجود ندارد'
+                ], 422);
+            }
+        }
         try {
             $user = $request->user();
 
-            $result = DB::transaction(function () use ($request, $user) {
-                $requestTypeId = (int) $request->request_type_id;
+            $result = DB::transaction(function () use ($request, $user,$requestTypeId) {
+
 
                 $prescriptionDetails = [
                     'code' => '',
