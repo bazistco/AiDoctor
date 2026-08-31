@@ -280,6 +280,8 @@ class DiagnosisController extends Controller
             ->join('users', 'doctor_info.user_id', '=', 'users.id')
             ->where('doctor_info.specialty_id', $specialty->id)
             ->whereNull('users.deleted_at')
+            ->where('users.status', 1)
+            ->where('doctor_info.status', 1)
             ->select(
                 'doctor_info.id',
                 'doctor_info.user_id',
@@ -933,7 +935,9 @@ class DiagnosisController extends Controller
                 DB::raw('COUNT(DISTINCT appointment_slots.id) as availability'),
                 'wallets.id as wallet_id',
                 'wallets.balance as wallet_balance'
-            );
+            )
+            ->where('users.status', 1)
+            ->where('doctor_info.status', 1);
 
         if (!empty($detectedKeywordIds)) {
             $query
@@ -1149,6 +1153,8 @@ class DiagnosisController extends Controller
                 ->join('users', 'doctor_info.user_id', '=', 'users.id')
                 ->join('specialties', 'doctor_info.specialty_id', '=', 'specialties.id')
                 ->where('users.id', $doctorId)
+                ->where('users.status', 1)
+                ->where('doctor_info.status', 1)
                 ->select(
                     'users.id',
                     'users.name',

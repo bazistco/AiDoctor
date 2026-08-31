@@ -245,6 +245,15 @@ class ChatController extends Controller
             'last_page'    => (int) ceil($total / $perPage),]);
     }
 
+    private function isDoctorActive(int $doctorId): bool
+    {
+        return DB::table('users as u')
+            ->join('doctor_info as df', 'u.id', '=', 'df.user_id')
+            ->where('u.status', 1)
+            ->where('df.status', 1)
+            ->where('u.id', $doctorId)
+            ->exists();
+    }
 
     public function getDoctorRooms(Request $request)
     {
@@ -352,9 +361,16 @@ class ChatController extends Controller
             ], 422);
         }
 
+
         $userId = auth()->user()->id;
         $doctorId = $request->doctor_id;
 
+        if (!$this->isDoctorActive($doctorId)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'پزشک مورد نظر در حال حاضر غیرفعال است و امکان رزرو نوبت وجود ندارد'
+            ], 422);
+        }
         // بررسی وجود اتاق قبلی بین این دو کاربر
         $existingRoom = DB::table('chat_rooms')
             ->join('room_participants as rp1', 'chat_rooms.id', '=', 'rp1.room_id')

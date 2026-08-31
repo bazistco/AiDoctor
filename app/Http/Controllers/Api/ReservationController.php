@@ -249,7 +249,15 @@ class ReservationController extends Controller
      * رزرو موقت اسلات (15 دقیقه)
      */
 
-
+    private function isDoctorActive(int $doctorId): bool
+    {
+        return DB::table('users as u')
+            ->join('doctor_info as df', 'u.id', '=', 'df.user_id')
+            ->where('u.status', 1)
+            ->where('df.status', 1)
+            ->where('u.id', $doctorId)
+            ->exists();
+    }
     /**
      * رزرو موقت اسلات + ایجاد سفارش و پرداخت
      */
@@ -268,13 +276,20 @@ class ReservationController extends Controller
         // بررسی وجود اسلات در دیتابیس
         $slot = AppointmentSlot::find($slotId);
 
+
+
         if (!$slot) {
             return response()->json([
                 'success' => false,
                 'message' => 'اسلات مورد نظر یافت نشد'
             ], 404);
         }
-
+        if (!$this->isDoctorActive($slot->doctor_id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'پزشک مورد نظر در حال حاضر غیرفعال است و امکان رزرو نوبت وجود ندارد'
+            ], 422);
+        }
         // بررسی وضعیت اسلات
         if ($slot->status !== 'available') {
             return response()->json([
