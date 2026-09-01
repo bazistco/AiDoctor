@@ -524,10 +524,12 @@ class FinancialService
     {
         $query = DB::table('payments as p')
             ->join('orders as o', 'p.order_id', '=', 'o.id')
+            ->join('payment_reasons as pr', 'o.reason_id', '=', 'pr.id')
             ->join('users as u', 'p.user_id', '=', 'u.id')
             ->select([
                 'p.id',
                 'p.user_id',
+                'pr.label',
                 'u.name as user_name',
                 'p.order_id',
                 'p.amount',
@@ -565,6 +567,15 @@ class FinancialService
         return $query->orderByDesc('p.created_at')
             ->paginate($perPage)
             ->through(function ($payment) {
+                if ($payment->gateway == 'zarinpal') {
+                    $payment->gateway='درگاه زرین پال'  ;
+                }
+                elseif ($payment->gateway == 'wallet') {
+                    $payment->gateway = 'کیف پول';
+                }
+                else{
+                    $payment->gateway='درگاه'  ;
+                }
                 $payment->status_text = match($payment->status) {
                     1 => 'در انتظار پرداخت',
                     2 => 'موفق',
