@@ -934,7 +934,8 @@ class DiagnosisController extends Controller
                 'doctor_info.province',
                 DB::raw('COUNT(DISTINCT appointment_slots.id) as availability'),
                 'wallets.id as wallet_id',
-                'wallets.balance as wallet_balance'
+                'wallets.balance as wallet_balance',
+                DB::raw('COALESCE(dp.tier_level, 0) as main_plan_tier')
             )
             ->where('users.status', 1)
             ->where('doctor_info.status', 1);
@@ -1001,6 +1002,14 @@ class DiagnosisController extends Controller
             $query->orderByDesc('search_rank');
         }
 
+        if ($searchTerm !== '') {
+            $query->orderByRaw("
+        CASE
+            WHEN specialties.name LIKE ? AND dp.tier_level >= 3 THEN dp.tier_level
+            ELSE 0
+        END DESC
+    ", ['%' . $searchTerm . '%']);
+        }
         $query
             ->orderByDesc('doctor_info.is_vip')
             ->orderByDesc('doctor_info.rating');
@@ -1102,6 +1111,7 @@ class DiagnosisController extends Controller
             unset($doctor->plan_multiplier);
             unset($doctor->wallet_id);
             unset($doctor->wallet_balance);
+            unset($doctor->main_plan_tier);
 
             return $doctor;
         });
