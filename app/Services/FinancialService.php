@@ -526,11 +526,16 @@ class FinancialService
             ->join('orders as o', 'p.order_id', '=', 'o.id')
             ->join('payment_reasons as pr', 'o.reason_id', '=', 'pr.id')
             ->join('users as u', 'p.user_id', '=', 'u.id')
+            ->leftJoin('provinces as prov', 'u.province_id', '=', 'prov.id')
+            ->leftJoin('cities as c', 'u.city_id', '=', 'c.id')
             ->select([
                 'p.id',
                 'p.user_id',
                 'pr.label',
                 'u.name as user_name',
+                'u.phone as user_phone',
+                'prov.name as province_name',
+                'c.name as city_name',
                 'p.order_id',
                 'p.amount',
                 'p.status',
