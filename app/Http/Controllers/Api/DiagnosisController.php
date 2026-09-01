@@ -998,10 +998,6 @@ class DiagnosisController extends Controller
                 'wallets.id', 'wallets.balance'
             );
 
-        if (!empty($detectedKeywordIds)) {
-            $query->orderByDesc('search_rank');
-        }
-
         if ($searchTerm !== '') {
             $query->orderByRaw("
         CASE
@@ -1010,6 +1006,11 @@ class DiagnosisController extends Controller
         END DESC
     ", ['%' . $searchTerm . '%']);
         }
+        if (!empty($detectedKeywordIds)) {
+            $query->orderByDesc('search_rank');
+        }
+
+
         $query
             ->orderByDesc('doctor_info.is_vip')
             ->orderByDesc('doctor_info.rating');
