@@ -3,12 +3,29 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\FinancialService;
+use Carbon\Carbon;
+use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class UserPharmacyRequestController extends Controller
 {
+    protected $financialService;
+
+    // تزریق سرویس مالی در کانستراکتور
+    public function __construct(
+         FinancialService $financialService // اگر تایپ هینت دارید این خط را از کامنت خارج کنید
+    ) {
+         $this->financialService = $financialService;
+
+        // نکته: اگر از کانتینر لاراول به شکل دیگری سرویس مالی را فراخوانی می‌کنید (مثلا با app())
+        // آن را اینجا مقداردهی کنید. من فرض را بر این می‌گیرم که $this->financialService در دسترس است.
+    }
+
     /**
      * نمایش جزئیات درخواست داروخانه به همراه فاکتور
      */
@@ -64,31 +81,135 @@ class UserPharmacyRequestController extends Controller
     /**
      * پرداخت و انتقال وضعیت از ۱ به ۲
      */
-    public function pay($id)
+    public function pay($id, Request $request)
     {
-        $userId = auth()->id();
+        $userId = $request->user()->id;
+        $now = Carbon::now();
 
-        $request = DB::table('users_pharmacy_requests')
+        // ── ۱. واکشی اطلاعات درخواست داروخانه ─────────────
+        $pharmacyRequest = DB::table('users_pharmacy_requests')
             ->where('id', $id)
             ->where('user_id', $userId)
             ->first();
 
-        if (!$request) {
+        if (!$pharmacyRequest) {
             return response()->json(['success' => false, 'message' => 'درخواست یافت نشد'], 404);
         }
 
-        if ($request->status != 1) {
+        if ($pharmacyRequest->status != 1) {
             return response()->json(['success' => false, 'message' => 'فقط درخواست‌های با وضعیت "در انتظار پرداخت" قابل پرداخت هستند'], 400);
         }
 
-        DB::table('users_pharmacy_requests')
-            ->where('id', $id)
-            ->update(['status' => 2, 'updated_at' => now()]);
+        if (!$pharmacyRequest->total_price || $pharmacyRequest->total_price <= 0) {
+            return response()->json(['success' => false, 'message' => 'مبلغ فاکتور نامعتبر است'], 422);
+        }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'پرداخت با موفقیت انجام شد. سفارش به مرحله آماده‌سازی رفت.',
-        ]);
+        // ── ۲. فرآیند مالی و تغییر وضعیت (داخل تراکنش) ─────────────
+        DB::beginTransaction();
+
+        try {
+            $totalPrice = $pharmacyRequest->total_price;
+            $pharmacyId = $pharmacyRequest->pharmacy_id; // آیدی کاربریِ داروخانه جهت واریز وجه
+
+            // ۳.۱ ایجاد سفارش در سیستم مالی
+            $orderId = $this->financialService->createOrder(
+                userId:      $userId,
+                reasonId:    6, // reason_id مخصوص درخواست‌های داروخانه
+                reasonRef:   $id,
+                amount:      $totalPrice,
+                description: "پرداخت فاکتور درخواست داروخانه #{$id}"
+            );
+
+            // ۳.۲ ایجاد پرداخت (gateway: mock)
+            $paymentId = $this->financialService->createPayment(
+                userId:    $userId,
+                orderId:   $orderId,
+                reasonId:  6,
+                reasonRef: $id,
+                amount:    $totalPrice,
+                gateway:   'mock'
+            );
+
+            // ۳.۳ شبیه‌سازی authority و ref_id (برای درگاه شبیه‌سازی شده)
+            $authority = 'MOCK-' . str_pad($paymentId, 30, '0', STR_PAD_LEFT);
+            $refId     = 'SIM-' . strtoupper(Str::random(12));
+
+            // ثبت authority در جدول پرداخت‌ها
+            DB::table('payments')
+                ->where('id', $paymentId)
+                ->update([
+                    'authority'  => $authority,
+                    'updated_at' => $now,
+                ]);
+
+            // ۳.۴ تکمیل پرداخت (کسر از کاربر و واریز به داروخانه)
+            // گرفتن نام بیمار برای درج در توضیحات تراکنش داروخانه
+            $patient = DB::table('users')
+                ->where('id', $userId)
+                ->first(['name']);
+            $patientName = trim(($patient->name ?? 'کاربر ناشناس'));
+
+            $description = "درآمد از فروش دارو - درخواست #{$id} (سفارش #{$orderId}) - بیمار: {$patientName}";
+
+            $this->financialService->completePayment(
+                paymentId:                      $paymentId,
+                authority:                      $authority,
+                refId:                          $refId,
+                providerId:                     $pharmacyId, // کیف پول داروخانه شارژ می‌شود
+                providerId_payment_description: $description
+            );
+
+            // ۳.۵ تغییر وضعیت درخواست به مرحله ۲ (در حال آماده‌سازی)
+            DB::table('users_pharmacy_requests')
+                ->where('id', $id)
+                ->update([
+                    'status'     => 2,
+                    'updated_at' => $now
+                ]);
+
+            DB::commit();
+
+            // لاگ موفقیت‌آمیز بودن فرآیند
+            Log::info('Pharmacy request paid successfully via mock', [
+                'request_id'  => $id,
+                'user_id'     => $userId,
+                'pharmacy_id' => $pharmacyId,
+                'order_id'    => $orderId,
+                'payment_id'  => $paymentId,
+                'amount'      => $totalPrice,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'پرداخت با موفقیت انجام شد. سفارش به مرحله آماده‌سازی رفت.',
+                'data'    => [
+                    'request_id'  => $id,
+                    'total_price' => $totalPrice,
+                    'payment'     => [
+                        'order_id'   => $orderId,
+                        'payment_id' => $paymentId,
+                        'ref_id'     => $refId,
+                        'amount'     => $totalPrice,
+                        'status'     => 'completed',
+                    ],
+                ],
+            ], 200);
+
+        } catch (Exception $e) {
+            DB::rollBack();
+
+            Log::error('Pharmacy request payment failed', [
+                'request_id' => $id,
+                'user_id'    => $userId,
+                'error'      => $e->getMessage(),
+                'trace'      => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در فرآیند پرداخت: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     private function statusLabel($status)
