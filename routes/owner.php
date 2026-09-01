@@ -22,6 +22,7 @@ Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
 
     // 2. روت‌های نیازمند احراز هویت و دسترسی داروخانه
     Route::middleware(['auth:sanctum', 'user.active', 'role:pharmacy', 'ownership:pharmacy'])->group(function () {
+        Route::get('/finance', [PharmacyProfileController::class, 'finance']);
         Route::get('/dashboard', [PharmacyProfileController::class, 'dashboard']);
         Route::post('/toggle-status', [PharmacyProfileController::class, 'toggleStatus']);
         Route::get('/profile', [PharmacyProfileController::class, 'show']);
