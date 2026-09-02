@@ -48,7 +48,12 @@ class DoctorAuthController extends Controller
                 'message' => 'شما دسترسی دکتر ندارید.',
             ], 403);
         }
-
+        if ((int)$user->status !== 1) {
+            return response()->json([
+                'success' => false,
+                'message' => 'حساب کاربری شما غیرفعال است.'
+            ], 403);
+        }
         // ۵) ساخت توکن Sanctum
         $token = $user->createToken('doctor-token', ['doctor'])->plainTextToken;
 
