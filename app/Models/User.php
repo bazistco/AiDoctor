@@ -9,9 +9,10 @@ namespace App\Models;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Foundation\Auth\User as Authenticatable;
-
+use Laravel\Sanctum\NewAccessToken;
 
 
 /**
@@ -52,4 +53,16 @@ class User extends Authenticatable
         'status',
 		'remember_token'
 	];
+    public function createToken(string $name, array $abilities = ['*'])
+    {
+        $plainTextToken = Str::random(50); // طول توکن را به ۲۰۰ کاراکتر افزایش دهید
+
+        $token = $this->tokens()->create([
+            'name' => $name,
+            'token' => hash('sha256', $plainTextToken),
+            'abilities' => $abilities,
+        ]);
+
+        return new NewAccessToken($token, $token->getKey().'|'.$plainTextToken);
+    }
 }
