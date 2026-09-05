@@ -44,7 +44,7 @@ Route::get('/redis-check', function () {
             'status' => 'error',
             'message' => $e->getMessage()
         ], 500);
-    }
+    }});
 Route::prefix('tours')->group(function () {
     Route::get('/', [TourController::class, 'index']);
     Route::post('/', [TourController::class, 'store']);
