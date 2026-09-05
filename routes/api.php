@@ -20,6 +20,9 @@ use App\Http\Controllers\Api\Admin\AdminServiceController;
 use App\Http\Controllers\TourController;
 
 
+Route::get('/health',function (){
+    return response()->json(["status"=>"success","data"=>['date'=>now()]]);
+});
 Route::prefix('tours')->group(function () {
     Route::get('/', [TourController::class, 'index']);
     Route::post('/', [TourController::class, 'store']);
