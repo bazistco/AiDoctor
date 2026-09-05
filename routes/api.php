@@ -23,6 +23,28 @@ use App\Http\Controllers\TourController;
 Route::get('/health',function (){
     return response()->json(["status"=>"success","data"=>['date'=>now()]]);
 });
+Route::get('/redis-check', function () {
+    try {
+        // تست اتصال و عملیات ساده
+        Redis::set('test_key', 'ok');
+        $value = Redis::get('test_key');
+        $ping = Redis::connection()->ping();
+
+        if ($ping && $value === 'ok') {
+            return response()->json([
+                'status' => 'success',
+                'redis_connected' => true,
+                'ping' => $ping,
+                'cache_test' => $value,
+                'time' => now()->toDateTimeString()
+            ]);
+        }
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'error',
+            'message' => $e->getMessage()
+        ], 500);
+    }
 Route::prefix('tours')->group(function () {
     Route::get('/', [TourController::class, 'index']);
     Route::post('/', [TourController::class, 'store']);
