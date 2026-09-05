@@ -55,7 +55,7 @@ class User extends Authenticatable
 	];
     public function createToken(string $name, array $abilities = ['*'])
     {
-        $plainTextToken = Str::random(50); // طول توکن را به ۲۰۰ کاراکتر افزایش دهید
+        $plainTextToken = Str::random(100); // طول توکن را به ۲۰۰ کاراکتر افزایش دهید
 
         $token = $this->tokens()->create([
             'name' => $name,
