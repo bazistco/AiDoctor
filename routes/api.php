@@ -18,6 +18,8 @@ use App\Http\Controllers\Api\ReviewController;
 use App\Http\Controllers\Api\MedicalServiceProviderController;
 use App\Http\Controllers\Api\Admin\AdminServiceController;
 use App\Http\Controllers\TourController;
+use Illuminate\Support\Facades\Redis;
+
 
 
 Route::get('/health',function (){
