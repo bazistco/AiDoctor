@@ -155,8 +155,7 @@ class AuthController extends Controller
 
             try {
                 $novuUrl = 'http://185.222.163.113:3000/v1' . '/subscribers';
-                $novuApiKey = '9bf460e9cafb98ca32e7da42e36a5217';
-
+                $novuApiKey = config('services.novu.api_key');
                 $response = Http::withHeaders([
                     'Authorization' => 'ApiKey ' . $novuApiKey,
                     'Content-Type' => 'application/json',
