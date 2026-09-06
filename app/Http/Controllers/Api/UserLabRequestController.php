@@ -60,19 +60,22 @@ class UserLabRequestController extends Controller
                 'lrtp.id',
                 'tp.name as test_name',
                 'lt.price',
-                'lrr.file_path as result_file'
+                'lrr.file_path as result_file',
+                'lrr.id as result_id',
             )
             ->get();
 
         // پردازش تست‌ها و ساخت URL کامل برای فایل نتیجه
         $processedTests = $tests->map(function ($test) use ($baseUrl) {
             $resultFileUrl = null;
-            if (!empty($test->result_file)) {
-                $resultFileUrl = str_starts_with($test->result_file, 'http')
-                    ? $test->result_file
-                    : $baseUrl . ltrim($test->result_file, '/');
+            if (!empty($test->result_file) && !empty($test->result_id)) {
+                if (str_starts_with($test->result_file, 'storage/')) {
+                    $baseUrl = 'http://185.222.163.113:7000/';
+                    $resultFileUrl = $baseUrl . ltrim($test->result_file, '/');
+                } else {
+                    $resultFileUrl = route('lab.results.download', ['result_id' => $test->result_id]);
+                }
             }
-
             return [
                 'id'          => $test->id,
                 'test_name'   => $test->test_name,
