@@ -74,7 +74,7 @@ class LabRequestController extends Controller
 
             $safeUrl = str_starts_with($row->file_path, 'storage/')
                 ? 'http://185.222.163.113:7000/' . ltrim($row->file_path, '/')
-                : route('api.labs.results.download', ['result_id' => $row->result_id]);
+                : route('lab.results.download', ['result_id' => $row->result_id]);
 
             $groupedResults[$packId]['files'][] = [
                 'result_id' => $row->result_id,
@@ -311,7 +311,7 @@ class LabRequestController extends Controller
                     $resultFileUrl = $baseUrl . ltrim($test->result_file, '/');
                 } else {
                     // تولید لینک ایمن برای داده‌های جدید
-                    $resultFileUrl = route('api.labs.results.download', ['result_id' => $test->result_id]);
+                    $resultFileUrl = route('lab.results.download', ['result_id' => $test->result_id]);
                 }
             }
 
