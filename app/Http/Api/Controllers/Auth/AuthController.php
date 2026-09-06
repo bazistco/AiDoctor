@@ -215,6 +215,7 @@ class AuthController extends Controller
             ], 404);
         }
 
+
         // 🔸 ایجاد کیف پول (اگر از قبل نداشته باشد)
         $walletExists = DB::table('wallets')->where('user_id', $user->id)->exists();
 
