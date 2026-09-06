@@ -26,7 +26,7 @@ class UserController extends Controller
                 'weight' => 'nullable|numeric|min:10|max:500',
                 'height' => 'nullable|numeric|min:50|max:250',
                  'province'   => 'nullable|integer|min:1|max:31',   // اضافه شد
-                'city'       => 'nullable|integer|min:1',   
+                'city'       => 'nullable|integer|min:1',
             ]);
 
             if ($validator->fails()) {
@@ -71,8 +71,7 @@ class UserController extends Controller
             if ($dbUser && !empty($dbUser->novu_subscriber_id)) {
                 try {
                     $novuUrl = 'http://185.222.163.113:3000/v1' . '/events/trigger';
-                    $novuApiKey = '9bf460e9cafb98ca32e7da42e36a5217';
-
+                    $novuApiKey = config('services.novu.api_key');
                     Http::withHeaders([
                         'Authorization' => 'ApiKey ' . $novuApiKey,
                         'Content-Type' => 'application/json',
@@ -198,7 +197,7 @@ class UserController extends Controller
                 $bmi = round($user->weight / ($heightInMeters * $heightInMeters), 2);
             }
             $isVerify = !empty($user->name) && in_array($user->gender, [0, 1], true);
-   
+
             return response()->json([
                 'success' => true,
                 'data' => [

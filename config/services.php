@@ -34,5 +34,9 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+    'novu' => [
+        'api_key' => env('9bf460e9cafb98ca32e7da42e36a5217'),
+    ]
+
 
 ];
