@@ -55,6 +55,7 @@ Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
             Route::patch('/{id}/mark-delivered', [PharmacyRequestController::class, 'markAsDelivered']);
             Route::patch('/{id}/mark-completed', [PharmacyRequestController::class, 'markAsCompleted']);
             Route::patch('/{id}/cancel', [PharmacyRequestController::class, 'cancelRequest']);
+            Route::get('/requests/{id}/prescription/{fileName}', [PharmacyRequestController::class, 'downloadPharmacyPrescription'])->where('fileName', '.*');
         });
 
     });
@@ -86,7 +87,7 @@ Route::prefix('lab')->name('lab.')->group(function () {
         Route::post('/requests/{id}/assign-tests', [LabRequestController::class, 'assignTestPacks']);
         Route::get('results', [LabRequestController::class, 'getResults']);
         Route::post('/requests/{id}/results', [LabRequestController::class, 'uploadResult']);
-        Route::get('/lab-requests/results/{result_id}/download', [LabRequestController::class, 'downloadResultFile'])->name('results.download');
+        Route::get('/lab-requests/results/{result_id}/download', [LabRequestController::class, 'downloadResultFile'])->name('results.download')->where('fileName', '.*');
         Route::get('/prescription-file/{id}/{fileName}', [LabRequestController::class, 'downloadPatientPrescription'])->name('prescription.download')->where('fileName', '.*'); ;
         Route::get('/schedule', [LabRequestController::class, 'schedule']);
         Route::get('/requests', [LabRequestController::class, 'index'])->name('requests.index');

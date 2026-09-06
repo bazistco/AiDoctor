@@ -252,10 +252,10 @@ class UserPharmacyRequestController extends Controller
             $prescriptionTypeId = 2; // 2: نسخه دیجیتال
         }
 
-        // ۲. پردازش آپلود فایل
         $uploadedFiles = [];
         if ($request->hasFile('prescription_image')) {
-            $path = $request->file('prescription_image')->store('prescriptions', 'public');
+            // تغییر از public به local برای جلوگیری از دسترسی مستقیم از طریق URL
+            $path = $request->file('prescription_image')->store('prescriptions', 'local');
             $uploadedFiles[] = $path;
         }
 

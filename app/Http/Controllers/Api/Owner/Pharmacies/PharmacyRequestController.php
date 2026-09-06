@@ -483,4 +483,52 @@ class PharmacyRequestController extends Controller
                 'updated_at'  => now()
             ]);
     }
+    /**
+     * دانلود امن فایل نسخه برای پنل داروخانه
+     */
+    public function downloadPharmacyPrescription($requestId, $fileName)
+    {
+        $pharmacyId = auth()->id(); // شناسه داروخانه لاگین شده
+
+        // ۱. بررسی دسترسی داروخانه به این درخواست
+        $pharmacyRequest = DB::table('users_pharmacy_requests')
+            ->where('id', $requestId)
+            ->where(function($query) use ($pharmacyId) {
+                // داروخانه فقط در صورتی مجاز است که درخواست به او اختصاص یافته باشد
+                // یا درخواست هنوز آزاد باشد (منتظر پذیرش توسط داروخانه‌ها)
+                $query->where('pharmacy_id', $pharmacyId)
+                    ->orWhereNull('pharmacy_id');
+            })
+            ->first();
+
+        if (!$pharmacyRequest) {
+            return response()->json([
+                'success' => false,
+                'message' => 'شما دسترسی لازم برای مشاهده این نسخه را ندارید.'
+            ], 403);
+        }
+
+        // ۲. پاکسازی و ساخت مسیر فایل
+        // حذف عبارت prescriptions/ در صورت ارسال اشتباه از سمت کلاینت تا مسیر تکراری نشود
+        $cleanFileName = str_replace('prescriptions/', '', $fileName);
+        $targetPath = 'prescriptions/' . $cleanFileName;
+
+        // ۳. بررسی وجود فایل در دیسک امن
+        if (!Storage::disk('local')->exists($targetPath)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'فایل نسخه یافت نشد.'
+            ], 404);
+        }
+
+        // ۴. استخراج نام خالص برای هدر (جلوگیری از خطای اسلش که قبلا بررسی کردیم)
+        $pureFileName = basename($targetPath);
+        $mimeType = Storage::disk('local')->mimeType($targetPath);
+
+        // ۵. ارسال فایل به مرورگر داروخانه
+        return Storage::disk('local')->response($targetPath, $pureFileName, [
+            'Content-Type' => $mimeType,
+        ]);
+    }
+
 }
