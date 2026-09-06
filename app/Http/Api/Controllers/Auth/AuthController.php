@@ -26,8 +26,8 @@ class AuthController extends Controller
             'phone' => [
                 'required',
                 'string',
-                'min:10',
-                'max:15',
+                'min:11',
+                'max:11',
                 'regex:/^[0-9]+$/' // فقط اعداد انگلیسی
             ]
         ]);
@@ -187,12 +187,6 @@ class AuthController extends Controller
                 'weight' => rand(50, 120),
                 'height' => rand(150, 195),
                 'birth_date' => now(),
-            ]);
-
-            DB::table('room_participants')->insert([
-                'user_id' => $user->id,
-                'room_id'=> 1,
-                'joined_at' => now()
             ]);
 
             // ایجاد پلن رایگان
