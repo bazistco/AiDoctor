@@ -290,6 +290,7 @@ class LabRequestController extends Controller
             ->where('lrtp.lab_request_id', $id)
             ->where('lt.lab_id', $labId)
             ->select(
+                'lrr.id as result_id',
                 'lrtp.id as test_pack_id',
                 'tp.name',
                 'lt.price',
@@ -410,18 +411,9 @@ class LabRequestController extends Controller
 
     public function uploadResult(Request $request, $id)
     {
-        // --- START DEBUG CODE ---
-        if ($request->hasFile('file') && !$request->file('file')->isValid()) {
-            return response()->json([
-                'status' => false,
-                'message' => 'خطای سیستمی در آپلود فایل',
-                'error_detail' => $request->file('file')->getErrorMessage()
-            ], 400);
-        }
-        // --- END DEBUG CODE ---
         $request->validate([
             'test_pack_id' => 'required|integer',
-            'file' => 'required|file|mimes:jpeg,png,jpg,gif,pdf|max:5120',
+            'file' => 'required|file|mimes:jpeg,png,jpg,gif,pdf|max:2048',
             'note' => 'nullable|string',
         ]);
 
