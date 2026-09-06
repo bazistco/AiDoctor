@@ -726,10 +726,24 @@ class LabRequestController extends Controller
         // ۳. اطمینان از اینکه فایلی که درخواست شده، دقیقاً در دیتابیس ثبت شده است
         $details = json_decode($prescription->details, true);
         $files = $details['files'] ?? [];
-        $targetPath = 'prescriptions/' . $fileName;
+
+        // استخراج نام خالص فایل برای جلوگیری از تکرار پوشه (مثل prescriptions/prescriptions)
+        // همچنین جلوگیری از حملات Directory Traversal (مثل ../../)
+        $pureFileName = basename($fileName);
+        $targetPath = 'prescriptions/' . $pureFileName;
 
         if (!in_array($targetPath, $files)) {
-            return response()->json(['success' => false, 'message' => 'فایل غیرمجاز است یا یافت نشد.'], 404);
+            // برای دیباگ موقت می‌توانید این مقادیر را بررسی کنید تا ببینید دقیقاً چه چیزی مقایسه می‌شود
+            // پس از رفع مشکل، مقادیر debug را پاک کنید
+            return response()->json([
+                'success' => false,
+                'message' => 'فایل غیرمجاز است یا یافت نشد.',
+                'debug_info' => [
+                    'received_from_url' => $fileName,
+                    'calculated_target_path' => $targetPath,
+                    'files_in_database' => $files
+                ]
+            ], 404);
         }
 
         // ۴. بررسی وجود فایل در سرور
