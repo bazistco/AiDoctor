@@ -753,9 +753,13 @@ class LabRequestController extends Controller
 
         // ۵. ارسال امن فایل به سمت فرانت‌اند (آزمایشگاه)
         $mimeType = Storage::disk('local')->mimeType($targetPath);
-        return Storage::disk('local')->response($targetPath, $fileName, [
+
+        // نکته مهم: در اینجا به جای $fileName باید از $pureFileName استفاده کنید
+        // تا مرورگر و لاراول به وجود اسلش در نام فایل ایراد نگیرند.
+        return Storage::disk('local')->response($targetPath, $pureFileName, [
             'Content-Type' => $mimeType,
         ]);
+
     }
 
 
