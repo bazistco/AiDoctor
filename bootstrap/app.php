@@ -88,7 +88,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
                 return response()->json([
 
-                    'message' =>  'Server Error',
+                    'message' =>  $e->getMessage() ?: 'Server Error',
                     'error' => 'Something went wrong'
                 ], 500);
             }
