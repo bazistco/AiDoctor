@@ -25,61 +25,12 @@ use Illuminate\Support\Facades\Redis;
 Route::get('/health',function (){
     return response()->json(["status"=>"success","data"=>['date'=>now()]]);
 });
-Route::get('/redis-check', function () {
-    try {
-        // تست اتصال و عملیات ساده
-        Redis::set('test_key', 'ok');
-        $value = Redis::get('test_key');
-        $ping = Redis::connection()->ping();
 
-        if ($ping && $value === 'ok') {
-            return response()->json([
-                'status' => 'success',
-                'redis_connected' => true,
-                'ping' => $ping,
-                'cache_test' => $value,
-                'time' => now()->toDateTimeString()
-            ]);
-        }
-    } catch (\Exception $e) {
-        return response()->json([
-            'status' => 'error',
-            'message' => $e->getMessage()
-        ], 500);
-    }});
-Route::prefix('tours')->group(function () {
-    Route::get('/', [TourController::class, 'index']);
-    Route::post('/', [TourController::class, 'store']);
-});
-Route::get('/tours/{id}', [TourController::class, 'show']);       // دریافت جزئیات یک تور برای صفحه دعوت
-Route::post('/tours/{id}/join', [TourController::class, 'join']);
-Route::get('/tours/{id}/participants', [TourController::class, 'getParticipants']);
-Route::put('/tours/{id}/participants', [TourController::class, 'updateParticipant']);
-Route::delete('/tours/{id}/participants/{mobile}', [TourController::class, 'removeParticipant']);
 
 Route::any('pg/call_back', function (Request $request) {
     return response()->json(['success'=>1,'data'=>$request->all() ?? []]) ;
 });
-Route::post('/send-date-invite', function (Request $request) {
-    $token = "182541559:ERwiwkliF-Q4fg29DE-rdDu9halqRh5cIaU"; // بهتر است این را در فایل .env بگذارید
-    $chatId = "6068713488";
 
-    $message = "💖 دعوت به قرار پذیرفته شد!\n\n📅 تاریخ: {$request->date}\n⏰ ساعت: {$request->time}\n🍽 سفارش/غذا: {$request->food}";
-
-    $response = Http::post("https://tapi.bale.ai/bot{$token}/sendMessage", [
-        'chat_id' => $chatId,
-        'text' => $message,
-    ]);
-
-    if ($response->successful()) {
-        return response()->json(['status' => 'success']);
-    }
-
-    return response()->json(['status' => 'error'], 500);
-});
-Route::get('/get-ip', function (Request $request) {
-    dd($request->ip());
-});
 Route::middleware(['auth:sanctum', 'user.active'])->prefix('user/medical')->group(function () {
     // مرحله ۱: دریافت لیست خدمات قابل ارائه
     Route::get('/services', [MedicalRequestController::class, 'getServices']);
