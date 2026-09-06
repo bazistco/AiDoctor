@@ -255,6 +255,7 @@ class LabRequestController extends Controller
             ->leftJoin('users_prescriptions as up', 'up.id', '=', 'ulr.user_prescription_id')
             ->where('ulr.id', $id)
             ->where(function ($query) use ($labId) {
+                // اجازه دسترسی: یا درخواست مال این آزمایشگاه است، یا هنوز آزاد است
                 $query->where('ulr.lab_id', $labId)
                     ->orWhereNull('ulr.lab_id');
             })
@@ -268,24 +269,27 @@ class LabRequestController extends Controller
                 'ulr.total_price',
                 'u.name as patient_name',
                 'u.phone as patient_phone',
+                'up.id as prescription_id', // دریافت آیدی نسخه برای سیستم امنیتی دانلود
                 'up.prescription_type_id',
                 'up.details as prescription_details'
             )
             ->first();
 
         if (!$labRequest) {
-            return $this->error('درخواست یافت نشد.', 404);
+            return $this->error('درخواست یافت نشد یا شما دسترسی به این درخواست ندارید.', 404);
         }
 
+        $addressInfo = null;
         if ($labRequest->address_id) {
             $address = DB::table('addresses')->where('id', $labRequest->address_id)->first();
-            $labRequest->address = @$address->address;
+            $addressInfo = $address ? $address->address : null;
         }
-        // ۲. واکشی آزمایش‌ها و جوین با جدول نتایج (lab_request_results)
+
+        // ۲. واکشی آزمایش‌ها و جوین با جدول نتایج
+        // نکته: بررسی کنید که آیا در درخواست‌های با lab_id = null، این کوئری دیتایی برمی‌گرداند یا خیر.
         $tests = DB::table('lab_request_test_packs as lrtp')
             ->join('labs_tests as lt', 'lt.id', '=', 'lrtp.lab_test_id')
             ->join('test_packs as tp', 'tp.id', '=', 'lt.test_pack_id')
-            // اضافه شدن جوین برای دریافت فایل نتیجه:
             ->leftJoin('lab_request_results as lrr', 'lrr.lab_request_test_pack_id', '=', 'lrtp.id')
             ->where('lrtp.lab_request_id', $id)
             ->where('lt.lab_id', $labId)
@@ -294,23 +298,21 @@ class LabRequestController extends Controller
                 'lrtp.id as test_pack_id',
                 'tp.name',
                 'lt.price',
-                'lrr.file_path as result_file' // خواندن مسیر فایل از جدول نتایج
+                'lrr.file_path as result_file'
             )
             ->get();
 
-        $baseUrl = 'http://185.222.163.113:7000/'; // آدرس پایه برای فایل‌ها
-
+        // استفاده از آدرس داینامیک سیستم به جای هاردکد کردن IP
+        $baseUrl = rtrim(config('app.url', url('/')), '/') . '/';
 
         // پردازش آزمایش‌ها برای ساخت URL کامل نتیجه
         $processedTests = $tests->map(function ($test) use ($baseUrl) {
             $resultFileUrl = null;
             if (!empty($test->result_file) && !empty($test->result_id)) {
-                // اگر مسیر فایل قدیمی و پابلیک بود (پشتیبانی از داده‌های قبلی)
                 if (str_starts_with($test->result_file, 'storage/')) {
-                    $baseUrl = 'http://185.222.163.113:7000/';
                     $resultFileUrl = $baseUrl . ltrim($test->result_file, '/');
                 } else {
-                    // تولید لینک ایمن برای داده‌های جدید
+                    // تولید لینک ایمن برای نتایج
                     $resultFileUrl = route('lab.results.download', ['result_id' => $test->result_id]);
                 }
             }
@@ -323,29 +325,42 @@ class LabRequestController extends Controller
             ];
         });
 
-        // ۳. پردازش و آماده‌سازی داده‌ها نسخه
+        // ۳. پردازش و آماده‌سازی داده‌های نسخه
         $prescriptionDetails = $labRequest->prescription_details ? json_decode($labRequest->prescription_details) : null;
         $files = [];
         $prescriptionCode = null;
         $prescriptionType = 'none';
 
-        // نوع ۱: دیجیتال | نوع ۲: فایل
         if ($labRequest->prescription_type_id == 2) {
             $prescriptionType = 'digital';
             $prescriptionCode = $prescriptionDetails->code ?? null;
         } elseif ($labRequest->prescription_type_id == 3) {
             $prescriptionType = 'file';
+
             if (isset($prescriptionDetails->files) && is_array($prescriptionDetails->files)) {
-                $files = array_map(function($path) use ($baseUrl) {
-                    if (str_starts_with($path, 'http')) return $path;
-                    return $baseUrl . ltrim($path, '/');
+                $files = array_map(function($path) use ($baseUrl, $labRequest) {
+                    if (str_starts_with($path, 'http')) {
+                        return $path;
+                    }
+
+                    if (str_starts_with($path, 'storage/')) {
+                        return $baseUrl . ltrim($path, '/');
+                    }
+
+                    // استفاده از روت امن اختصاصی آزمایشگاه (نه بیمار)
+                    // آیدی درخواست را می‌فرستیم تا کنترلر مقصد بتواند چک کند آیا این آزمایشگاه مجاز است این فایل را ببیند یا خیر
+                    return route('lab.prescription.download', [
+                        'request_id' => $labRequest->prescription_id,
+                        'path' => $path // اگر چند فایل در یک نسخه هست، path فایل را هم می‌فرستیم
+                    ]);
+
                 }, $prescriptionDetails->files);
             }
         }
 
         $data = [
             'id' => $labRequest->id,
-            'address' => $labRequest->address,
+            'address' => $addressInfo,
             'code' => sprintf('LAB-%06d', $labRequest->id),
             'is_assigned' => !is_null($labRequest->lab_id),
             'status' => (int) $labRequest->status,
@@ -362,6 +377,7 @@ class LabRequestController extends Controller
 
         return $this->success($data);
     }
+
 
 
 
@@ -678,6 +694,54 @@ class LabRequestController extends Controller
             DB::rollBack();
             return $this->error('خطا در حذف اطلاعات: ' . $e->getMessage(), 500);
         }
+    }
+    public function downloadPatientPrescription(Request $request, $id, $fileName)
+    {
+        // نکته مهم: شناسه آزمایشگاهِ کاربرِ لاگین‌شده را دریافت می‌کنیم.
+        // بسته به ساختار دیتابیس شما، این مقدار ممکن است request()->user()->lab_id یا مشابه آن باشد.
+        $labId = $request->user()->lab_id;
+
+        // ۱. بررسی سطح دسترسی:
+        // آیا این نسخه به این آزمایشگاه اختصاص یافته؟ یا هنوز هیچ آزمایشگاهی آن را برنداشته (null)؟
+        $hasAccess = DB::table('users_labs_requests')
+            ->where('prescription_id', $id)
+            ->where(function ($query) use ($labId) {
+                $query->where('lab_id', $labId)
+                    ->orWhereNull('lab_id'); // اجازه دسترسی در صورتی که هنوز کسی درخواست را نپذیرفته
+            })
+            // ->where('status', 'pending') // در صورت نیاز می‌توانید وضعیت درخواست را هم چک کنید تا فقط درخواست‌های فعال باز شوند
+            ->exists();
+
+        if (!$hasAccess) {
+            return response()->json(['success' => false, 'message' => 'شما دسترسی به این نسخه را ندارید.'], 403);
+        }
+
+        // ۲. دریافت اطلاعات نسخه برای بررسی فایل‌ها
+        $prescription = DB::table('users_prescriptions')->where('id', $id)->first();
+
+        if (!$prescription) {
+            return response()->json(['success' => false, 'message' => 'نسخه یافت نشد.'], 404);
+        }
+
+        // ۳. اطمینان از اینکه فایلی که درخواست شده، دقیقاً در دیتابیس ثبت شده است
+        $details = json_decode($prescription->details, true);
+        $files = $details['files'] ?? [];
+        $targetPath = 'prescriptions/' . $fileName;
+
+        if (!in_array($targetPath, $files)) {
+            return response()->json(['success' => false, 'message' => 'فایل غیرمجاز است یا یافت نشد.'], 404);
+        }
+
+        // ۴. بررسی وجود فایل در سرور
+        if (!Storage::disk('local')->exists($targetPath)) {
+            return response()->json(['success' => false, 'message' => 'فایل نسخه در سرور موجود نیست.'], 404);
+        }
+
+        // ۵. ارسال امن فایل به سمت فرانت‌اند (آزمایشگاه)
+        $mimeType = Storage::disk('local')->mimeType($targetPath);
+        return Storage::disk('local')->response($targetPath, $fileName, [
+            'Content-Type' => $mimeType,
+        ]);
     }
 
 
