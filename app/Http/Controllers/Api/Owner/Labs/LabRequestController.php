@@ -704,7 +704,7 @@ class LabRequestController extends Controller
         // ۱. بررسی سطح دسترسی:
         // آیا این نسخه به این آزمایشگاه اختصاص یافته؟ یا هنوز هیچ آزمایشگاهی آن را برنداشته (null)؟
         $hasAccess = DB::table('users_labs_requests')
-            ->where('prescription_id', $id)
+            ->where('user_prescription_id', $id)
             ->where(function ($query) use ($labId) {
                 $query->where('lab_id', $labId)
                     ->orWhereNull('lab_id'); // اجازه دسترسی در صورتی که هنوز کسی درخواست را نپذیرفته
