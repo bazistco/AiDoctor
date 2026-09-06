@@ -518,7 +518,8 @@ class PharmacyRequestController extends Controller
         if (!Storage::disk('local')->exists($targetPath)) {
             return response()->json([
                 'success' => false,
-                'message' => 'فایل نسخه یافت نشد.'
+                'message' => 'فایل نسخه یافت نشد.',
+                'data'=>[$targetPath,$cleanFileName]
             ], 404);
         }
 
