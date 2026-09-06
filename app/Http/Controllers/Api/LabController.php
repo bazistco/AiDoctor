@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage; // <--- این خط اضافه شد
 use Illuminate\Support\Facades\Validator;
 
 class LabController extends Controller
@@ -107,12 +108,13 @@ class LabController extends Controller
             ->where('u.id', $labId)
             ->exists();
     }
+
     public function storeRequest(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'request_type_id' => 'required|integer|exists:lab_request_types,id',
             'visit_type' => 'required|integer|in:0,1',
-            'user_address_id'=>'required|integer|exists:addresses,id',
+            'user_address_id' => 'required|integer|exists:addresses,id',
             'lab_id' => 'required_if:request_type_id,1|nullable|integer',
             'test_pack_ids' => 'required_if:request_type_id,1|array|min:1',
             'test_pack_ids.*' => 'integer|exists:test_packs,id',
@@ -130,8 +132,7 @@ class LabController extends Controller
             ], 422);
         }
         $requestTypeId = (int) $request->request_type_id;
-        if ($requestTypeId == 1)
-        {
+        if ($requestTypeId == 1) {
             if (!$this->isLabActive($request->lab_id)) {
                 return response()->json([
                     'success' => false,
@@ -142,8 +143,7 @@ class LabController extends Controller
         try {
             $user = $request->user();
 
-            $result = DB::transaction(function () use ($request, $user,$requestTypeId) {
-
+            $result = DB::transaction(function () use ($request, $user, $requestTypeId) {
 
                 $prescriptionDetails = [
                     'code' => '',
@@ -154,10 +154,13 @@ class LabController extends Controller
                     $prescriptionDetails['code'] = $request->digital_code;
                 }
 
+                // تغییرات اصلی آپلود فایل در اینجا انجام شده است:
                 if ($requestTypeId === 3 && $request->hasFile('files')) {
                     foreach ($request->file('files') as $file) {
-                        $path = $file->store('prescriptions', 'public');
-                        $prescriptionDetails['files'][] = '/storage/' . $path;
+                        // ذخیره در دیسک امن (local) به جای public
+                        $path = $file->store('prescriptions', 'local');
+                        // به جای ذخیره آدرس مستقیم مرورگر، مسیر امن داخلی را ذخیره می‌کنیم
+                        $prescriptionDetails['files'][] = $path;
                     }
                 }
 
@@ -194,13 +197,13 @@ class LabController extends Controller
                 }
 
                 $labRequestId = DB::table('users_labs_requests')->insertGetId([
-                    'address_id'=>@$request->user_address_id,
+                    'address_id' => @$request->user_address_id,
                     'user_id' => $user->id,
                     'lab_id' => $labId,
                     'visit_type' => $request->visit_type,
                     'request_type_id' => $requestTypeId,
                     'user_prescription_id' => $prescriptionId,
-                    'status' => isset($labId)?2:0,
+                    'status' => isset($labId) ? 2 : 0,
                     'total_price' => $totalPrice,
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -279,7 +282,8 @@ class LabController extends Controller
                 'users.name as lab_name',
                 'lab_request_types.name as request_type_name',
                 'users_prescriptions.details as prescription_details',
-                'users_prescriptions.prescription_type_id'
+                'users_prescriptions.prescription_type_id',
+                'users_prescriptions.id as prescription_id' // اضافه شد برای روت دانلود
             )
             ->first();
 
@@ -288,6 +292,23 @@ class LabController extends Controller
                 'success' => false,
                 'message' => 'درخواست یافت نشد.',
             ], 404);
+        }
+
+        $prescriptionDetails = json_decode($item->prescription_details, true);
+
+        // تبدیل مسیرهای داخلی به روت دانلود امن برای فرانت‌اند
+        if (isset($prescriptionDetails['files']) && is_array($prescriptionDetails['files'])) {
+            $secureFileUrls = [];
+            foreach ($prescriptionDetails['files'] as $filePath) {
+                // نام فایل را استخراج می‌کنیم
+                $fileName = basename($filePath);
+                // ساخت URL امن برای دانلود با استفاده از روت جدید
+                $secureFileUrls[] = route('user.prescription.download', [
+                    'id' => $item->prescription_id,
+                    'file' => $fileName
+                ]);
+            }
+            $prescriptionDetails['files'] = $secureFileUrls;
         }
 
         $tests = DB::table('lab_request_test_packs')
@@ -307,9 +328,43 @@ class LabController extends Controller
             'success' => true,
             'data' => [
                 'request' => $item,
-                'prescription_details' => json_decode($item->prescription_details, true),
+                'prescription_details' => $prescriptionDetails,
                 'tests' => $tests,
             ],
+        ]);
+    }
+
+    // متد جدید برای دانلود امن فایل‌های نسخه
+    public function downloadPrescriptionFile(Request $request, $id, $fileName)
+    {
+        // ۱. بررسی اینکه آیا این نسخه متعلق به کاربری است که درخواست داده
+        $prescription = DB::table('users_prescriptions')
+            ->where('id', $id)
+            ->where('user_id', $request->user()->id)
+            ->first();
+
+        if (!$prescription) {
+            return response()->json(['success' => false, 'message' => 'شما دسترسی به این نسخه را ندارید یا نسخه یافت نشد.'], 403);
+        }
+
+        // ۲. اطمینان از اینکه فایلی که کاربر درخواست داده، دقیقاً در دیتابیس برای این نسخه ثبت شده
+        $details = json_decode($prescription->details, true);
+        $files = $details['files'] ?? [];
+        $targetPath = 'prescriptions/' . $fileName;
+
+        if (!in_array($targetPath, $files)) {
+            return response()->json(['success' => false, 'message' => 'فایل غیرمجاز است یا یافت نشد.'], 404);
+        }
+
+        // ۳. بررسی وجود فایل در سرور
+        if (!Storage::disk('local')->exists($targetPath)) {
+            return response()->json(['success' => false, 'message' => 'فایل نسخه در سرور موجود نیست.'], 404);
+        }
+
+        // ۴. ارسال امن فایل
+        $mimeType = Storage::disk('local')->mimeType($targetPath);
+        return Storage::disk('local')->response($targetPath, $fileName, [
+            'Content-Type' => $mimeType,
         ]);
     }
 }

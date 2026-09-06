@@ -180,6 +180,7 @@ Route::group(['prefix' => 'user'],function (){
          Route::get('/labs/requests/{id}', [\App\Http\Controllers\Api\LabController::class, 'getUserRequestDetail']);
          Route::get('/labs-requests/{id}', [\App\Http\Controllers\Api\UserLabRequestController::class, 'show']);
          Route::get('/labs-requests/{id}/pay', [\App\Http\Controllers\Api\UserLabRequestController::class, 'pay']);
+         Route::get('/user/prescriptions/{id}/download/{file}', [\App\Http\Controllers\Api\LabController::class, 'downloadPrescriptionFile'])->name('user.prescription.download');
 
 
          Route::prefix('reservations')->group(function () {
