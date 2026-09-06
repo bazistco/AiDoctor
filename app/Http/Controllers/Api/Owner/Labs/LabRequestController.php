@@ -299,6 +299,7 @@ class LabRequestController extends Controller
 
         $baseUrl = 'http://185.222.163.113:7000/'; // آدرس پایه برای فایل‌ها
 
+
         // پردازش آزمایش‌ها برای ساخت URL کامل نتیجه
         $processedTests = $tests->map(function ($test) use ($baseUrl) {
             $resultFileUrl = null;
