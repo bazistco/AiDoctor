@@ -6,8 +6,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\ChatController;
-use App\Http\Controllers\FileUploadController;
-use App\Jobs\SendWelcomeEmail;
 use App\Http\Controllers\Api\ReservationController;
 use App\Http\Controllers\Api\MedicalRequestController;
 use App\Http\Controllers\Api\UserPharmacyRequestController;
@@ -17,8 +15,7 @@ use App\Http\Controllers\Api\Admin\AppointmentManagementController;
 use App\Http\Controllers\Api\ReviewController;
 use App\Http\Controllers\Api\MedicalServiceProviderController;
 use App\Http\Controllers\Api\Admin\AdminServiceController;
-use App\Http\Controllers\TourController;
-use Illuminate\Support\Facades\Redis;
+
 
 
 
@@ -121,11 +118,6 @@ Route::group(['prefix' => 'admin'],function (){
 
 });
 
-Route::get('/t', function (Request $request) {
-    SendWelcomeEmail::dispatch();
-});
-
-Route::post('/upload', [FileUploadController::class, 'upload']);
 Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/logout-all', [AuthController::class, 'logoutAll']);
