@@ -17,8 +17,8 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
 
     // 1. احراز هویت (بدون نیاز به توکن)
-    Route::post('/login', [PharmacyAuthController::class, 'login'])->name('login');
-    Route::post('/verify', [PharmacyAuthController::class, 'verify'])->name('verify');
+    Route::post('/login', [PharmacyAuthController::class, 'login'])->middleware('throttle:5,1')->name('login');
+    Route::post('/verify', [PharmacyAuthController::class, 'verify'])->middleware('throttle:5,1')->name('verify');
 
     // 2. روت‌های نیازمند احراز هویت و دسترسی داروخانه
     Route::middleware(['auth:sanctum', 'user.active', 'role:pharmacy', 'ownership:pharmacy'])->group(function () {
@@ -63,8 +63,8 @@ Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
 // Lab Owner Routes
 Route::prefix('lab')->name('lab.')->group(function () {
     // Authentication
-    Route::post('/login', [LabAuthController::class, 'login'])->name('login');
-    Route::post('/verify', [LabAuthController::class, 'verify'])->name('verify');
+    Route::post('/login', [LabAuthController::class, 'login'])->middleware('throttle:5,1')->name('login');
+    Route::post('/verify', [LabAuthController::class, 'verify'])->middleware('throttle:5,1')->name('verify');
 
     Route::middleware(['auth:sanctum', 'user.active', 'role:lab', 'ownership:lab'])->group(function () {
         // Profile
@@ -98,8 +98,8 @@ Route::prefix('lab')->name('lab.')->group(function () {
 // Medical Center Owner Routes
 Route::prefix('medical-center')->name('medical_center.')->group(function () {
 
-    Route::post('/login', [\App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterAuthController::class, 'login'])->name('login');
-    Route::post('/verify', [\App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterAuthController::class, 'verify'])->name('verify');
+    Route::post('/login', [\App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterAuthController::class, 'login'])->middleware('throttle:5,1')->name('login');
+    Route::post('/verify', [\App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterAuthController::class, 'verify'])->middleware('throttle:5,1')->name('verify');
 
     Route::middleware(['auth:sanctum', 'user.active', 'role:medical_center','ownership:medical_center'])->group(function () {
 
