@@ -22,11 +22,6 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
         then: function (){
-            Route::prefix('ai')->group(function () {
-                Route::middleware('api')
-//            ->domain('api.'.env('DOMAIN_URL'))
-                    ->group(base_path('routes/ai.php'));
-            });
             Route::prefix('api')->group(function () {
                 Route::middleware('api')
 //            ->domain('api.'.env('DOMAIN_URL'))
