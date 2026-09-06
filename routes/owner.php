@@ -55,7 +55,7 @@ Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
             Route::patch('/{id}/mark-delivered', [PharmacyRequestController::class, 'markAsDelivered']);
             Route::patch('/{id}/mark-completed', [PharmacyRequestController::class, 'markAsCompleted']);
             Route::patch('/{id}/cancel', [PharmacyRequestController::class, 'cancelRequest']);
-            Route::get('/requests/{id}/prescription/{fileName}', [PharmacyRequestController::class, 'downloadPharmacyPrescription'])->where('fileName', '.*');
+            Route::get('/{id}/prescription/{fileName}', [PharmacyRequestController::class, 'downloadPharmacyPrescription'])->where('fileName', '.*');
         });
 
     });
