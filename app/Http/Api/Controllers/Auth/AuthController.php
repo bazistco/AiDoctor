@@ -26,9 +26,7 @@ class AuthController extends Controller
             'phone' => [
                 'required',
                 'string',
-                'min:11',
-                'max:11',
-                'regex:/^[0-9]+$/' // فقط اعداد انگلیسی
+                'regex:/^09[0-9]{9}$/',
             ]
         ]);
 
