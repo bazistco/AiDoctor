@@ -86,6 +86,7 @@ Route::prefix('lab')->name('lab.')->group(function () {
         Route::post('/requests/{id}/assign-tests', [LabRequestController::class, 'assignTestPacks']);
         Route::get('results', [LabRequestController::class, 'getResults']);
         Route::post('/requests/{id}/results', [LabRequestController::class, 'uploadResult']);
+        Route::get('/lab-requests/results/{result_id}/download', [LabRequestController::class, 'downloadResultFile'])->name('api.labs.results.download');
         Route::get('/schedule', [LabRequestController::class, 'schedule']);
         Route::get('/requests', [LabRequestController::class, 'index'])->name('requests.index');
         Route::get('/requests/stats', [LabRequestController::class, 'stats'])->name('requests.stats');

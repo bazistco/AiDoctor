@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Traits\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
 class LabRequestController extends Controller
@@ -71,13 +72,17 @@ class LabRequestController extends Controller
                 $groupedResults[$packId]['all_sent'] = false;
             }
 
+            $safeUrl = str_starts_with($row->file_path, 'storage/')
+                ? 'http://185.222.163.113:7000/' . ltrim($row->file_path, '/')
+                : route('api.labs.results.download', ['result_id' => $row->result_id]);
+
             $groupedResults[$packId]['files'][] = [
                 'result_id' => $row->result_id,
-                'file_path' => $row->file_path,
+                'file_url'  => $safeUrl, // تغییر نام کلید به file_url منطقی‌تر است
                 'file_name' => $row->file_name,
                 'mime_type' => $row->mime_type,
-                'status' => $row->status,
-                'note' => $row->note,
+                'status'    => $row->status,
+                'note'      => $row->note,
             ];
         }
 
@@ -297,10 +302,15 @@ class LabRequestController extends Controller
         // پردازش آزمایش‌ها برای ساخت URL کامل نتیجه
         $processedTests = $tests->map(function ($test) use ($baseUrl) {
             $resultFileUrl = null;
-            if (!empty($test->result_file)) {
-                $resultFileUrl = str_starts_with($test->result_file, 'http')
-                    ? $test->result_file
-                    : $baseUrl . ltrim($test->result_file, '/');
+            if (!empty($test->result_file) && !empty($test->result_id)) {
+                // اگر مسیر فایل قدیمی و پابلیک بود (پشتیبانی از داده‌های قبلی)
+                if (str_starts_with($test->result_file, 'storage/')) {
+                    $baseUrl = 'http://185.222.163.113:7000/';
+                    $resultFileUrl = $baseUrl . ltrim($test->result_file, '/');
+                } else {
+                    // تولید لینک ایمن برای داده‌های جدید
+                    $resultFileUrl = route('api.labs.results.download', ['result_id' => $test->result_id]);
+                }
             }
 
             return [
@@ -408,9 +418,8 @@ class LabRequestController extends Controller
         $file = $request->file('file');
         $testPackId = $request->input('test_pack_id');
 
-        // ذخیره فایل جدید
-        $path = $file->store('lab_result', 'public');
-        $filePath = 'storage/' . $path;
+        // ذخیره فایل در دیسک local (پوشه storage/app/lab_results) - غیرقابل دسترس از بیرون
+        $path = $file->store('lab_results', 'local');
 
         // بررسی وجود نتیجه از قبل
         $existingResult = DB::table('lab_request_results')
@@ -419,15 +428,16 @@ class LabRequestController extends Controller
             ->first();
 
         if ($existingResult) {
-            // (اختیاری) پاک کردن فایل قبلی از سرور برای جلوگیری از اشغال فضا
-            // $oldPath = str_replace('storage/', '', $existingResult->file_path);
-            // Storage::disk('public')->delete($oldPath);
+            // حذف فایل قبلی از سرور ایمن برای جلوگیری از اشغال فضا
+            if (Storage::disk('local')->exists($existingResult->file_path)) {
+                Storage::disk('local')->delete($existingResult->file_path);
+            }
 
             // آپدیت رکورد موجود
             DB::table('lab_request_results')
                 ->where('id', $existingResult->id)
                 ->update([
-                    'file_path' => $filePath,
+                    'file_path' => $path, // فقط مسیر داخلی ذخیره می‌شود
                     'file_name' => $file->getClientOriginalName(),
                     'mime_type' => $file->getClientMimeType(),
                     'note' => $request->input('note'),
@@ -443,7 +453,7 @@ class LabRequestController extends Controller
             $resultId = DB::table('lab_request_results')->insertGetId([
                 'lab_request_id' => $id,
                 'lab_request_test_pack_id' => $testPackId,
-                'file_path' => $filePath,
+                'file_path' => $path, // فقط مسیر داخلی ذخیره می‌شود
                 'file_name' => $file->getClientOriginalName(),
                 'mime_type' => $file->getClientMimeType(),
                 'status' => 1,
@@ -455,15 +465,43 @@ class LabRequestController extends Controller
             $message = 'نتیجه آزمایش با موفقیت آپلود شد';
             $statusCode = 201;
         }
-        $updatedRows = DB::table('users_labs_requests')
+
+        DB::table('users_labs_requests')
             ->where('id', $id)
             ->update(['status' => 4]);
-        
+
         return response()->json([
             'message' => $message,
             'result_id' => $resultId,
-            'file_path' => $path
+            // مسیر فیزیکی را به فرانت نمی‌دهیم، فقط یک شناسه برای تولید لینک می‌دهیم
         ], $statusCode);
+    }
+
+    /**
+     * دانلود ایمن فایل نتیجه آزمایش
+     */
+    public function downloadResultFile(Request $request, $resultId)
+    {
+        $labId = $request->lab_id;
+
+        // پیدا کردن فایل و اطمینان از اینکه متعلق به همین آزمایشگاه است
+        $result = DB::table('lab_request_results as lrr')
+            ->join('users_labs_requests as ulr', 'lrr.lab_request_id', '=', 'ulr.id')
+            ->where('lrr.id', $resultId)
+            ->where('ulr.lab_id', $labId) // بررسی سطح دسترسی امنیتی
+            ->select('lrr.file_path', 'lrr.file_name', 'lrr.mime_type')
+            ->first();
+
+        if (!$result) {
+            return response()->json(['status' => false, 'message' => 'فایل یافت نشد یا عدم دسترسی'], 404);
+        }
+
+        if (!Storage::disk('local')->exists($result->file_path)) {
+            return response()->json(['status' => false, 'message' => 'فایل فیزیکی در سرور یافت نشد'], 404);
+        }
+
+        // ارسال فایل به کاربر با هدرهای مناسب
+        return Storage::disk('local')->response($result->file_path, $result->file_name);
     }
 
 
