@@ -350,8 +350,8 @@ class LabRequestController extends Controller
                     // استفاده از روت امن اختصاصی آزمایشگاه (نه بیمار)
                     // آیدی درخواست را می‌فرستیم تا کنترلر مقصد بتواند چک کند آیا این آزمایشگاه مجاز است این فایل را ببیند یا خیر
                     return route('lab.prescription.download', [
-                        'request_id' => $labRequest->prescription_id,
-                        'path' => $path // اگر چند فایل در یک نسخه هست، path فایل را هم می‌فرستیم
+                        'id' => $labRequest->prescription_id,
+                        'fileName' => $path // اگر چند فایل در یک نسخه هست، path فایل را هم می‌فرستیم
                     ]);
 
                 }, $prescriptionDetails->files);
