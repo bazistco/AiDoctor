@@ -87,7 +87,7 @@ Route::prefix('lab')->name('lab.')->group(function () {
         Route::get('results', [LabRequestController::class, 'getResults']);
         Route::post('/requests/{id}/results', [LabRequestController::class, 'uploadResult']);
         Route::get('/lab-requests/results/{result_id}/download', [LabRequestController::class, 'downloadResultFile'])->name('results.download');
-        Route::get('/prescription-file/{id}/{fileName}', [LabRequestController::class, 'downloadPatientPrescription'])->name('prescription.download');
+        Route::get('/prescription-file/{id}/{fileName}', [LabRequestController::class, 'downloadPatientPrescription'])->name('prescription.download')->where('fileName', '.*'); ;
         Route::get('/schedule', [LabRequestController::class, 'schedule']);
         Route::get('/requests', [LabRequestController::class, 'index'])->name('requests.index');
         Route::get('/requests/stats', [LabRequestController::class, 'stats'])->name('requests.stats');
