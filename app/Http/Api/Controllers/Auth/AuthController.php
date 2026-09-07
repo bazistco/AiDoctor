@@ -8,10 +8,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Validator;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Str;
+use Kavenegar\KavenegarApi;
 
 class AuthController extends Controller
 {
@@ -20,8 +22,10 @@ class AuthController extends Controller
      */
     public function login(Request $request)
     {
+        // تبدیل اعداد فارسی به انگلیسی
         $phone = $this->convertPersianToEnglish($request->phone);
 
+        // اعتبارسنجی شماره موبایل
         $validator = Validator::make(['phone' => $phone], [
             'phone' => [
                 'required',
@@ -30,7 +34,6 @@ class AuthController extends Controller
             ]
         ]);
 
-        // 🔸 اعتبارسنجی ورودی
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
@@ -39,35 +42,40 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // 🔸 چک کنیم آیا در دو دقیقه گذشته OTP ارسال شده؟
-        $recentOtp = DB::table('otp_codes')
-            ->where('mobile', $phone)
-            ->where('created_at', '>=', Carbon::now()->subMinutes(2))
-            ->first();
+        $redisKey = "otp:rate_limit:{$phone}";
+        $ttlSeconds = 120; // 2 دقیقه
 
-        if ($recentOtp) {
+        $lockAcquired = Redis::set($redisKey, 1, 'EX', $ttlSeconds, 'NX');
+
+        if (!$lockAcquired) {
+            $remainingTtl = Redis::ttl($redisKey); // ثانیه‌های باقی‌مانده
             return response()->json([
                 'success' => false,
                 'message' => 'Please wait before requesting another OTP.',
-                'next_allowed_in_seconds' => Carbon::parse($recentOtp->created_at)
-                    ->diffInSeconds(Carbon::now()->addMinutes(2))
-            ], 429); // 429 Too Many Requests
+                'next_allowed_in_seconds' => $remainingTtl,
+            ], 429);
         }
 
-        // 🔸 ایجاد کد OTP جدید
-        $code = rand(100000, 999999);
+        // 🔸 تولید کد OTP جدید
+        $code = rand(1000, 9999);
 
+        // 🔸 ارسال پیامک از طریق کاوه‌نگار (نمونه)
+        $k = new KavenegarApi(env('KAVENEGAR_API_KEY'));
+        // توجه: کد زیر نمونه است و باید پارامترهای واقعی ارسال پیامک را جایگزین کنید
+         $k->VerifyLookup($phone,$code, "", "", 'medira-verify', 'sms');
+
+        // ذخیره کد OTP در دیتابیس (برای راستی‌آزمایی بعدی)
         DB::table('otp_codes')->insert([
-            'code' => 1111, // TODO: برای پروداکشن به $code تغییر دهید
+            'code' => $code, // در محیط عملیاتی بهتر است کد هش شده ذخیره شود
             'mobile' => $phone,
-            'created_at' => now()
+            'created_at' => now(),
         ]);
 
-        // 🔸 در اینجا می‌توانی سرویس SMS را فراخوانی کنی
+        // بازگشت پاسخ موفقیت
         return response()->json([
             'success' => true,
             'message' => 'OTP sent successfully',
-            'otp' => $code, // فقط برای تست، در نسخه نهایی حذف کن
+            'otp' => $code, // فقط برای تست، در نسخه نهایی حذف شود
         ]);
     }
 

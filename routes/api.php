@@ -22,16 +22,7 @@ use Kavenegar\KavenegarApi;
 
 
 
-Route::get('/test-sms',function (){
 
-    try {
-        $k = new KavenegarApi(env('KAVENEGAR_API_KEY'));
-        $k->VerifyLookup('09388985617','test',"","",'welcome','sms');
-    }catch (\Exception $e){
-         dd($e->getMessage(),env('KAVENEGAR_API_KEY'));
-    }
-
-});
 Route::get('/health',function (){
     return response()->json(["status"=>"success","data"=>['date'=>now()]]);
 });
