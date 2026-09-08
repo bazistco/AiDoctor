@@ -46,15 +46,19 @@ class SamanGateway
         string  $callbackUrl,
         ?string $cellNumber = null,
     ): array {
-        $payload = array_filter([
-            'Action'=>'token',
-            'TerminalId'  => $this->terminalId,
-            'ResNum'      => $resNum,
-            'Amount'      => $amount,
-            'RedirectURL' => $callbackUrl,
-            'CellNumber'  => $cellNumber,
-            'TokenExpiryInMin'=>$this->token_expire_min
-        ]);
+        $payload = [
+            'Action'           => 'token',
+            'TerminalId'       => $this->terminalId,
+            'ResNum'           => $resNum,
+            'Amount'           => $amount,
+            'RedirectURL'      => $callbackUrl,
+            'TokenExpiryInMin' => $this->token_expire_min,
+        ];
+
+        if ($cellNumber !== null && $cellNumber !== '') {
+            $payload['CellNumber'] = $cellNumber;
+        }
+
         $response = $this->post($this->tokenUrl, $payload);
         // status == 1 = موفق (صفحه 10 مستند)
         if ((int) ($response['status'] ?? 0) !== 1) {

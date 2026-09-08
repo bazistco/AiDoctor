@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
+use staabm\SideEffectsDetector\SideEffect;
 
 /**
  * لایه پرداخت — اورکستراتور
@@ -72,7 +73,7 @@ class PaymentService
         if ($existing) {
             return [
                 'payment_id'  => (int) $existing->id,
-                'payment_url' => config('payment.saman.payment_url') . $existing->authority,
+                'payment_url' => config('payment.saman.payment_url') . $existing->token,
                 'res_num'     => (string) $existing->authority,
             ];
         }
@@ -102,6 +103,7 @@ class PaymentService
             );
 
             DB::table('payments')->where('id', $paymentId)->update([
+                'token'           => $result['token'],
                 'token_expires_at' => now()->addMinutes(
                     (int) config('payment.saman.token_expiry_min', 20)
                 ),
@@ -341,8 +343,11 @@ class PaymentService
 
     private function generateResNum(int $orderId): string
     {
-        return strtoupper(substr(md5($orderId . microtime()), 0, 12));
+        return strtoupper(
+            substr(hash('sha256', $orderId . microtime(true) . random_bytes(4)), 0, 16)
+        );
     }
+
 
     private function markFailed(int $paymentId, string $reason): void
     {
