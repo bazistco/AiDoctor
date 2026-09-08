@@ -118,8 +118,14 @@ class PaymentController extends Controller
     public function callback(Request $request): RedirectResponse
     {
         $payload = $request->all();
-        Log::info('[PaymentController][CB] SEP Callback Received:', $payload);
-
+        Log::info('[PaymentController][CB] SEP Callback Received:', [
+            'payload'           => $payload,
+            'ip'                => $request->ip(),                          // X-Real-IP (از طریق TrustProxies)
+            'forwarded_for'     => $request->header('X-Forwarded-For'),
+            'forwarded_proto'   => $request->header('X-Forwarded-Proto'),
+            'real_ip_header'    => $request->header('X-Real-IP'),
+            'host'              => $request->header('Host'),
+        ]);
         // آدرس صفحه نتیجه در فرانت‌‌اند React
         $frontendResultUrl = config('payment.frontend_result_url', 'http://app.mediraai.com/payment/result');
 
