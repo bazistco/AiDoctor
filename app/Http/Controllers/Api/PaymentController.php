@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Payment\OrderService;
 use App\Services\Payment\PaymentService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -111,38 +112,58 @@ class PaymentController extends Controller
      *
      * باید در routes/api.php خارج از middleware('auth:sanctum') باشد
      */
-    public function callback(Request $request)
+    /**
+     * ۳. بازگشت از درگاه (Callback) — فراخوانی توسط مرورگر کاربر از سمت شاپرک
+     */
+    public function callback(Request $request): RedirectResponse
     {
-        \Log::info('SEP Callback Payload:', $request->all());
-
-        return redirect('www.google.com');
-        // فقط POST از IP های سامان مجاز است
-        // در production می‌توان IP whitelist اضافه کرد
         $payload = $request->all();
+        Log::info('[PaymentController][CB] SEP Callback Received:', $payload);
 
-        return response()->json([$payload]);
-        // اعتبارسنجی اولیه پارامترهای ضروری
-        if (empty($payload['ResNum'])) {
-            Log::warning('[PaymentController][CB] Missing ResNum', [
+        // آدرس صفحه نتیجه در فرانت‌‌اند React
+        $frontendResultUrl = config('payment.frontend_result_url', 'https://mediraai.com/payment/result');
+
+        // اعتبارسنجی پارامترهای ضروری
+        if (empty($payload['ResNum']) || empty($payload['State'])) {
+            Log::warning('[PaymentController][CB] Missing essential parameters', [
                 'ip'      => $request->ip(),
                 'payload' => $payload,
             ]);
-            return response()->json(['success' => false, 'error' => 'invalid_request'], 400);
+
+            return redirect()->away($frontendResultUrl . '?status=failed&message=' . urlencode('اطلاعات بازگشتی از درگاه نامعتبر است.'));
         }
 
-        // بررسی امضا / MID — اطمینان از اینکه درخواست از سامان آمده
+        // بررسی هویت درگاه (اختیاری بر اساس MID)
         $this->verifyGatewayIdentity($payload, $request);
 
-        $result = $this->paymentService->handleCallback($payload);
+        try {
+            // عملیات وریفای و ثبت وضعیت در دیتابیس
+            $result = $this->paymentService->handleCallback($payload);
 
-        // سامان response code را چک می‌کند — همیشه 200 برگردان
-        return response()->json([
-            'success'    => $result['success'],
-            'payment_id' => $result['payment_id'] ?? null,
-            'ref_num'    => $result['ref_num']     ?? null,
-            'error'      => $result['error']       ?? null,
-        ]);
+            if (!empty($result['success']) && $result['success'] === true) {
+                $queryParams = http_build_query([
+                    'status'     => 'success',
+                    'ref_num'    => $result['ref_num'] ?? ($payload['RefNum'] ?? ''),
+                    'res_num'    => $payload['ResNum'],
+                    'payment_id' => $result['payment_id'] ?? '',
+                ]);
+
+                return redirect()->away($frontendResultUrl . '?' . $queryParams);
+            }
+
+            // در صورت عدم موفقیت تراکنش در درگاه یا وریفای
+            $errorMsg = $result['error'] ?? 'پرداخت توسط کاربر لغو شد یا با خطا مواجه گردید.';
+            return redirect()->away($frontendResultUrl . '?status=failed&message=' . urlencode($errorMsg) . '&res_num=' . $payload['ResNum']);
+
+        } catch (\Throwable $e) {
+            Log::error('[PaymentController][CB] Exception during verify: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return redirect()->away($frontendResultUrl . '?status=error&message=' . urlencode('خطا در پردازش و تایید تراکنش.'));
+        }
     }
+
 
     // ─── متد کمکی: بررسی هویت درگاه ──────────────────────────────
 
