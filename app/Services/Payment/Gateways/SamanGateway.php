@@ -50,9 +50,10 @@ class SamanGateway
             'RedirectURL' => $callbackUrl,
             'CellNumber'  => $cellNumber,
         ]);
+        dump($payload);
 
         $response = $this->post($this->tokenUrl, $payload);
-
+        dump($response);
         // status == 1 = موفق (صفحه 10 مستند)
         if ((int) ($response['status'] ?? 0) !== 1) {
             $code = $response['errorCode'] ?? $response['status'] ?? 'unknown';

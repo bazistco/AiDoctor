@@ -341,7 +341,7 @@ class PaymentService
 
     private function generateResNum(int $orderId): string
     {
-        return substr('ORD-' . $orderId . '-' . strtoupper(Str::random(10)), 0, 64);
+        return strtoupper(substr(md5($orderId . microtime()), 0, 12));
     }
 
     private function markFailed(int $paymentId, string $reason): void
