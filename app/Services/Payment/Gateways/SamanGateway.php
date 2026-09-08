@@ -21,6 +21,7 @@ class SamanGateway
     private string $verifyUrl;
     private string $reverseUrl;
     private int    $timeout;
+    private int $token_expire_min;
 
     public function __construct()
     {
@@ -30,6 +31,7 @@ class SamanGateway
         $this->verifyUrl  = (string) config('payment.saman.verify_url');
         $this->reverseUrl = (string) config('payment.saman.reverse_url');
         $this->timeout    = (int)    config('payment.saman.timeout', 30);
+        $this->token_expire_min   = (int)    config('payment.saman.token_expiry_min', 20);
     }
 
     /**
@@ -45,16 +47,15 @@ class SamanGateway
         ?string $cellNumber = null,
     ): array {
         $payload = array_filter([
+            'Action'=>'token',
             'TerminalId'  => $this->terminalId,
             'ResNum'      => $resNum,
             'Amount'      => $amount,
             'RedirectURL' => $callbackUrl,
             'CellNumber'  => $cellNumber,
+            'TokenExpiryInMin'=>$this->token_expire_min
         ]);
-        dump($payload);
-
         $response = $this->post($this->tokenUrl, $payload);
-        dump($response);
         // status == 1 = موفق (صفحه 10 مستند)
         if ((int) ($response['status'] ?? 0) !== 1) {
             $code = $response['errorCode'] ?? $response['status'] ?? 'unknown';
@@ -171,7 +172,6 @@ class SamanGateway
             ->asJson()
             ->post($url, $payload);
 
-        dump($url,$response->body());
         if ($response->serverError()) {
             throw new RuntimeException("Saman server error. HTTP {$response->status()}");
         }
