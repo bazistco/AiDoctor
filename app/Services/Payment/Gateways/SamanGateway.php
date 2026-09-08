@@ -171,7 +171,7 @@ class SamanGateway
             ->asJson()
             ->post($url, $payload);
 
-        dump($response->body());
+        dump($url,$response->body());
         if ($response->serverError()) {
             throw new RuntimeException("Saman server error. HTTP {$response->status()}");
         }
