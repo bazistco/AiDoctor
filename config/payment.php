@@ -3,7 +3,7 @@
 
 return [
     'saman' => [
-        'terminal_id' => env('SAMAN_TERMINAL_ID', '15768736'),
+        'terminal_id' => env('SAMAN_TERMINAL_ID', '15768735'),
         'token_expiry_min' => (int)env('SAMAN_TOKEN_EXPIRY_MIN', 20),
         'timeout' => (int)env('SAMAN_TIMEOUT', 30),
 
