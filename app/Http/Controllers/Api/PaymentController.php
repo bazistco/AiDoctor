@@ -121,7 +121,7 @@ class PaymentController extends Controller
         Log::info('[PaymentController][CB] SEP Callback Received:', $payload);
 
         // آدرس صفحه نتیجه در فرانت‌‌اند React
-        $frontendResultUrl = config('payment.frontend_result_url', 'https://mediraai.com/payment/result');
+        $frontendResultUrl = config('payment.frontend_result_url', 'http://mediraai.com/payment/result');
 
         // اعتبارسنجی پارامترهای ضروری
         if (empty($payload['ResNum']) || empty($payload['State'])) {
