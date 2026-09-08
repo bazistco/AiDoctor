@@ -88,30 +88,39 @@ class SamanGateway
     public function verify(string $refNum): array
     {
         $payload = [
-            'RefNum'     => $refNum,
-            'TerminalId' => $this->terminalId,
+            'RefNum'         => $refNum,
+            'TerminalNumber' => (int) $this->terminalId,
         ];
 
         $response = $this->post($this->verifyUrl, $payload);
 
-        $detail = $response['TransactionDetail'] ?? $response;
+        // بررسی ResultCode == 0 و Success == true (صفحه 17)
+        $resultCode = (int) ($response['ResultCode'] ?? -1);
+        $success    = (bool) ($response['Success']    ?? false);
 
-        // عدد مثبت = مبلغ تأییدشده؛ عدد منفی = خطا (صفحه 15 مستند)
-        $verifiedAmount = (int) ($detail['AffectiveAmount'] ?? $response['AffectiveAmount'] ?? -1);
+        if ($resultCode !== 0 || ! $success) {
+            $desc = $response['ResultDescription'] ?? 'unknown';
+            throw new RuntimeException("Verify failed. ResultCode: {$resultCode} — {$desc}");
+        }
 
+        $detail = $response['TransactionDetail'] ?? [];
+
+        $verifiedAmount = (int) ($detail['AffectiveAmount'] ?? -1);
+
+        // حالت B مستند: مبلغ نابرابر → باید برگشت بخورد
         if ($verifiedAmount <= 0) {
-            $code = $response['ResultCode'] ?? $response['errorCode'] ?? $verifiedAmount;
-            throw new RuntimeException("Verify failed. ResultCode: {$code}");
+            throw new RuntimeException("Verify: AffectiveAmount invalid ({$verifiedAmount})");
         }
 
         return [
-            'ref_id'          => (string) ($detail['RefNum']          ?? $refNum),
-            'trace_no'        => (string) ($detail['TraceNo']         ?? ''),
-            'rrn'             => (string) ($detail['RRN']             ?? ''),
+            'ref_id'          => (string) ($detail['RefNum']    ?? $refNum),
+            'trace_no'        => (string) ($detail['StraceNo']  ?? ''),   // ← StraceNo نه TraceNo
+            'rrn'             => (string) ($detail['RRN']       ?? ''),
             'verified_amount' => $verifiedAmount,
             'raw'             => $response,
         ];
     }
+
 
     /**
      * استرداد وجه (صفحه 30 مستند)
