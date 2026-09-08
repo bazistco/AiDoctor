@@ -2,6 +2,8 @@
 
 use App\Http\Api\Controllers\Auth\AuthController;
 use App\Http\Controllers\Api\DiagnosisController;
+use App\Http\Controllers\Api\PaymentController;
+use App\Services\Payment\OrderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
@@ -27,9 +29,44 @@ Route::get('/health',function (){
     return response()->json(["status"=>"success","data"=>['date'=>now()]]);
 });
 
+// ─── Endpoints نیاز به auth دارند ─────────────────────────────────
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/payments/order',    [PaymentController::class, 'createOrder']);
+    Route::post('/payments/initiate', [PaymentController::class, 'initiate']);
+});
 
-Route::any('pg/call_back', function (Request $request) {
-    return response()->json(['success'=>1,'data'=>$request->all() ?? []]) ;
+Route::prefix('test/payment')->group(function () {
+
+    /**
+     * STEP 1 — ایجاد سفارش
+     * GET /test/payment/create-order
+     *
+     * سفارش برای user_id=78 ، reason_id=2 (شارژ کیف پول)، wallet_id=19
+     */
+    Route::get('/create-order', function (OrderService $orderService) {
+        $result = $orderService->createOrReuse(
+            userId: 78,
+            reasonId: 2,          // payment_reason = شارژ کیف پول
+            reasonRef: 19,         // wallet_id = 19
+            amount: 15000,     // مبلغ آزمایشی به ریال
+            description: 'تست شارژ کیف پول #19 برای کاربر #78',
+        );
+
+        return response()->json([
+            'step' => '1 - createOrder',
+            'order_id' => $result['order_id'],
+            'amount' => $result['amount'],
+            'is_new' => $result['is_new'],
+        ]);
+    });
+
+
+});
+
+// ─── کالبک درگاه — بدون auth ──────────────────────────────────────
+// باید throttle محدود داشته باشد ولی بدون Sanctum
+Route::middleware('throttle:30,1')->group(function () {
+    Route::any('pg/call_back', [PaymentController::class, 'callback'])->name('pg.callback');
 });
 
 Route::middleware(['auth:sanctum', 'user.active'])->prefix('user/medical')->group(function () {
