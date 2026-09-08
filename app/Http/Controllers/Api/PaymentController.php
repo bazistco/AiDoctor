@@ -111,8 +111,10 @@ class PaymentController extends Controller
      *
      * باید در routes/api.php خارج از middleware('auth:sanctum') باشد
      */
-    public function callback(Request $request): JsonResponse
+    public function callback(Request $request)
     {
+        \Log::info('SEP Callback Payload:', $request->all());
+
         return redirect('www.google.com');
         // فقط POST از IP های سامان مجاز است
         // در production می‌توان IP whitelist اضافه کرد
