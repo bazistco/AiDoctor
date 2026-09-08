@@ -117,7 +117,7 @@ class PaymentController extends Controller
         // در production می‌توان IP whitelist اضافه کرد
         $payload = $request->all();
 
-        dd($payload);
+        return response()->json([$payload]);
         // اعتبارسنجی اولیه پارامترهای ضروری
         if (empty($payload['ResNum'])) {
             Log::warning('[PaymentController][CB] Missing ResNum', [
