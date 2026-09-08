@@ -73,7 +73,7 @@ class PaymentController extends Controller
         ]);
 
         // URL کالبک باید HTTPS باشد در production
-        $callbackUrl = route('pg.callback');
+        $callbackUrl = 'http://api.mediraai.com/api/pg/call_back';
 
         try {
             $result = $this->paymentService->initiate(
