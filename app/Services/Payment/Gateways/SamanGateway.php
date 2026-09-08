@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Payment\Gateways;
 
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
@@ -165,36 +166,22 @@ class SamanGateway
      */
     private function post(string $url, array $payload): array
     {
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => json_encode($payload, JSON_THROW_ON_ERROR),
-            CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Accept: application/json'],
-            CURLOPT_TIMEOUT        => $this->timeout,
-            CURLOPT_SSL_VERIFYPEER => true,
-        ]);
+        $response = Http::timeout($this->timeout)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->asJson()
+            ->post($url, $payload);
 
-        $body  = curl_exec($ch);
-        $errno = curl_errno($ch);
-        $error = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($errno || $body === false) {
-            throw new RuntimeException("cURL error ({$errno}): {$error}");
+        if ($response->serverError()) {
+            throw new RuntimeException("Saman server error. HTTP {$response->status()}");
         }
 
-        if ($httpCode >= 500) {
-            throw new RuntimeException("Saman server error. HTTP {$httpCode}");
-        }
-
-        $decoded = json_decode((string) $body, true, 512, JSON_THROW_ON_ERROR);
+        $decoded = $response->json();
 
         if (! is_array($decoded)) {
-            throw new RuntimeException("Invalid JSON from Saman: {$body}");
+            throw new RuntimeException("Invalid JSON from Saman: {$response->body()}");
         }
 
         return $decoded;
     }
+
 }
