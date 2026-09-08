@@ -186,7 +186,7 @@ class PaymentController extends Controller
                 'received' => $mid,
                 'ip'       => $request->ip(),
             ]);
-            abort(403, 'Invalid gateway identity');
+            return;
         }
     }
 }
