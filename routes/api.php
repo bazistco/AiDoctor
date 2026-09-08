@@ -28,7 +28,9 @@ use Kavenegar\KavenegarApi;
 Route::get('/health',function (){
     return response()->json(["status"=>"success","data"=>['date'=>now()]]);
 });
-
+ Route::get('pg/{token}',function ($token){
+     return redirect("https://sep.shaparak.ir/OnlinePG/SendToken?token={$token}");
+ });
 // ─── Endpoints نیاز به auth دارند ─────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/payments/order',    [PaymentController::class, 'createOrder']);
