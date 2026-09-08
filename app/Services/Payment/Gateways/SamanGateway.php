@@ -51,7 +51,7 @@ class SamanGateway
             'TerminalId'       => $this->terminalId,
             'ResNum'           => $resNum,
             'Amount'           => $amount,
-            'RedirectURL'      => $callbackUrl,
+//            'RedirectURL'      => $callbackUrl,
             'TokenExpiryInMin' => $this->token_expire_min,
         ];
 
