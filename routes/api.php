@@ -67,9 +67,7 @@ Route::prefix('test/payment')->group(function () {
 
 // ─── کالبک درگاه — بدون auth ──────────────────────────────────────
 // باید throttle محدود داشته باشد ولی بدون Sanctum
-Route::middleware('throttle:30,1')->group(function () {
-    Route::any('pg/call_back', [PaymentController::class, 'callback'])->name('pg.callback');
-});
+Route::match(['get', 'post'], 'pg/call_back', [PaymentController::class, 'callback'])->name('pg.callback');
 
 Route::middleware(['auth:sanctum', 'user.active'])->prefix('user/medical')->group(function () {
     // مرحله ۱: دریافت لیست خدمات قابل ارائه

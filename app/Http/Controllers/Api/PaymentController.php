@@ -113,6 +113,7 @@ class PaymentController extends Controller
      */
     public function callback(Request $request): JsonResponse
     {
+        return redirect('www.google.com');
         // فقط POST از IP های سامان مجاز است
         // در production می‌توان IP whitelist اضافه کرد
         $payload = $request->all();
