@@ -140,7 +140,7 @@ class UserOrderController extends Controller
                 $join->on('o.reason_ref', '=', DB::raw('CAST(sa.id AS CHAR)'))
                     ->where('o.reason_id', '=', 1)
                     ->where('o.user_id', '=', $userId)
-                    ->where('o.status', '=', 'pending'); // سفارشات با درگاه باز/در انتظار پرداخت
+                    ->where('o.status', '=', 1); // سفارشات با درگاه باز/در انتظار پرداخت
             })
             ->select(
                 'sa.id',
