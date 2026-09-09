@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\FinancialService;
+use App\Services\Payment\PaymentService;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,10 +18,12 @@ use Illuminate\Validation\ValidationException;
 class ReservationController extends Controller
 {
     private FinancialService $financialService;
+    private PaymentService $paymentService; // اضافه شود
 
-    public function __construct(FinancialService $financialService)
+    public function __construct(FinancialService $financialService, PaymentService $paymentService)
     {
         $this->financialService = $financialService;
+        $this->paymentService = $paymentService; // اضافه شود
     }
     public function getAppointments()
     {
@@ -240,6 +243,154 @@ class ReservationController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * رزرو موقت اسلات (۱۵ دقیقه) + ایجاد سفارش و دریافت توکن از درگاه سامان
+     */
+    public function reserveWithSaman(Request $request)
+    {
+        // ۱. اعتبارسنجی ورودی‌ها
+        $validated = $request->validate([
+            'slot_id' => 'required|integer|exists:appointment_slots,id',
+            'session_id' => 'nullable|string',
+        ]);
+
+        $slotId = $validated['slot_id'];
+        $sessionId = $validated['session_id'] ?? null;
+        $userId = $request->user()->id;
+
+        // ۲. بررسی وجود و وضعیت اسلات و پزشک
+        $slot = AppointmentSlot::find($slotId);
+
+        if (!$slot) {
+            return response()->json(['success' => false, 'message' => 'اسلات مورد نظر یافت نشد'], 404);
+        }
+
+        if (!$this->isDoctorActive($slot->doctor_id)) {
+            return response()->json(['success' => false, 'message' => 'پزشک مورد نظر غیرفعال است'], 422);
+        }
+
+        if ($slot->status !== 'available') {
+            return response()->json(['success' => false, 'message' => 'این اسلات در دسترس نیست'], 409);
+        }
+
+        // ۳. بررسی Redis برای جلوگیری از رزرو همزمان (Race Condition)
+        $reservationKey = "slot:reservation:{$slotId}";
+        if (Redis::exists($reservationKey)) {
+            return response()->json(['success' => false, 'message' => 'این اسلات در حال حاضر توسط شخص دیگری در حال رزرو است'], 409);
+        }
+
+        try {
+            // ۴. فرآیند مالی: ایجاد سفارش و پرداخت (استفاده از reason_id = 1 که قبلاً مشخص کردیم)
+            $amount = 100000; // در پروداکشن از دیتابیس خوانده شود
+
+            DB::beginTransaction();
+
+            // ایجاد سفارش
+            $orderId = $this->financialService->createOrder(
+                userId: $userId,
+                reasonId: 1, // appointment
+                reasonRef: $slotId,
+                amount: $amount,
+                description: "رزرو نوبت پزشک در تاریخ {$slot->slot_date} ساعت {$slot->start_time}"
+            );
+
+            // ایجاد رکورد پرداخت
+            $paymentId = $this->financialService->createPayment(
+                userId: $userId,
+                orderId: $orderId,
+                reasonId: 1,
+                reasonRef: $slotId,
+                amount: $amount,
+                gateway: 'saman' // تغییر به سامان
+            );
+
+            DB::commit();
+
+            // ۵. ارتباط با درگاه سامان و دریافت توکن
+            // فرض بر این است که PaymentService متدی برای دریافت توکن دارد که با SamanGateway کار میکند
+            // اگر متد شما نام دیگری دارد (مثل initiate) آن را جایگزین کنید
+            $samanToken = $this->paymentService->requestSamanToken($paymentId, $amount);
+
+            if (!$samanToken) {
+                throw new \Exception('خطا در دریافت توکن از بانک سامان');
+            }
+
+            // به‌روزرسانی توکن (Authority) در جدول پرداخت‌ها
+            DB::table('payments')->where('id', $paymentId)->update([
+                'authority' => $samanToken,
+                'updated_at' => now(),
+            ]);
+
+            // ۶. ساخت URL نهایی برای ریدایرکت فرانت‌اند (کامپوننت PaymentRedirect)
+            $paymentUrl = "http://mediraai.com/pg?token={$samanToken}";
+
+            // ۷. ثبت رزرو موقت در Redis (فقط در صورت موفقیت‌آمیز بودن دریافت توکن)
+            $reservationToken = Str::uuid()->toString();
+
+            $reservationData = [
+                'user_id' => $userId,
+                'slot_id' => $slotId,
+                'doctor_id' => $slot->doctor_id,
+                'slot_date' => $slot->slot_date,
+                'start_time' => $slot->start_time,
+                'end_time' => $slot->end_time,
+                'token' => $reservationToken,
+                'order_id' => $orderId,
+                'payment_id' => $paymentId,
+                'authority' => $samanToken,
+                'amount' => $amount,
+                'session_id' => $sessionId,
+                'reserved_at' => Carbon::now()->toDateTimeString(),
+            ];
+
+            // قفل کردن اسلات برای ۱۵ دقیقه (۹۰۰ ثانیه)
+            Redis::setex($reservationKey, 900, json_encode($reservationData));
+
+            // ذخیره کلید مجزا برای دسترسی سریع کاربر
+            $userReservationKey = "user:reservation:{$userId}:{$reservationToken}";
+            Redis::setex($userReservationKey, 900, json_encode([
+                'slot_id' => $slotId,
+                'payment_id' => $paymentId,
+                'order_id' => $orderId,
+            ]));
+
+            $expiresAt = Carbon::now()->addMinutes(15)->toDateTimeString();
+
+            // ۸. ارسال پاسخ موفق به فرانت‌اند
+            return response()->json([
+                'success' => true,
+                'message' => 'اسلات رزرو شد. در حال انتقال به درگاه...',
+                'data' => [
+                    'reservation_token' => $reservationToken,
+                    'expires_at' => $expiresAt,
+                    'slot_id' => $slotId,
+                    'payment' => [
+                        'order_id' => $orderId,
+                        'payment_id' => $paymentId,
+                        'amount' => $amount,
+                        'gateway' => 'saman',
+                        'payment_url' => $paymentUrl, // فرانت‌اند باید کاربر را به این لینک هدایت کند
+                    ]
+                ]
+            ], 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            \Log::error('Saman Gateway Reservation Failed', [
+                'slot_id' => $slotId,
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در ارتباط با درگاه بانکی: ' . $e->getMessage()
             ], 500);
         }
     }
