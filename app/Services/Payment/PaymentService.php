@@ -9,9 +9,7 @@ use App\Services\Payment\Gateways\SamanGateway;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
-use Illuminate\Support\Str;
 use RuntimeException;
-use staabm\SideEffectsDetector\SideEffect;
 
 /**
  * لایه پرداخت — اورکستراتور
@@ -188,7 +186,11 @@ class PaymentService
             DB::table('orders')
                 ->where('id', $payment->order_id)
                 ->where('status', OrderService::STATUS_PENDING)
-                ->update(['status' => OrderService::STATUS_FAILED, 'updated_at' => now(),'canceled_at' => now()]);
+                ->update([
+                    'status'      => OrderService::STATUS_FAILED,
+                    'canceled_at' => now(),
+                    'updated_at'  => now(),
+                ]);
 
             // آزادسازی قفل ردیس نوبت در صورت پرداخت ناموفق
             $order = DB::table('orders')->where('id', $payment->order_id)->first();
@@ -196,6 +198,7 @@ class PaymentService
                 Redis::del("slot:reservation:{$order->reason_ref}");
                 DB::table('appointment_slots')
                     ->where('id', $order->reason_ref)
+                    ->where('status', '!=', 'booked') // دست نزدن به نوبت‌های رزرو قطعی
                     ->update([
                         'patient_id'   => null,
                         'updated_at'   => now()
@@ -209,6 +212,7 @@ class PaymentService
         // ۴. Verify + Finalize در یک تراکنش اتمیک
         return DB::transaction(function () use ($payment, $refNum, $payload): array {
             $paymentId = (int) $payment->id;
+            $slotId    = null;
 
             // قفل ردیف payment برای جلوگیری از Race Condition
             $locked = DB::table('payments')
@@ -221,7 +225,66 @@ class PaymentService
                 return ['success' => true, 'ref_num' => $locked->ref_num, 'payment_id' => $paymentId];
             }
 
+            // دریافت اطلاعات سفارش متناظر
+            $order = DB::table('orders')->where('id', $locked->order_id)->first();
+            if (! $order) {
+                $this->markFailed($paymentId, 'سفارش یافت نشد.');
+                return ['success' => false, 'error' => 'order_not_found', 'payment_id' => $paymentId];
+            }
+
+            // ─────────────────────────────────────────────────────────────
+            // بررسی وضعیت نوبت قبل از Verify (برای سفارش‌های نوبت‌دهی)
+            // ─────────────────────────────────────────────────────────────
+            if ((int) $order->reason_id === 1 && !empty($order->reason_ref)) {
+                $slotId = (int) $order->reason_ref;
+
+                // قفل ردیف اسلات برای جلوگیری از دسترسی همزمان دو درخواست کالبک
+                $slot = DB::table('appointment_slots')
+                    ->where('id', $slotId)
+                    ->lockForUpdate()
+                    ->first();
+
+                // اگر اسلات وجود ندارد یا قبلاً رزرو قطعی (booked) شده است
+                if (! $slot || $slot->status === 'booked') {
+                    $errorMessage = 'نوبت انتخابی قبلاً رزرو شده است و امکان تکمیل پرداخت وجود ندارد.';
+
+                    // لغو پرداخت
+                    $this->markFailed($paymentId, $errorMessage);
+
+                    // لغو سفارش
+                    DB::table('orders')
+                        ->where('id', $order->id)
+                        ->where('status', OrderService::STATUS_PENDING)
+                        ->update([
+                            'status'      => OrderService::STATUS_FAILED,
+                            'canceled_at' => now(),
+                            'updated_at'  => now(),
+                        ]);
+
+                    // پاکسازی قفل ردیس
+                    Redis::del("slot:reservation:{$slotId}");
+
+                    $this->logGateway($paymentId, 'verify_aborted_slot_already_booked', $payload, [
+                        'slot_id'     => $slotId,
+                        'slot_status' => $slot?->status ?? 'not_found',
+                    ]);
+
+                    Log::warning('[PaymentService] Verify aborted: slot already booked', [
+                        'payment_id' => $paymentId,
+                        'order_id'   => $order->id,
+                        'slot_id'    => $slotId,
+                    ]);
+
+                    return [
+                        'success'    => false,
+                        'error'      => 'slot_already_booked',
+                        'payment_id' => $paymentId,
+                    ];
+                }
+            }
+
             try {
+                // تایید تراکنش در درگاه (Verify)
                 $verified = $this->gateway->verify($refNum);
 
                 // بررسی مبلغ برای جلوگیری از Partial Payment
@@ -261,12 +324,8 @@ class PaymentService
                     refId:     $verified['ref_id'],
                 );
 
-                // د) رزرو قطعی نوبت در جدول نوبت‌ها (در صورت reason_id == 1)
-                $order = DB::table('orders')->where('id', $payment->order_id)->first();
-
-                if ($order && (int) $order->reason_id === 1 && !empty($order->reason_ref)) {
-                    $slotId = (int) $order->reason_ref;
-
+                // د) رزرو قطعی نوبت در جدول نوبت‌ها
+                if ($slotId !== null) {
                     DB::table('appointment_slots')
                         ->where('id', $slotId)
                         ->update([
@@ -277,7 +336,7 @@ class PaymentService
                             'updated_at'   => now(),
                         ]);
 
-                    // حذف قفل موقت از Redis چون نوبت رسماً در دیتابیس ثبت قطعی شد
+                    // حذف قفل موقت از Redis
                     Redis::del("slot:reservation:{$slotId}");
 
                     Log::info('[PaymentService] Appointment booked successfully', [
@@ -316,13 +375,18 @@ class PaymentService
                         'error'      => $e->getMessage(),
                     ]);
                 }
-                DB::table('appointment_slots')
-                    ->where('id', $slotId)
-                    ->update([
-                        'patient_id'   => null,
-                        'updated_at'   => now(),
-                    ]);
-                Redis::del("slot:reservation:{$slotId}");
+
+                if ($slotId !== null) {
+                    DB::table('appointment_slots')
+                        ->where('id', $slotId)
+                        ->where('status', '!=', 'booked')
+                        ->update([
+                            'patient_id' => null,
+                            'updated_at' => now(),
+                        ]);
+                    Redis::del("slot:reservation:{$slotId}");
+                }
+
                 $this->logGateway($paymentId, 'verify_failed', $payload, ['error' => $e->getMessage()]);
 
                 return ['success' => false, 'error' => 'verify_failed', 'payment_id' => $paymentId];
