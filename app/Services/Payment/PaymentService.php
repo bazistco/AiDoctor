@@ -8,6 +8,7 @@ use App\Services\FinancialService;
 use App\Services\Payment\Gateways\SamanGateway;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 use RuntimeException;
 use staabm\SideEffectsDetector\SideEffect;
@@ -160,7 +161,7 @@ class PaymentService
 
         $paymentId = (int) $payment->id;
 
-        // Flood protection
+        // ۱. Flood protection
         if ((int) $payment->callback_count >= self::MAX_CALLBACKS) {
             Log::warning('[PaymentService][CB] Flood detected', ['payment_id' => $paymentId]);
             return ['success' => false, 'error' => 'too_many_callbacks'];
@@ -173,26 +174,33 @@ class PaymentService
         // ثبت کالبک خام
         $this->logCallback($paymentId, $resNum, $refNum, $payload);
 
-        // idempotency — قبلاً تأیید شده
+        // ۲. Idempotency — اگر قبلاً موفق شده باشد
         if ((int) $payment->status === self::PAY_PAID) {
             return ['success' => true, 'ref_num' => $payment->ref_num, 'payment_id' => $paymentId];
         }
 
-        // پرداخت ناموفق
+        // ۳. پرداخت ناموفق در درگاه
         if (! $this->gateway->isCallbackSuccessful($state)) {
             $reason = $this->gateway->describeState($state);
             $this->markFailed($paymentId, $reason);
-            // order را هم failed کن ولی خارج از lock (سفارش منقضی شده)
+
+            // تغییر وضعیت سفارش به FAILED
             DB::table('orders')
                 ->where('id', $payment->order_id)
                 ->where('status', OrderService::STATUS_PENDING)
                 ->update(['status' => OrderService::STATUS_FAILED, 'updated_at' => now()]);
 
+            // آزادسازی قفل ردیس نوبت در صورت پرداخت ناموفق
+            $order = DB::table('orders')->where('id', $payment->order_id)->first();
+            if ($order && (int) $order->reason_id === 1 && !empty($order->reason_ref)) {
+                Redis::del("slot:reservation:{$order->reason_ref}");
+            }
+
             $this->logGateway($paymentId, 'callback_failed', $payload, ['state' => $state]);
             return ['success' => false, 'error' => $reason, 'payment_id' => $paymentId];
         }
 
-        // ─── Verify + Finalize در یک تراکنش اتمیک ────────────────
+        // ۴. Verify + Finalize در یک تراکنش اتمیک
         return DB::transaction(function () use ($payment, $refNum, $payload): array {
             $paymentId = (int) $payment->id;
 
@@ -202,7 +210,7 @@ class PaymentService
                 ->lockForUpdate()
                 ->first();
 
-            // double-check بعد از lock
+            // بررسی مجدد بعد از قفل دیتابیس
             if ((int) $locked->status === self::PAY_PAID) {
                 return ['success' => true, 'ref_num' => $locked->ref_num, 'payment_id' => $paymentId];
             }
@@ -210,7 +218,7 @@ class PaymentService
             try {
                 $verified = $this->gateway->verify($refNum);
 
-                // بررسی مبلغ — جلوگیری از partial payment
+                // بررسی مبلغ برای جلوگیری از Partial Payment
                 if ($verified['verified_amount'] !== (int) $locked->amount) {
                     throw new RuntimeException(
                         sprintf(
@@ -221,7 +229,7 @@ class PaymentService
                     );
                 }
 
-                // به‌روزرسانی payment
+                // الف) به‌روزرسانی رکورد پرداخت
                 DB::table('payments')->where('id', $paymentId)->update([
                     'status'      => self::PAY_PAID,
                     'ref_num'     => $verified['ref_id'],
@@ -234,18 +242,44 @@ class PaymentService
                     'updated_at'  => now(),
                 ]);
 
-                // انتقال وضعیت order (با State Machine + lockForUpdate داخل transition)
+                // ب) انتقال وضعیت Order
                 $this->orderService->transition(
                     (int) $payment->order_id,
                     OrderService::STATUS_PAID
                 );
 
-                // تراکنش‌های مالی (واریز به کیف پول / حساب پزشک)
+                // ج) ثبت تراکنش‌های مالی و کیف پول
                 $this->financialService->completePayment(
                     paymentId: $paymentId,
                     authority: (string) $locked->authority,
                     refId:     $verified['ref_id'],
                 );
+
+                // د) رزرو قطعی نوبت در جدول نوبت‌ها (در صورت reason_id == 1)
+                $order = DB::table('orders')->where('id', $payment->order_id)->first();
+
+                if ($order && (int) $order->reason_id === 1 && !empty($order->reason_ref)) {
+                    $slotId = (int) $order->reason_ref;
+
+                    DB::table('appointment_slots')
+                        ->where('id', $slotId)
+                        ->update([
+                            'status'       => 'booked',
+                            'patient_id'   => $order->user_id,
+                            'order_id'     => $order->id,
+                            'booking_time' => now(),
+                            'updated_at'   => now(),
+                        ]);
+
+                    // حذف قفل موقت از Redis چون نوبت رسماً در دیتابیس ثبت قطعی شد
+                    Redis::del("slot:reservation:{$slotId}");
+
+                    Log::info('[PaymentService] Appointment booked successfully', [
+                        'slot_id'    => $slotId,
+                        'patient_id' => $order->user_id,
+                        'order_id'   => $order->id,
+                    ]);
+                }
 
                 $this->logGateway($paymentId, 'verify_success', [
                     'ref_num' => $refNum,
@@ -268,7 +302,6 @@ class PaymentService
             } catch (\Throwable $e) {
                 $this->markFailed($paymentId, $e->getMessage());
 
-                // اگر پول از حساب کسر شده ولی verify نشد — باید دستی بررسی شود
                 if ($refNum !== '') {
                     Log::critical('[PaymentService] VERIFY FAILED AFTER DEBIT — MANUAL REVIEW NEEDED', [
                         'payment_id' => $paymentId,
