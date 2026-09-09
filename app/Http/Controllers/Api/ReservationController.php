@@ -8,6 +8,7 @@ use App\Services\Payment\PaymentService;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
@@ -254,7 +255,7 @@ class ReservationController extends Controller
     {
         // ۱. اعتبارسنجی ورودی‌ها
         $validated = $request->validate([
-            'slot_id' => 'required|integer|exists:appointment_slots,id',
+            'slot_id'    => 'required|integer|exists:appointment_slots,id',
             'session_id' => 'nullable|string',
         ]);
 
@@ -284,108 +285,95 @@ class ReservationController extends Controller
         }
 
         try {
-            // ۴. فرآیند مالی: ایجاد سفارش و پرداخت (استفاده از reason_id = 1 که قبلاً مشخص کردیم)
-            $amount = 100000; // در پروداکشن از دیتابیس خوانده شود
+            $amount = 15000; // پیشنهاد: از $slot->doctor->visit_price یا دیتابیس خوانده شود
 
+            // ۴. ایجاد سفارش (فقط سفارش ساخته می‌شود. پرداخت به PaymentService سپرده می‌شود)
             DB::beginTransaction();
-
-            // ایجاد سفارش
             $orderId = $this->financialService->createOrder(
-                userId: $userId,
-                reasonId: 1, // appointment
-                reasonRef: $slotId,
-                amount: $amount,
+                userId:      $userId,
+                reasonId:    1, // appointment
+                reasonRef:   $slotId,
+                amount:      $amount,
                 description: "رزرو نوبت پزشک در تاریخ {$slot->slot_date} ساعت {$slot->start_time}"
             );
-
-            // ایجاد رکورد پرداخت
-            $paymentId = $this->financialService->createPayment(
-                userId: $userId,
-                orderId: $orderId,
-                reasonId: 1,
-                reasonRef: $slotId,
-                amount: $amount,
-                gateway: 'saman' // تغییر به سامان
-            );
-
+            // کامیت می‌کنیم تا PaymentService بتواند این Order را پیدا کند
             DB::commit();
 
-            // ۵. ارتباط با درگاه سامان و دریافت توکن
-            // فرض بر این است که PaymentService متدی برای دریافت توکن دارد که با SamanGateway کار میکند
-            // اگر متد شما نام دیگری دارد (مثل initiate) آن را جایگزین کنید
-            $samanToken = $this->paymentService->requestSamanToken($paymentId, $amount);
+            // ۵. فراخوانی اورکستراتور پرداخت برای ایجاد رکورد پرداخت و دریافت توکن
+//            $callbackUrl = route('payment.callback.saman'); // آدرس روت کال‌بک شما در فایل web.php یا api.php
+            $callbackUrl = 'http://mediraai.com/api/pg/call_back';
+            $paymentData = $this->paymentService->initiate(
+                orderId:     $orderId,
+                userId:      $userId,
+                callbackUrl: $callbackUrl,
+                cellNumber:  $request->user()->phone // اگر درگاه سامان شماره موبایل می‌خواهد
+            );
 
-            if (!$samanToken) {
-                throw new \Exception('خطا در دریافت توکن از بانک سامان');
-            }
+            // مقادیر بازگشتی از متد initiate
+            $token= $paymentData['token'];
+            $paymentId  = $paymentData['payment_id'];
+            $paymentUrl = $paymentData['payment_url'];
+            $resNum     = $paymentData['res_num']; // Authority
 
-            // به‌روزرسانی توکن (Authority) در جدول پرداخت‌ها
-            DB::table('payments')->where('id', $paymentId)->update([
-                'authority' => $samanToken,
-                'updated_at' => now(),
-            ]);
-
-            // ۶. ساخت URL نهایی برای ریدایرکت فرانت‌اند (کامپوننت PaymentRedirect)
-            $paymentUrl = "http://mediraai.com/pg?token={$samanToken}";
-
-            // ۷. ثبت رزرو موقت در Redis (فقط در صورت موفقیت‌آمیز بودن دریافت توکن)
+            // ۶. ثبت رزرو موقت در Redis (قفل کردن اسلات)
             $reservationToken = Str::uuid()->toString();
 
             $reservationData = [
-                'user_id' => $userId,
-                'slot_id' => $slotId,
-                'doctor_id' => $slot->doctor_id,
-                'slot_date' => $slot->slot_date,
-                'start_time' => $slot->start_time,
-                'end_time' => $slot->end_time,
-                'token' => $reservationToken,
-                'order_id' => $orderId,
-                'payment_id' => $paymentId,
-                'authority' => $samanToken,
-                'amount' => $amount,
-                'session_id' => $sessionId,
+                'user_id'     => $userId,
+                'slot_id'     => $slotId,
+                'doctor_id'   => $slot->doctor_id,
+                'slot_date'   => $slot->slot_date,
+                'start_time'  => $slot->start_time,
+                'end_time'    => $slot->end_time,
+                'token'       => $reservationToken,
+                'order_id'    => $orderId,
+                'payment_id'  => $paymentId,
+                'authority'   => $resNum,
+                'amount'      => $amount,
+                'session_id'  => $sessionId,
                 'reserved_at' => Carbon::now()->toDateTimeString(),
             ];
 
-            // قفل کردن اسلات برای ۱۵ دقیقه (۹۰۰ ثانیه)
+            // قفل کردن اسلات برای ۱۵ دقیقه (هم‌گام با زمان انقضای توکن درگاه)
             Redis::setex($reservationKey, 900, json_encode($reservationData));
 
-            // ذخیره کلید مجزا برای دسترسی سریع کاربر
             $userReservationKey = "user:reservation:{$userId}:{$reservationToken}";
             Redis::setex($userReservationKey, 900, json_encode([
-                'slot_id' => $slotId,
+                'slot_id'    => $slotId,
                 'payment_id' => $paymentId,
-                'order_id' => $orderId,
+                'order_id'   => $orderId,
             ]));
 
-            $expiresAt = Carbon::now()->addMinutes(15)->toDateTimeString();
-
-            // ۸. ارسال پاسخ موفق به فرانت‌اند
+            // ۷. ارسال پاسخ موفق به فرانت‌اند (سازگار با رابط کاربری React)
             return response()->json([
                 'success' => true,
-                'message' => 'اسلات رزرو شد. در حال انتقال به درگاه...',
+                'message' => 'در حال انتقال به درگاه بانک...',
                 'data' => [
                     'reservation_token' => $reservationToken,
-                    'expires_at' => $expiresAt,
-                    'slot_id' => $slotId,
+                    'expires_at'        => Carbon::now()->addMinutes(15)->toDateTimeString(),
+                    'slot_id'           => $slotId,
                     'payment' => [
-                        'order_id' => $orderId,
-                        'payment_id' => $paymentId,
-                        'amount' => $amount,
-                        'gateway' => 'saman',
-                        'payment_url' => $paymentUrl, // فرانت‌اند باید کاربر را به این لینک هدایت کند
+                        'order_id'    => $orderId,
+                        'payment_id'  => $paymentId,
+                        'amount'      => $amount,
+                        'gateway'     => 'saman',
+                        'payment_url' => "http://mediraai.com/pg?token={$token}", // این لینک به طور مستقیم توسط React باز می‌شود
                     ]
                 ]
             ], 200);
 
         } catch (\Exception $e) {
-            DB::rollBack();
+            // در صورت بروز خطا در فرآیند پرداخت، تراکنش دیتابیس‌ها و کش را پاکسازی می‌کنیم
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+            Redis::del($reservationKey); // آزادسازی اسلات در صورت خطای درگاه
 
-            \Log::error('Saman Gateway Reservation Failed', [
+            Log::error('[Reserve Controller] Saman Gateway Reservation Failed', [
                 'slot_id' => $slotId,
                 'user_id' => $userId,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'error'   => $e->getMessage(),
+                'trace'   => $e->getTraceAsString()
             ]);
 
             return response()->json([
@@ -394,6 +382,7 @@ class ReservationController extends Controller
             ], 500);
         }
     }
+
 
 
     /**

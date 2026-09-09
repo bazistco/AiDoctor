@@ -113,6 +113,7 @@ class PaymentService
             $this->logGateway($paymentId, 'token_request', compact('resNum'), $result['raw']);
 
             return [
+                'token' => $result['token'],
                 'payment_id'  => $paymentId,
                 'payment_url' => $result['payment_url'],
                 'res_num'     => $resNum,
