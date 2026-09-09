@@ -188,12 +188,18 @@ class PaymentService
             DB::table('orders')
                 ->where('id', $payment->order_id)
                 ->where('status', OrderService::STATUS_PENDING)
-                ->update(['status' => OrderService::STATUS_FAILED, 'updated_at' => now()]);
+                ->update(['status' => OrderService::STATUS_FAILED, 'updated_at' => now(),'canceled_at' => now()]);
 
             // آزادسازی قفل ردیس نوبت در صورت پرداخت ناموفق
             $order = DB::table('orders')->where('id', $payment->order_id)->first();
             if ($order && (int) $order->reason_id === 1 && !empty($order->reason_ref)) {
                 Redis::del("slot:reservation:{$order->reason_ref}");
+                DB::table('appointment_slots')
+                    ->where('id', $order->reason_ref)
+                    ->update([
+                        'patient_id'   => null,
+                        'updated_at'   => now()
+                    ]);
             }
 
             $this->logGateway($paymentId, 'callback_failed', $payload, ['state' => $state]);
