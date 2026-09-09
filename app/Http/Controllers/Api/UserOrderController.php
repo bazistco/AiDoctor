@@ -132,10 +132,16 @@ class UserOrderController extends Controller
         $user = $request->user();
         $userId = $user->id;
 
-        // --- UNION کوئری اصلی ---
+        // --- ۱. کوئری نوبت‌های پزشک (شامل رزرو قطعی و سفارشات باز/در انتظار پرداخت) ---
         $q1 = DB::table('appointment_slots as sa')
             ->join('doctor_info as di', 'sa.doctor_id', '=', 'di.user_id')
             ->join('specialties as s', 'di.specialty_id', '=', 's.id')
+            ->leftJoin('orders as o', function ($join) use ($userId) {
+                $join->on('o.reason_ref', '=', DB::raw('CAST(sa.id AS CHAR)'))
+                    ->where('o.reason_id', '=', 1)
+                    ->where('o.user_id', '=', $userId)
+                    ->where('o.status', '=', 'pending'); // سفارشات با درگاه باز/در انتظار پرداخت
+            })
             ->select(
                 'sa.id',
                 'sa.status',
@@ -143,10 +149,15 @@ class UserOrderController extends Controller
                 'sa.created_at',
                 'di.name',
                 's.name as detail',
-                DB::raw("'doctor' as type")
+                DB::raw("'doctor' as type"),
+                DB::raw('COALESCE(sa.order_id, o.id) as order_id') // شناسه سفارش باز یا رزرو شده
             )
-            ->where('sa.patient_id', $userId);
+            ->where(function ($query) use ($userId) {
+                $query->where('sa.patient_id', $userId)
+                    ->orWhereNotNull('o.id');
+            });
 
+        // --- ۲. کوئری آزمایشگاه ---
         $q2 = DB::table('users_labs_requests as ulr')
             ->join('labs_info as li', 'ulr.lab_id', '=', 'li.user_id')
             ->select(
@@ -156,10 +167,12 @@ class UserOrderController extends Controller
                 'ulr.created_at',
                 'li.name',
                 DB::raw("IF(ulr.visit_type = 0, 'در منزل', 'حضوری') as detail"),
-                DB::raw("'lab' as type")
+                DB::raw("'lab' as type"),
+                DB::raw('NULL as order_id')
             )
             ->where('ulr.user_id', $userId);
 
+        // --- ۳. کوئری داروخانه ---
         $q3 = DB::table('users_pharmacy_requests as upr')
             ->leftJoin('pharmacies_info as pi', 'upr.pharmacy_id', '=', 'pi.user_id')
             ->select(
@@ -169,10 +182,12 @@ class UserOrderController extends Controller
                 'upr.created_at',
                 'pi.name',
                 DB::raw("'-' as detail"),
-                DB::raw("'pharmacy' as type")
+                DB::raw("'pharmacy' as type"),
+                DB::raw('NULL as order_id')
             )
             ->where('upr.user_id', $userId);
 
+        // --- ۴. کوئری مراکز درمانی / پرستاری ---
         $q4 = DB::table('user_medical_center_requests as umcr')
             ->join('medical_centers_info as mci', 'umcr.medical_center_id', '=', 'mci.user_id')
             ->join('medical_services_time_types as mcty', 'mcty.id', '=', 'umcr.time_type_id')
@@ -183,10 +198,12 @@ class UserOrderController extends Controller
                 'umcr.created_at',
                 'mci.name',
                 'mcty.name as detail',
-                DB::raw("'nurse' as type")
+                DB::raw("'nurse' as type"),
+                DB::raw('NULL as order_id')
             )
             ->where('umcr.user_id', $userId);
 
+        // اجرای UNION و مرتب‌سازی
         $orders = $q1->unionAll($q2)
             ->unionAll($q3)
             ->unionAll($q4)

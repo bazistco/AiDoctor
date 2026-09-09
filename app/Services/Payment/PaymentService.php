@@ -310,7 +310,13 @@ class PaymentService
                         'error'      => $e->getMessage(),
                     ]);
                 }
-
+                DB::table('appointment_slots')
+                    ->where('id', $slotId)
+                    ->update([
+                        'patient_id'   => null,
+                        'updated_at'   => now(),
+                    ]);
+                Redis::del("slot:reservation:{$slotId}");
                 $this->logGateway($paymentId, 'verify_failed', $payload, ['error' => $e->getMessage()]);
 
                 return ['success' => false, 'error' => 'verify_failed', 'payment_id' => $paymentId];

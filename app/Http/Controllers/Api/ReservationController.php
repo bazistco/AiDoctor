@@ -296,6 +296,7 @@ class ReservationController extends Controller
                 amount:      $amount,
                 description: "رزرو نوبت پزشک در تاریخ {$slot->slot_date} ساعت {$slot->start_time}"
             );
+            AppointmentSlot::query()->where('id',$slotId)->update(['patient_id'=>$userId]);
             // کامیت می‌کنیم تا PaymentService بتواند این Order را پیدا کند
             DB::commit();
 
