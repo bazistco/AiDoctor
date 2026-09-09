@@ -188,7 +188,7 @@ class PaymentService
                 ->where('status', OrderService::STATUS_PENDING)
                 ->update([
                     'status'      => OrderService::STATUS_FAILED,
-                    'canceled_at' => now(),
+                    'cancelled_at' => now(),
                     'updated_at'  => now(),
                 ]);
 
@@ -257,7 +257,7 @@ class PaymentService
                         ->where('status', OrderService::STATUS_PENDING)
                         ->update([
                             'status'      => OrderService::STATUS_FAILED,
-                            'canceled_at' => now(),
+                            'cancelled_at' => now(),
                             'updated_at'  => now(),
                         ]);
 
