@@ -302,7 +302,7 @@ class ReservationController extends Controller
 
             // ۵. فراخوانی اورکستراتور پرداخت برای ایجاد رکورد پرداخت و دریافت توکن
 //            $callbackUrl = route('payment.callback.saman'); // آدرس روت کال‌بک شما در فایل web.php یا api.php
-            $callbackUrl = 'http://mediraai.com/api/pg/call_back';
+            $callbackUrl = 'https://mediraai.com/api/pg/call_back';
             $paymentData = $this->paymentService->initiate(
                 orderId:     $orderId,
                 userId:      $userId,
@@ -358,7 +358,7 @@ class ReservationController extends Controller
                         'payment_id'  => $paymentId,
                         'amount'      => $amount,
                         'gateway'     => 'saman',
-                        'payment_url' => "http://mediraai.com/pg?token={$token}", // این لینک به طور مستقیم توسط React باز می‌شود
+                        'payment_url' => "https://mediraai.com/pg?token={$token}", // این لینک به طور مستقیم توسط React باز می‌شود
                     ]
                 ]
             ], 200);

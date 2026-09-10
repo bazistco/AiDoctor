@@ -127,7 +127,7 @@ class PaymentController extends Controller
             'host'              => $request->header('Host'),
         ]);
         // آدرس صفحه نتیجه در فرانت‌‌اند React
-        $frontendResultUrl = config('payment.frontend_result_url', 'http://app.mediraai.com/payment/result');
+        $frontendResultUrl = config('payment.frontend_result_url', 'https://app.mediraai.com/payment/result');
 
         // اعتبارسنجی پارامترهای ضروری
         if (empty($payload['ResNum']) || empty($payload['State'])) {
