@@ -229,7 +229,7 @@ Route::group(['prefix' => 'user'],function (){
          Route::post('/appointments/cancel-temp', [ReservationController::class, 'cancelTempReservation']);
 // ۱. وب‌سرویس ایجاد سفارش نوبت
          Route::post('/appointments/reserve', [ReservationController::class, 'createOrder']);
-         Route::get('/order/appointments/{id}', [ReservationController::class, 'getAppointmentDetail']);
+         Route::get('/appointments-requests/{id}', [ReservationController::class, 'getAppointmentDetail']);
          // ۲. وب‌سرویس صدور/دریافت درگاه پرداخت برای سفارش
          Route::post('/payments/initiate', [PaymentGatewayController::class, 'initiatePayment']);
          Route::prefix('reservations')->group(function () {
