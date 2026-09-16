@@ -1280,7 +1280,8 @@ class DiagnosisController extends Controller
                         'datetime'               => $slot->datetime_full,
                         'status'                 => $slot->status,
                         'is_my_temp_reservation' => $slot->is_my_temp_reservation, // فرستادن وضعیت به فرانت
-                        'temp_order_id'          => $slot->temp_order_id          // در صورت نیاز فرانت
+                        'temp_order_id'          => $slot->temp_order_id ,         // در صورت نیاز فرانت
+                         'expires_at'=>$slot->expires_at??null,
                     ];
                 })->values();
             });
