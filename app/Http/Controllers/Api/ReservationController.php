@@ -97,7 +97,7 @@ class ReservationController extends Controller
             ->join('specialties', 'doctor_info.specialty_id', '=', 'specialties.id')
             ->where('appointment_slots.patient_id', $userId)
             ->where('appointment_slots.slot_date', '>=', now()->format('Y-m-d'))
-            ->whereIn('appointment_slots.status', ['available', 'booked']) // موقت (منتظر پرداخت) یا قطعی
+            ->whereIn('appointment_slots.status', ['available']) // موقت (منتظر پرداخت) یا قطعی
             ->orderBy('appointment_slots.slot_date', 'asc')
             ->orderBy('appointment_slots.start_time', 'asc')
             ->select(
