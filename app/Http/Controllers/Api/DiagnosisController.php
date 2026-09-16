@@ -1275,7 +1275,7 @@ class DiagnosisController extends Controller
                         'gender' => $doctor->gender,
                         'specialty_id' => $doctor->specialty_id,
                         'specialty_name' => $doctor->specialty_name,
-                        'visit_price' => $doctor->visit_price,
+                        'visit_price' => 1500,
                         'experience' => $doctor->experience,
                         'address' => $doctor->address,
                         'rating' => $doctor->rating,

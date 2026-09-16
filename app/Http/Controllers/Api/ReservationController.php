@@ -82,7 +82,7 @@ class ReservationController extends Controller
         DB::beginTransaction();
         try {
             // محاسبه مبلغ (پیشنهاد: دریافت از مدل پزشک یا نوبت)
-            $amount = $slot->doctor->visit_price ?? 15000;
+            $amount =  15000;
 
             // ۴. آماده‌سازی اطلاعات اضافی (extra_detail)
             $extraDetail = [
