@@ -171,23 +171,73 @@ class ReservationController extends Controller
 
             // بررسی اینکه آیا رزرو موقت واقعا متعلق به همین کاربر است
             if (isset($data['user_id']) && $data['user_id'] == $userId) {
-                // ۱. پاک کردن قفل ردیس
-                Redis::del($reservationKey);
+                $orderId = $data['order_id'] ?? null;
 
-                // ۲. آزاد کردن اسلات در دیتابیس
-                AppointmentSlot::query()->where('id', $slotId)->update([
-                    'patient_id' => null,
-                    'booking_time' => null,
-                    'extra_detail' => null,
-                ]);
+                DB::beginTransaction();
+                try {
+                    // ۱. آزاد کردن اسلات در دیتابیس
+                    AppointmentSlot::query()->where('id', $slotId)->update([
+                        'patient_id'   => null,
+                        'booking_time' => null,
+                        'extra_detail' => null,
+                    ]);
 
-                // در صورت نیاز می‌توانید Order مربوطه را هم در دیتابیس کنسل کنید
+                    // ۲. بررسی و لغو سفارش و تراکنش‌های بانکی
+                    if ($orderId) {
+                        // الف) لغو سفارش (Order) - فرض بر این است که وضعیت 1 یعنی در انتظار پرداخت و 3 یعنی لغو شده
+                        DB::table('orders')
+                            ->where('id', $orderId)
+                            ->where('status', 1)
+                            ->update([
+                                'status' => 3, // تغییر وضعیت به لغو شده
+                                'updated_at' => now(),
+                            ]);
 
-                return response()->json(['success' => true, 'message' => 'رزرو قبلی لغو شد.']);
+                        // ب) لغو تراکنش درگاه پرداخت (Payments یا Transactions)
+                        // نکته: نام این جدول بسته به ساختار دیتابیس شما ممکن است payments یا transactions باشد.
+                        // وضعیت 0 یا 1 معمولاً یعنی در انتظار پرداخت، که ما آن را به وضعیت لغو/خطا (مثلاً 2 یا canceled) تغییر می‌دهیم.
+                        DB::table('payments') // اگر نام جدول شما چیز دیگری است، اینجا را تغییر دهید
+                        ->where('order_id', $orderId)
+                            ->whereIn('status', [0, 1, 'pending', 'initiated']) // پیدا کردن تراکنش‌های باز
+                            ->update([
+                                'status' => 3, // یا 'canceled' / 'failed' بسته به منطق دیتابیس شما
+                                'updated_at' => now(),
+                                'last_error' => 'درخواست توسط بیمار لغو شد',
+
+                            ]);
+                    }
+
+                    // ۳. پاک کردن قفل ردیس
+                    Redis::del($reservationKey);
+
+                    DB::commit();
+
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'رزرو قبلی و سفارشات بانکی مرتبط با موفقیت لغو شدند.'
+                    ]);
+
+                } catch (\Exception $e) {
+                    DB::rollBack();
+
+                    \Illuminate\Support\Facades\Log::error('[Cancel Temp Reservation] Error', [
+                        'slot_id' => $slotId,
+                        'user_id' => $userId,
+                        'error'   => $e->getMessage()
+                    ]);
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'خطا در لغو رزرو. لطفاً مجدداً تلاش کنید.'
+                    ], 500);
+                }
             }
         }
 
-        return response()->json(['success' => false, 'message' => 'رزرو موقتی یافت نشد یا متعلق به شما نیست.'], 404);
+        return response()->json([
+            'success' => false,
+            'message' => 'رزرو موقتی یافت نشد یا متعلق به شما نیست.'
+        ], 404);
     }
     public function createOrder(Request $request)
     {
@@ -213,13 +263,12 @@ class ReservationController extends Controller
         $userId     = $request->user()->id;
 
         // ۱.۵. بررسی اینکه آیا کاربر نوبت موقتِ در حال انتظاری از قبل دارد یا خیر
-        // ابتدا شناسه‌هایی که به نام این بیمار در دیتابیس خورده و هنوز status آنها available است را می‌گیریم
         $existingTempSlots = AppointmentSlot::query()
             ->where('patient_id', $userId)
             ->where('status', 'available')
             ->pluck('id');
 
-        // سپس در ردیس چک می‌کنیم که آیا زمان آنها هنوز باقی است؟
+        // در ردیس چک می‌کنیم که آیا زمان رزروهای قبلی هنوز باقی است؟
         foreach ($existingTempSlots as $tempSlotId) {
             $redisData = Redis::get("slot:reservation:{$tempSlotId}");
 
@@ -265,7 +314,7 @@ class ReservationController extends Controller
 
         DB::beginTransaction();
         try {
-            // محاسبه مبلغ (پیشنهاد: دریافت از مدل پزشک یا نوبت)
+            // محاسبه مبلغ
             $amount =  15000;
 
             // ۴. آماده‌سازی اطلاعات اضافی (extra_detail)
@@ -289,6 +338,18 @@ class ReservationController extends Controller
                 ];
             }
 
+            // ۴.۵. ابطال سفارش‌های معلق و قدیمی برای همین نوبت
+            // اگر کاربر قبلاً برای این نوبت سفارشی ساخته که پرداخت نشده (status = 1)، آن را منقضی (status = 3) می‌کنیم
+            DB::table('orders')
+                ->where('user_id', $userId)
+                ->where('reason_id', 1) // 1 = نوبت
+                ->where('reason_ref', $slotId)
+                ->where('status', 1) // وضعیت پرداخت‌نشده / معلق
+                ->update([
+                    'status' => 3, // 3 = لغو شده / منقضی شده
+                    'updated_at' => now(),
+                ]);
+
             // ۵. ایجاد رکورد Order در سیستم مالی
             $orderId = $this->financialService->createOrder(
                 userId:      $userId,
@@ -298,7 +359,7 @@ class ReservationController extends Controller
                 description: "سفارش رزرو نوبت تاریخ {$slot->slot_date} ساعت {$slot->start_time}"
             );
 
-            // ۶. به‌روزرسانی نوبت با کاربر رزروکننده، ستون extra_detail و تغییر وضعیت (Status)
+            // ۶. به‌روزرسانی نوبت با کاربر رزروکننده، ستون extra_detail و تغییر وضعیت
             AppointmentSlot::query()->where('id', $slotId)->update([
                 'patient_id'   => $userId,
                 'extra_detail' => json_encode($extraDetail, JSON_UNESCAPED_UNICODE),
@@ -336,7 +397,7 @@ class ReservationController extends Controller
                     'slot_id'           => $slotId,
                     'amount'            => $amount,
                     'reservation_token' => $reservationToken,
-                    'expires_at'        => \Carbon\Carbon::now()->addMinutes(15)->toDateTimeString(),
+                    'expires_at'        => \Carbon\Carbon::now()->timezone('Asia/Tehran')->addMinutes(15)->toDateTimeString(),
                     'patient_type'      => $isForOther ? 'other' : 'self',
                 ]
             ], 201);
