@@ -26,6 +26,66 @@ class ReservationController extends Controller
         $this->financialService = $financialService;
         $this->paymentService = $paymentService; // اضافه شود
     }
+    public function getAppointmentDetail(Request $request, $id)
+    {
+        try {
+            $userId = $request->user()->id;
+
+            // دریافت اطلاعات نوبت به همراه نام دکتر
+            $appointment = DB::table('appointment_slots')
+                ->join('users as doctor_user', 'appointment_slots.doctor_id', '=', 'doctor_user.id')
+                ->where('appointment_slots.id', $id)
+                ->where('appointment_slots.patient_id', $userId) // امنیت: فقط نوبت‌های خودش را ببیند
+                ->select(
+                    'appointment_slots.id',
+                    'appointment_slots.slot_date',
+                    'appointment_slots.start_time',
+                    'appointment_slots.status',
+                    'appointment_slots.extra_detail',
+                    'doctor_user.name as doctor_name'
+                )
+                ->first();
+
+            // اگر نوبت پیدا نشد یا متعلق به این کاربر نبود
+            if (!$appointment) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'نوبت مورد نظر یافت نشد یا شما دسترسی به آن را ندارید.'
+                ], 404);
+            }
+
+            // تبدیل extra_detail از رشته JSON به آرایه (اگر به صورت رشته ذخیره شده باشد)
+            $extraDetail = $appointment->extra_detail;
+            if (!empty($extraDetail) && is_string($extraDetail)) {
+                $extraDetail = json_decode($extraDetail, true);
+            }
+
+            // ساختاربندی دیتای خروجی دقیقاً مطابق با اینترفیس DoctorAppointmentDetail در فرانت‌اند
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'id'           => $appointment->id,
+                    'slot_date'    => $appointment->slot_date,
+                    'start_time'   => $appointment->start_time,
+                    'status'       => $appointment->status,
+                    'doctor_name'  => $appointment->doctor_name,
+                    'extra_detail' => $extraDetail
+                ]
+            ], 200);
+
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('[Appointment Detail] Fetch Error', [
+                'appointment_id' => $id,
+                'user_id'        => $request->user()->id ?? null,
+                'error'          => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در دریافت اطلاعات نوبت. لطفاً مجدداً تلاش کنید.'
+            ], 500);
+        }
+    }
     public function getActiveAppointment(Request $request)
     {
         $userId = $request->user()->id;
