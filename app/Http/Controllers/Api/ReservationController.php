@@ -26,6 +26,77 @@ class ReservationController extends Controller
         $this->financialService = $financialService;
         $this->paymentService = $paymentService; // اضافه شود
     }
+    public function getActiveAppointment(Request $request)
+    {
+        $userId = $request->user()->id;
+
+        // پیدا کردن نزدیک‌ترین نوبت بیمار (از امروز به بعد)
+        $slot = DB::table('appointment_slots')
+            ->join('users as doctor_user', 'appointment_slots.doctor_id', '=', 'doctor_user.id')
+            ->join('doctor_info', 'doctor_user.id', '=', 'doctor_info.user_id')
+            ->join('specialties', 'doctor_info.specialty_id', '=', 'specialties.id')
+            ->where('appointment_slots.patient_id', $userId)
+            ->where('appointment_slots.slot_date', '>=', now()->format('Y-m-d'))
+            ->whereIn('appointment_slots.status', ['available', 'booked']) // موقت (منتظر پرداخت) یا قطعی
+            ->orderBy('appointment_slots.slot_date', 'asc')
+            ->orderBy('appointment_slots.start_time', 'asc')
+            ->select(
+                'appointment_slots.id',
+                'appointment_slots.slot_date',
+                'appointment_slots.start_time',
+                'appointment_slots.status',
+                'doctor_user.name as doctor_name',
+                'doctor_info.image_url as doctor_image',
+                'specialties.name as specialty_name'
+            )
+            ->first();
+
+        if (!$slot) {
+            return response()->json(['success' => true, 'data' => null]);
+        }
+
+        $isActive = false;
+        $expiresAt = null;
+        $isTemporary = false;
+
+        // بررسی وضعیت نوبت
+        if ($slot->status === 'available') {
+            // نوبتِ available است اما به نام این کاربر خورده، پس چک می‌کنیم در ردیس قفل است یا خیر
+            $redisData = Redis::get("slot:reservation:{$slot->id}");
+            if ($redisData && $redisData !== 'locking...') {
+                $decoded = json_decode($redisData, true);
+                // اطمینان از اینکه رزرو موقت هنوز متعلق به همین کاربر است
+                if (isset($decoded['user_id']) && $decoded['user_id'] == $userId) {
+                    $isActive = true;
+                    $isTemporary = true;
+                    $expiresAt = \Carbon\Carbon::parse($decoded['reserved_at'])->addMinutes(15)->timezone('Asia/Tehran')->toDateTimeString();
+                }
+            }
+        } else if ($slot->status === 'booked') {
+            // نوبت قطعی پرداخت شده
+            $isActive = true;
+        }
+
+        // اگر نوبت موقت در ردیس منقضی شده بود، آن را برنگردان
+        if (!$isActive) {
+            return response()->json(['success' => true, 'data' => null]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $slot->id,
+                'doctor_name' => $slot->doctor_name,
+                'doctor_image' => $slot->doctor_image ? asset('storage/' . $slot->doctor_image) : null,
+                'specialty_name' => $slot->specialty_name,
+                'date' => $slot->slot_date,
+                'time' => $slot->start_time,
+                'is_temporary' => $isTemporary,
+                'expires_at' => $expiresAt,
+                'status' => $slot->status,
+            ]
+        ]);
+    }
     public function cancelTempReservation(Request $request)
     {
         $request->validate(['slot_id' => 'required|integer']);
@@ -81,7 +152,31 @@ class ReservationController extends Controller
         $isForOther = (bool) $validated['is_for_other'];
         $userId     = $request->user()->id;
 
-        // ۲. بررسی وجود و وضعیت اسلات در دیتابیس
+        // ۱.۵. بررسی اینکه آیا کاربر نوبت موقتِ در حال انتظاری از قبل دارد یا خیر
+        // ابتدا شناسه‌هایی که به نام این بیمار در دیتابیس خورده و هنوز status آنها available است را می‌گیریم
+        $existingTempSlots = AppointmentSlot::query()
+            ->where('patient_id', $userId)
+            ->where('status', 'available')
+            ->pluck('id');
+
+        // سپس در ردیس چک می‌کنیم که آیا زمان آنها هنوز باقی است؟
+        foreach ($existingTempSlots as $tempSlotId) {
+            $redisData = Redis::get("slot:reservation:{$tempSlotId}");
+
+            // اگر دیتا در ردیس بود و در مرحله locking اولیه نبود، یعنی رزرو قطعی موقت دارد
+            if ($redisData && $redisData !== 'locking...') {
+                $decoded = json_decode($redisData, true);
+
+                if (isset($decoded['user_id']) && $decoded['user_id'] == $userId) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'شما در حال حاضر یک نوبت در انتظار پرداخت دارید. لطفاً ابتدا آن را تکمیل یا لغو کنید.'
+                    ], 409); // Conflict
+                }
+            }
+        }
+
+        // ۲. بررسی وجود و وضعیت اسلات جدید در دیتابیس
         $slot = AppointmentSlot::query()->find($slotId);
 
         if (!$slot) {
@@ -99,9 +194,6 @@ class ReservationController extends Controller
         // ۳. ایجاد قفل اتمیک در Redis (جلوگیری قطعی از Race Condition)
         $reservationKey = "slot:reservation:{$slotId}";
 
-        // پارامتر NX: فقط در صورتی که کلید وجود نداشته باشد آن را می‌سازد.
-        // پارامتر EX: زمان انقضا بر حسب ثانیه (۹۰۰ ثانیه = ۱۵ دقیقه).
-        // این دستور یکپارچه (Atomic) اجرا می‌شود و امکان تداخل دو درخواست همزمان را به صفر می‌رساند.
         $isLockAcquired = Redis::set($reservationKey, 'locking...', 'EX', 900, 'NX');
 
         if (!$isLockAcquired) {
@@ -184,7 +276,7 @@ class ReservationController extends Controller
                     'slot_id'           => $slotId,
                     'amount'            => $amount,
                     'reservation_token' => $reservationToken,
-                    'expires_at'        => Carbon::now()->addMinutes(15)->toDateTimeString(),
+                    'expires_at'        => \Carbon\Carbon::now()->addMinutes(15)->toDateTimeString(),
                     'patient_type'      => $isForOther ? 'other' : 'self',
                 ]
             ], 201);
@@ -199,7 +291,7 @@ class ReservationController extends Controller
                 'slot_id' => $slotId,
                 'user_id' => $userId,
                 'error'   => $e->getMessage(),
-                'trace'   => $e->getTraceAsString() // اضافه کردن Trace برای دیباگ دقیق‌تر
+                'trace'   => $e->getTraceAsString()
             ]);
 
             return response()->json([
