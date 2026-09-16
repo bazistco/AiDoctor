@@ -10,7 +10,9 @@ use App\Services\Payment\PaymentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
@@ -31,6 +33,115 @@ class PaymentController extends Controller
      * Body: { reason_id, reason_ref, amount, description? }
      * Auth: Sanctum (required)
      */
+    public function initiateAppointmentPayment(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'order_id' => ['required', 'integer', 'min:1'],
+            'gateway'  => ['nullable', 'string', 'in:saman,zarinpal'],
+        ]);
+
+        $userId = $request->user()->id;
+        $orderId = (int) $data['order_id'];
+
+        // ۱. بررسی وجود سفارش
+        $order = DB::table('orders')
+            ->where('id', $orderId)
+            ->where('user_id', $userId)
+            ->first();
+
+        if (!$order) {
+            return response()->json(['success' => false, 'message' => 'سفارش یافت نشد.'], 404);
+        }
+
+        if ((int)$order->status !== \App\Services\Payment\OrderService::STATUS_PENDING) {
+            return response()->json(['success' => false, 'message' => 'این سفارش قابل پرداخت نیست (ممکن است پرداخت شده یا لغو شده باشد).'], 422);
+        }
+
+        // ۲. دریافت اطلاعات نوبت
+        $slotId = $order->reason_ref;
+        $slot = DB::table('appointment_slots')->where('id', $slotId)->first();
+
+        if (!$slot) {
+            return response()->json(['success' => false, 'message' => 'نوبت یافت نشد.'], 404);
+        }
+
+        // ۳. بررسی اعتبار رزرو موقت (قفل Redis)
+        $reservationKey = "slot:reservation:{$slotId}";
+        $lockExists = Redis::exists($reservationKey);
+        $isValidForPayment = false;
+
+        if ($lockExists) {
+            $lockData = json_decode(Redis::get($reservationKey), true);
+            // بررسی اینکه آیا رزرو موقت متعلق به همین کاربر و همین سفارش است؟
+            if (($lockData['user_id'] ?? null) == $userId && ($lockData['order_id'] ?? null) == $orderId) {
+                $isValidForPayment = true;
+            }
+        }
+
+        // ۴. اگر مهلت رزرو موقت تمام شده یا نوبت متعلق به شخص دیگری است
+        if (!$isValidForPayment) {
+            DB::transaction(function () use ($orderId, $slotId, $userId, $slot) {
+                // الف) لغو سفارش
+                DB::table('orders')->where('id', $orderId)->update([
+                    'status' => \App\Services\Payment\OrderService::STATUS_CANCELLED,
+                    'updated_at' => now()
+                ]);
+
+                // ب) لغو و باطل کردن پرداخت‌های معلق (درگاه‌های ایجاد شده)
+                DB::table('payments')
+                    ->where('order_id', $orderId)
+                    ->where('status', \App\Services\Payment\PaymentService::PAY_PENDING)
+                    ->update([
+                        'status' => \App\Services\Payment\PaymentService::PAY_FAILED,
+                        'last_error' => 'مهلت پرداخت به پایان رسید و نوبت لغو شد.',
+                        'updated_at' => now()
+                    ]);
+
+                // ج) پاک کردن رزرو نوبت (آزاد کردن اسلات)
+                if ($slot->status !== 'booked') {
+                    DB::table('appointment_slots')->where('id', $slotId)->update([
+                        'status' => 'available',
+                        'patient_id' => null,
+                        'extra_detail' => null,
+                        'updated_at' => now(),
+                    ]);
+                }
+            });
+
+            // پاک کردن کلید ردیس (محض اطمینان)
+            Redis::del($reservationKey);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'مهلت ۱۵ دقیقه‌ای پرداخت شما به پایان رسیده و نوبت لغو شد. لطفاً مجدداً نوبت بگیرید.'
+            ], 410); // 410 Gone
+        }
+
+        // ۵. در صورت معتبر بودن نوبت، فراخوانی سرویس پرداخت (ساخت یا بازگردانی توکن قبلی)
+        // دقت کنید که PaymentService شما خودش چک می‌کند که اگر درگاه باز و توکن معتبر است، همون قبلی رو بده (Idempotent)
+        $callbackUrl =  'http://mediraai.com/api/pg/call_back';
+
+        try {
+            $result = $this->paymentService->initiate(
+                orderId:     $orderId,
+                userId:      $userId,
+                callbackUrl: $callbackUrl
+            );
+
+            return response()->json([
+                'success'     => true,
+                'payment_id'  => $result['payment_id'],
+                'payment_url' => $result['payment_url'],
+                'res_num'     => $result['res_num'],
+            ]);
+
+        } catch (RuntimeException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در ارتباط با درگاه پرداخت: ' . $e->getMessage(),
+            ], 422);
+        }
+    }
     public function createOrder(Request $request): JsonResponse
     {
         $data = $request->validate([

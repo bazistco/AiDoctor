@@ -224,6 +224,7 @@ Route::group(['prefix' => 'user'],function (){
          Route::get('/labs-requests/{id}/pay', [\App\Http\Controllers\Api\UserLabRequestController::class, 'pay']);
          Route::get('/user/prescriptions/{id}/download/{file}', [\App\Http\Controllers\Api\LabController::class, 'downloadPrescriptionFile'])->name('user.prescription.download');
 
+         Route::post('/appointments/pay-order', [\App\Http\Controllers\Api\PaymentController::class, 'initiateAppointmentPayment']);
 // ۱. وب‌سرویس ایجاد سفارش نوبت
          Route::post('/appointments/reserve', [ReservationController::class, 'createOrder']);
 
