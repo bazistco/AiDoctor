@@ -361,6 +361,7 @@ class ReservationController extends Controller
 
             // ۶. به‌روزرسانی نوبت با کاربر رزروکننده، ستون extra_detail و تغییر وضعیت
             AppointmentSlot::query()->where('id', $slotId)->update([
+                'ai_session_token'=>$sessionId,
                 'patient_id'   => $userId,
                 'extra_detail' => json_encode($extraDetail, JSON_UNESCAPED_UNICODE),
                 'updated_at'   => now(),
