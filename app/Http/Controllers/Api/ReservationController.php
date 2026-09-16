@@ -26,6 +26,38 @@ class ReservationController extends Controller
         $this->financialService = $financialService;
         $this->paymentService = $paymentService; // اضافه شود
     }
+    public function cancelTempReservation(Request $request)
+    {
+        $request->validate(['slot_id' => 'required|integer']);
+        $userId = $request->user()->id;
+        $slotId = $request->slot_id;
+
+        $reservationKey = "slot:reservation:{$slotId}";
+        $redisData = Redis::get($reservationKey);
+
+        if ($redisData) {
+            $data = json_decode($redisData, true);
+
+            // بررسی اینکه آیا رزرو موقت واقعا متعلق به همین کاربر است
+            if (isset($data['user_id']) && $data['user_id'] == $userId) {
+                // ۱. پاک کردن قفل ردیس
+                Redis::del($reservationKey);
+
+                // ۲. آزاد کردن اسلات در دیتابیس
+                AppointmentSlot::query()->where('id', $slotId)->update([
+                    'patient_id' => null,
+                    'booking_time' => null,
+                    'extra_detail' => null,
+                ]);
+
+                // در صورت نیاز می‌توانید Order مربوطه را هم در دیتابیس کنسل کنید
+
+                return response()->json(['success' => true, 'message' => 'رزرو قبلی لغو شد.']);
+            }
+        }
+
+        return response()->json(['success' => false, 'message' => 'رزرو موقتی یافت نشد یا متعلق به شما نیست.'], 404);
+    }
     public function createOrder(Request $request)
     {
         // ۱. اعتبارسنجی ورودی‌ها
@@ -119,6 +151,7 @@ class ReservationController extends Controller
                 'patient_id'   => $userId,
                 'extra_detail' => json_encode($extraDetail, JSON_UNESCAPED_UNICODE),
                 'updated_at'   => now(),
+                'booking_time' => now(),
             ]);
 
             // ۷. ثبت اطلاعات تکمیلی در قفل Redis

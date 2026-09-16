@@ -1253,10 +1253,14 @@ class DiagnosisController extends Controller
                     else {
                         $redisData = json_decode($redisValue, true);
 
-                        // بررسی می‌کنیم که آیا کاربر لاگین کرده و این رزرو موقت متعلق به خودش است؟
                         if ($currentUserId && isset($redisData['user_id']) && $redisData['user_id'] == $currentUserId) {
                             $slot->is_my_temp_reservation = true;
-                            $slot->temp_order_id = $redisData['order_id'] ?? null; // ارسال order_id برای بازگشت به صفحه پرداخت
+                            $slot->temp_order_id = $redisData['order_id'] ?? null;
+
+                            // محاسبه زمان انقضا (15 دقیقه بعد از زمان رزرو)
+                            if (isset($redisData['reserved_at'])) {
+                                $slot->expires_at = \Carbon\Carbon::parse($redisData['reserved_at'])->addMinutes(15)->toDateTimeString();
+                            }
 
                             $filteredSlots->push($slot);
                         }
