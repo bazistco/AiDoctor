@@ -179,6 +179,8 @@ Route::group(['prefix' => 'user'],function (){
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:3,1');
     Route::post('verify',[AuthController::class,'verify'])->middleware('throttle:5,1');
      Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
+         Route::post('/appointments/pay-order', [\App\Http\Controllers\Api\PaymentController::class, 'initiateAppointmentPayment']);
+
          Route::get('/services', [MedicalServiceProviderController::class, 'activeServices']);
          Route::get('/providers/{type}/{id}', [MedicalServiceProviderController::class, 'show']);
          Route::get('/provider/reviews', [ReviewController::class, 'getProviderReviews']);
@@ -224,7 +226,6 @@ Route::group(['prefix' => 'user'],function (){
          Route::get('/labs-requests/{id}/pay', [\App\Http\Controllers\Api\UserLabRequestController::class, 'pay']);
          Route::get('/user/prescriptions/{id}/download/{file}', [\App\Http\Controllers\Api\LabController::class, 'downloadPrescriptionFile'])->name('user.prescription.download');
 
-         Route::post('/appointments/pay-order', [\App\Http\Controllers\Api\PaymentController::class, 'initiateAppointmentPayment']);
 // ۱. وب‌سرویس ایجاد سفارش نوبت
          Route::post('/appointments/reserve', [ReservationController::class, 'createOrder']);
 
