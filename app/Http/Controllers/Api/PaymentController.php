@@ -119,7 +119,7 @@ class PaymentController extends Controller
 
         // ۵. در صورت معتبر بودن نوبت، فراخوانی سرویس پرداخت (ساخت یا بازگردانی توکن قبلی)
         // دقت کنید که PaymentService شما خودش چک می‌کند که اگر درگاه باز و توکن معتبر است، همون قبلی رو بده (Idempotent)
-        $callbackUrl =  'http://mediraai.com/api/pg/call_back';
+        $callbackUrl =  'https://mediraai.com/api/pg/call_back';
 
         try {
             $result = $this->paymentService->initiate(
