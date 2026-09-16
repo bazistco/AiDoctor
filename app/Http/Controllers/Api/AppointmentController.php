@@ -18,7 +18,7 @@ class AppointmentController extends Controller
     // بازه زمانی: از امروز تا ۷ روز آینده
     $fromDate = Carbon::today();
     $toDate = Carbon::today()->addDays(7);
-    
+
     $totalGeneratedCount = 0;
 
     // دریافت تنظیمات نوبت‌دهی همه پزشکان
