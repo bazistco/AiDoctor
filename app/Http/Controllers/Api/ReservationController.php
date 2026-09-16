@@ -26,6 +26,156 @@ class ReservationController extends Controller
         $this->financialService = $financialService;
         $this->paymentService = $paymentService; // اضافه شود
     }
+    public function createOrder(Request $request)
+    {
+        // ۱. اعتبارسنجی ورودی‌ها
+        $validated = $request->validate([
+            'slot_id'                     => 'required|integer|exists:appointment_slots,id',
+            'session_id'                  => 'nullable|string',
+            'is_for_other'                => 'required|boolean',
+            // اگر نوبت برای دیگری باشد، اطلاعات زیر الزامی هستند:
+            'other_patient'               => 'required_if:is_for_other,true|array',
+            'other_patient.last_name'     => 'required_if:is_for_other,true|string|max:100',
+            'other_patient.national_code' => ['required_if:is_for_other,true', 'string', 'regex:/^[0-9]{10}$/'],
+            'other_patient.phone'         => ['required_if:is_for_other,true', 'string', 'regex:/^09[0-9]{9}$/'],
+        ], [
+            'other_patient.last_name.required_if'     => 'نام و نام خانوادگی بیمار الزامی است.',
+            'other_patient.national_code.required_if' => 'کد ملی معتبر ۱۰ رقمی بیمار الزامی است.',
+            'other_patient.phone.required_if'         => 'شماره موبایل معتبر بیمار الزامی است.',
+        ]);
+
+        $slotId     = $validated['slot_id'];
+        $sessionId  = $validated['session_id'] ?? null;
+        $isForOther = (bool) $validated['is_for_other'];
+        $userId     = $request->user()->id;
+
+        // ۲. بررسی وجود و وضعیت اسلات در دیتابیس
+        $slot = AppointmentSlot::query()->find($slotId);
+
+        if (!$slot) {
+            return response()->json(['success' => false, 'message' => 'اسلات نوبت یافت نشد.'], 404);
+        }
+
+        if (method_exists($this, 'isDoctorActive') && !$this->isDoctorActive($slot->doctor_id)) {
+            return response()->json(['success' => false, 'message' => 'پزشک مورد نظر در دسترس نیست.'], 422);
+        }
+
+        if ($slot->status !== 'available') {
+            return response()->json(['success' => false, 'message' => 'این اسلات نوبت قبلاً رزرو شده یا در دسترس نیست.'], 409);
+        }
+
+        // ۳. ایجاد قفل اتمیک در Redis (جلوگیری قطعی از Race Condition)
+        $reservationKey = "slot:reservation:{$slotId}";
+
+        // پارامتر NX: فقط در صورتی که کلید وجود نداشته باشد آن را می‌سازد.
+        // پارامتر EX: زمان انقضا بر حسب ثانیه (۹۰۰ ثانیه = ۱۵ دقیقه).
+        // این دستور یکپارچه (Atomic) اجرا می‌شود و امکان تداخل دو درخواست همزمان را به صفر می‌رساند.
+        $isLockAcquired = Redis::set($reservationKey, 'locking...', 'EX', 900, 'NX');
+
+        if (!$isLockAcquired) {
+            return response()->json([
+                'success' => false,
+                'message' => 'این نوبت در حال حاضر توسط شخص دیگری در حال رزرو است. لطفاً چند دقیقه دیگر بررسی کنید.'
+            ], 409);
+        }
+
+        DB::beginTransaction();
+        try {
+            // محاسبه مبلغ (پیشنهاد: دریافت از مدل پزشک یا نوبت)
+            $amount = $slot->doctor->visit_price ?? 15000;
+
+            // ۴. آماده‌سازی اطلاعات اضافی (extra_detail)
+            $extraDetail = [
+                'is_for_other'  => $isForOther,
+                'registered_by' => $userId,
+                'created_at'    => now()->toDateTimeString(),
+            ];
+
+            if ($isForOther) {
+                $extraDetail['patient'] = [
+                    'last_name'     => trim($validated['other_patient']['last_name']),
+                    'national_code' => trim($validated['other_patient']['national_code']),
+                    'phone'         => trim($validated['other_patient']['phone']),
+                ];
+            } else {
+                $extraDetail['patient'] = [
+                    'last_name'     => $request->user()->name ?? $request->user()->last_name ?? '',
+                    'national_code' => $request->user()->national_code ?? '',
+                    'phone'         => $request->user()->phone ?? '',
+                ];
+            }
+
+            // ۵. ایجاد رکورد Order در سیستم مالی
+            $orderId = $this->financialService->createOrder(
+                userId:      $userId,
+                reasonId:    1, // 1 = رزرو نوبت (Appointment)
+                reasonRef:   $slotId,
+                amount:      $amount,
+                description: "سفارش رزرو نوبت تاریخ {$slot->slot_date} ساعت {$slot->start_time}"
+            );
+
+            // ۶. به‌روزرسانی نوبت با کاربر رزروکننده، ستون extra_detail و تغییر وضعیت (Status)
+            AppointmentSlot::query()->where('id', $slotId)->update([
+                'status'       => 'pending', // [اصلاح مهم]: تغییر وضعیت به pending برای خارج شدن از لیست نوبت‌های آزاد
+                'patient_id'   => $userId,
+                'extra_detail' => json_encode($extraDetail, JSON_UNESCAPED_UNICODE),
+                'updated_at'   => now(),
+            ]);
+
+            // ۷. ثبت اطلاعات تکمیلی در قفل Redis
+            $reservationToken = Str::uuid()->toString();
+            $reservationData = [
+                'token'        => $reservationToken,
+                'order_id'     => $orderId,
+                'user_id'      => $userId,
+                'slot_id'      => $slotId,
+                'doctor_id'    => $slot->doctor_id,
+                'slot_date'    => $slot->slot_date,
+                'start_time'   => $slot->start_time,
+                'end_time'     => $slot->end_time,
+                'amount'       => $amount,
+                'is_for_other' => $isForOther,
+                'session_id'   => $sessionId,
+                'reserved_at'  => now()->toDateTimeString(),
+            ];
+
+            // چون قفل متعلق به همین پردازش است، حالا دیتا را روی همان کلید با انقضای ۱۵ دقیقه‌ای می‌نویسیم
+            Redis::setex($reservationKey, 900, json_encode($reservationData));
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'سفارش نوبت با موفقیت ایجاد شد و نوبت موقتاً برای شما رزرو گردید.',
+                'data'    => [
+                    'order_id'          => $orderId,
+                    'slot_id'           => $slotId,
+                    'amount'            => $amount,
+                    'reservation_token' => $reservationToken,
+                    'expires_at'        => Carbon::now()->addMinutes(15)->toDateTimeString(),
+                    'patient_type'      => $isForOther ? 'other' : 'self',
+                ]
+            ], 201);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            // در صورت بروز خطا در دیتابیس، قفلی که در ابتدا گرفتیم را آزاد می‌کنیم تا اسلات قفل نماند
+            Redis::del($reservationKey);
+
+            Log::error('[Appointment Order] Failed to create order', [
+                'slot_id' => $slotId,
+                'user_id' => $userId,
+                'error'   => $e->getMessage(),
+                'trace'   => $e->getTraceAsString() // اضافه کردن Trace برای دیباگ دقیق‌تر
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در ثبت سفارش نوبت: ' . $e->getMessage()
+            ], 500);
+        }
+    }
     public function getAppointments()
     {
         // ۱. دریافت اطلاعات نوبت‌ها و بیماران

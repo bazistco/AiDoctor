@@ -3,6 +3,7 @@
 use App\Http\Api\Controllers\Auth\AuthController;
 use App\Http\Controllers\Api\DiagnosisController;
 use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\PaymentGatewayController;
 use App\Services\Payment\OrderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -223,7 +224,11 @@ Route::group(['prefix' => 'user'],function (){
          Route::get('/labs-requests/{id}/pay', [\App\Http\Controllers\Api\UserLabRequestController::class, 'pay']);
          Route::get('/user/prescriptions/{id}/download/{file}', [\App\Http\Controllers\Api\LabController::class, 'downloadPrescriptionFile'])->name('user.prescription.download');
 
+// ۱. وب‌سرویس ایجاد سفارش نوبت
+         Route::post('/appointments/reserve', [ReservationController::class, 'createOrder']);
 
+         // ۲. وب‌سرویس صدور/دریافت درگاه پرداخت برای سفارش
+         Route::post('/payments/initiate', [PaymentGatewayController::class, 'initiatePayment']);
          Route::prefix('reservations')->group(function () {
             // رزرو موقت اسلات (15 دقیقه)
             Route::post('/reserve', [ReservationController::class, 'reserveSlot']);
