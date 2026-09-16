@@ -129,7 +129,7 @@ class ReservationController extends Controller
                 if (isset($decoded['user_id']) && $decoded['user_id'] == $userId) {
                     $isActive = true;
                     $isTemporary = true;
-                    $expiresAt = \Carbon\Carbon::parse($decoded['reserved_at'])->addMinutes(15)->timezone('Asia/Tehran')->toDateTimeString();
+                    $expiresAt = \Carbon\Carbon::parse($decoded['reserved_at'])->addMinutes(15)->toDateTimeString();
                 }
             }
         } else if ($slot->status === 'booked') {
