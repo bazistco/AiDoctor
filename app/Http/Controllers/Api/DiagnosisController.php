@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Redis;
 
 class DiagnosisController extends Controller
 {
@@ -1220,7 +1221,7 @@ class DiagnosisController extends Controller
                 $endDate = now()->addDays($days)->format('Y-m-d');
             }
 
-            // دریافت وقت‌های آزاد
+            // ۱. دریافت وقت‌های آزاد از دیتابیس
             $availableSlots = DB::table('appointment_slots')
                 ->select(
                     'id',
@@ -1236,10 +1237,26 @@ class DiagnosisController extends Controller
                 ->where('doctor_id', $doctorId)
                 ->where('slot_date', '>=', $startDate)
                 ->where('slot_date', '<=', $endDate)
-                ->where('status', 'available')
+                ->where('status', 'available') // طبق گفته شما وضعیت تغییر نمیکند پس همین شرط کافیست
                 ->orderBy('slot_date')
                 ->orderBy('start_time')
                 ->get();
+
+            // ۲. فیلتر کردن نوبت‌های قفل شده در ردیس (رزرو موقت)
+            if ($availableSlots->isNotEmpty()) {
+                // ساختن آرایه‌ای از کلیدهای ردیس برای همه نوبت‌های این بازه
+                $redisKeys = $availableSlots->pluck('id')->map(function ($id) {
+                    return "slot:reservation:{$id}";
+                })->toArray();
+
+                // گرفتن وضعیت تمام کلیدها به صورت یکجا (جلوگیری از افت پرفورمنس)
+                $redisValues = Redis::mget($redisKeys);
+
+                // نگه داشتن نوبت‌هایی که در ردیس وجود ندارند (مقدارشان خالی یا null است)
+                $availableSlots = $availableSlots->filter(function ($slot, $index) use ($redisValues) {
+                    return empty($redisValues[$index]);
+                })->values(); // مرتب‌سازی مجدد کلیدهای کالکشن
+            }
 
             // گروه‌بندی وقت‌ها بر اساس تاریخ
             $slotsByDate = $availableSlots->groupBy('date_formatted')->map(function ($slots) {
@@ -1254,7 +1271,7 @@ class DiagnosisController extends Controller
                 })->values();
             });
 
-            // آمار وقت‌های آزاد
+            // آمار وقت‌های آزاد (حالا بر اساس نوبت‌های واقعاً آزاد که در ردیس نیستند)
             $stats = [
                 'total_slots' => $availableSlots->count(),
                 'available_days' => $slotsByDate->count(),
@@ -1275,7 +1292,7 @@ class DiagnosisController extends Controller
                         'gender' => $doctor->gender,
                         'specialty_id' => $doctor->specialty_id,
                         'specialty_name' => $doctor->specialty_name,
-                        'visit_price' => 1500,
+                        'visit_price' => 1500, // اینجا را هاردکد گذاشته‌اید، در صورت نیاز اصلاح کنید
                         'experience' => $doctor->experience,
                         'address' => $doctor->address,
                         'rating' => $doctor->rating,
