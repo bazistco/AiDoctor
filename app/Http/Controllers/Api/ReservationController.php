@@ -41,7 +41,7 @@ class ReservationController extends Controller
         $userId = $request->user()->id;
         $doctorId = $request->doctor_id;
 
-        // بررسی فعال بودن پزشک (مانند متد خودتان)
+        // بررسی فعال بودن پزشک
         if (method_exists($this, 'isDoctorActive') && !$this->isDoctorActive($doctorId)) {
             return response()->json([
                 'success' => false,
@@ -49,34 +49,49 @@ class ReservationController extends Controller
             ], 422);
         }
 
-        // دریافت قیمت مشاوره متنی از پروفایل پزشک
-        $doctor = DB::table('users')->where('id', $doctorId)->first();
-        // فرض می‌کنیم هزینه مشاوره متنی در ستون chat_price یا مشابه آن ذخیره شده است.
-        // اگر ندارید، از visit_price استفاده کنید یا مقدار ثابت بگذارید.
         $amount = 15000;
+        $roomName = "مشاوره متنی با دکتر #{$doctorId} - کاربر #{$userId}";
 
         DB::beginTransaction();
         try {
 
-            // ۱. پیدا کردن یا ساخت اتاق چت
+            // ۱. پیدا کردن اتاق چت بر اساس نام یکتا
             $existingRoom = DB::table('chat_rooms')
-                ->join('room_participants as rp', 'chat_rooms.id', '=', 'rp.room_id')
-                ->where('rp.user_id', $doctorId) // فقط چک میکنیم دکتری در این اتاق هست
-                ->where('chat_rooms.name', 'LIKE', "%مشاوره متنی با دکتر #{$doctorId} - کاربر #{$userId}%") // برای جلوگیری از تداخل
-                ->select('chat_rooms.id')
+                ->where('name', $roomName)
                 ->first();
 
             if ($existingRoom) {
                 $roomId = $existingRoom->id;
+
+                // بررسی حضور بیمار در اتاق و وضعیت چت او
+                $userParticipant = DB::table('room_participants')
+                    ->where('room_id', $roomId)
+                    ->where('user_id', $userId)
+                    ->first();
+
+                // اگر بیمار در اتاق وجود داشت و وضعیت او 0 نبود، یعنی چت فعال است و نیازی به پرداخت نیست
+                if ($userParticipant && $userParticipant->status != 0) {
+                    DB::rollBack(); // تراکنش را می‌بندیم چون نیازی به تغییر دیتابیس نبود
+
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'شما یک مشاوره متنی فعال با این پزشک دارید.',
+                        'data' => [
+                            'room_id' => $roomId,
+                            'is_active' => true // فلگ برای فرانت‌اند که بداند نباید به درگاه برود
+                        ]
+                    ], 200);
+                }
+
             } else {
                 // ساخت اتاق جدید
                 $roomId = DB::table('chat_rooms')->insertGetId([
-                    'name' => "مشاوره متنی با دکتر #{$doctorId} - کاربر #{$userId}",
+                    'name' => $roomName,
                     'created_at' => now(),
                     'updated_at' => now()
                 ]);
 
-                // *** تغییر مهم: فقط پزشک را در این مرحله به اتاق اضافه می‌کنیم ***
+                // فقط پزشک را در این مرحله به اتاق اضافه می‌کنیم
                 DB::table('room_participants')->insert([
                     [
                         'room_id' => $roomId,
@@ -88,7 +103,7 @@ class ReservationController extends Controller
                 ]);
             }
 
-            // ۲. ایجاد سفارش مالی با reason_id = 3 و reason_ref = $roomId
+            // ۲. ایجاد یا بازیابی سفارش مالی (چون چت فعال نیست یا بیمار هنوز اضافه نشده)
             $orderResult = $this->orderService->createOrReuse(
                 userId: $userId,
                 reasonId: 3, // 3 = مشاوره متنی (Chat)
@@ -105,7 +120,8 @@ class ReservationController extends Controller
                 'data' => [
                     'room_id' => $roomId,
                     'order_id' => $orderResult['order_id'],
-                    'amount' => $orderResult['amount']
+                    'amount' => $orderResult['amount'],
+                    'is_active' => false // یعنی نیاز به پرداخت دارد
                 ]
             ], 201);
 
@@ -113,7 +129,7 @@ class ReservationController extends Controller
             DB::rollBack();
             return response()->json([
                 'success' => false,
-                'message' => 'خطا در ایجاد اتاق و سفارش چت: ' . $e->getMessage()
+                'message' => 'خطا در بررسی/ایجاد اتاق و سفارش چت: ' . $e->getMessage()
             ], 500);
         }
     }

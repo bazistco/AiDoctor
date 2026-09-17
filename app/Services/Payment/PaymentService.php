@@ -349,19 +349,39 @@ class PaymentService
                 }
                 // 2. اگر سفارش بابت "مشاوره متنی (چت)" بود (reason_id = 3)
                 if ($chatRoomId !== null) {
-                    // *** در اینجا بیمار (کاربر خریدار) را به اتاق چت اضافه می‌کنیم ***
-                    DB::table('room_participants')->insertOrIgnore([
-                        'room_id'    => $chatRoomId,
-                        'user_id'    => $order->user_id, // کاربر خریدار (بیمار)
-                        'joined_at'  => now(),
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
+                    // *** بررسی، بروزرسانی یا افزودن بیمار (کاربر خریدار) به اتاق چت ***
 
-                    Log::info('[PaymentService] User added to Chat Room successfully', [
+                    $participantExists = DB::table('room_participants')
+                        ->where('room_id', $chatRoomId)
+                        ->where('user_id', $order->user_id)
+                        ->exists();
+
+                    if ($participantExists) {
+                        // کاربر از قبل بوده، فقط وضعیتش فعال می‌شود
+                        DB::table('room_participants')
+                            ->where('room_id', $chatRoomId)
+                            ->where('user_id', $order->user_id)
+                            ->update([
+                                'status'     => 1,
+                                'updated_at' => now(),
+                            ]);
+                    } else {
+                        // کاربر اصلاً نبوده، به عنوان شرکت‌کننده فعال ساخته می‌شود
+                        DB::table('room_participants')->insert([
+                            'room_id'    => $chatRoomId,
+                            'user_id'    => $order->user_id, // کاربر خریدار (بیمار)
+                            'status'     => 1, // وضعیت فعال
+                            'joined_at'  => now(),
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                    }
+
+                    Log::info('[PaymentService] User added/updated in Chat Room successfully', [
                         'room_id' => $chatRoomId,
                         'user_id' => $order->user_id,
                         'order_id' => $order->id,
+                        'action'  => $participantExists ? 'updated' : 'inserted'
                     ]);
                 }
 
