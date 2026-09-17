@@ -4,12 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\FinancialService;
+use App\Services\Payment\OrderService;
 use App\Services\Payment\PaymentService;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
 use App\Models\AppointmentSlot;
@@ -18,14 +20,104 @@ use Illuminate\Validation\ValidationException;
 
 class ReservationController extends Controller
 {
-    private FinancialService $financialService;
-    private PaymentService $paymentService; // اضافه شود
-
-    public function __construct(FinancialService $financialService, PaymentService $paymentService)
+    public function __construct(
+        private readonly FinancialService $financialService,
+        private readonly PaymentService $paymentService,
+        private readonly OrderService $orderService
+    ) {}
+    public function reserveChat(Request $request)
     {
-        $this->financialService = $financialService;
-        $this->paymentService = $paymentService; // اضافه شود
+        $validator = Validator::make($request->all(), [
+            'doctor_id' => 'required|integer|exists:users,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $userId = $request->user()->id;
+        $doctorId = $request->doctor_id;
+
+        // بررسی فعال بودن پزشک (مانند متد خودتان)
+        if (method_exists($this, 'isDoctorActive') && !$this->isDoctorActive($doctorId)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'پزشک مورد نظر در حال حاضر غیرفعال است و امکان رزرو چت وجود ندارد'
+            ], 422);
+        }
+
+        // دریافت قیمت مشاوره متنی از پروفایل پزشک
+        $doctor = DB::table('users')->where('id', $doctorId)->first();
+        // فرض می‌کنیم هزینه مشاوره متنی در ستون chat_price یا مشابه آن ذخیره شده است.
+        // اگر ندارید، از visit_price استفاده کنید یا مقدار ثابت بگذارید.
+        $amount = 15000;
+
+        DB::beginTransaction();
+        try {
+
+            // ۱. پیدا کردن یا ساخت اتاق چت
+            $existingRoom = DB::table('chat_rooms')
+                ->join('room_participants as rp', 'chat_rooms.id', '=', 'rp.room_id')
+                ->where('rp.user_id', $doctorId) // فقط چک میکنیم دکتری در این اتاق هست
+                ->where('chat_rooms.name', 'LIKE', "%مشاوره متنی با دکتر #{$doctorId} - کاربر #{$userId}%") // برای جلوگیری از تداخل
+                ->select('chat_rooms.id')
+                ->first();
+
+            if ($existingRoom) {
+                $roomId = $existingRoom->id;
+            } else {
+                // ساخت اتاق جدید
+                $roomId = DB::table('chat_rooms')->insertGetId([
+                    'name' => "مشاوره متنی با دکتر #{$doctorId} - کاربر #{$userId}",
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+
+                // *** تغییر مهم: فقط پزشک را در این مرحله به اتاق اضافه می‌کنیم ***
+                DB::table('room_participants')->insert([
+                    [
+                        'room_id' => $roomId,
+                        'user_id' => $doctorId,
+                        'joined_at' => now(),
+                        'created_at' => now(),
+                        'updated_at' => now()
+                    ]
+                ]);
+            }
+
+            // ۲. ایجاد سفارش مالی با reason_id = 3 و reason_ref = $roomId
+            $orderResult = $this->orderService->createOrReuse(
+                userId: $userId,
+                reasonId: 3, // 3 = مشاوره متنی (Chat)
+                reasonRef: $roomId,
+                amount: $amount,
+                description: "هزینه مشاوره متنی با دکتر #{$doctorId}"
+            );
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'اتاق چت و سفارش با موفقیت ایجاد شد.',
+                'data' => [
+                    'room_id' => $roomId,
+                    'order_id' => $orderResult['order_id'],
+                    'amount' => $orderResult['amount']
+                ]
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در ایجاد اتاق و سفارش چت: ' . $e->getMessage()
+            ], 500);
+        }
     }
+
     public function getAppointmentDetail(Request $request, $id)
     {
         try {

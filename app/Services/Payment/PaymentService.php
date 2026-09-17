@@ -282,7 +282,9 @@ class PaymentService
                     ];
                 }
             }
-
+            if ((int) $order->reason_id === 3 && !empty($order->reason_ref)) {
+                $chatRoomId = (int) $order->reason_ref;
+            }
             try {
                 // تایید تراکنش در درگاه (Verify)
                 $verified = $this->gateway->verify($refNum);
@@ -343,6 +345,23 @@ class PaymentService
                         'slot_id'    => $slotId,
                         'patient_id' => $order->user_id,
                         'order_id'   => $order->id,
+                    ]);
+                }
+                // 2. اگر سفارش بابت "مشاوره متنی (چت)" بود (reason_id = 3)
+                if ($chatRoomId !== null) {
+                    // *** در اینجا بیمار (کاربر خریدار) را به اتاق چت اضافه می‌کنیم ***
+                    DB::table('room_participants')->insertOrIgnore([
+                        'room_id'    => $chatRoomId,
+                        'user_id'    => $order->user_id, // کاربر خریدار (بیمار)
+                        'joined_at'  => now(),
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+
+                    Log::info('[PaymentService] User added to Chat Room successfully', [
+                        'room_id' => $chatRoomId,
+                        'user_id' => $order->user_id,
+                        'order_id' => $order->id,
                     ]);
                 }
 

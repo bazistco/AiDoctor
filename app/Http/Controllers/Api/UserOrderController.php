@@ -203,10 +203,30 @@ class UserOrderController extends Controller
             )
             ->where('umcr.user_id', $userId);
 
+        $q5 = DB::table('orders as o')
+            ->join('chat_rooms as cr', DB::raw('CAST(o.reason_ref AS UNSIGNED)'), '=', 'cr.id')
+            ->leftJoin('room_participants as rp', function ($join) use ($userId) {
+                $join->on('rp.room_id', '=', 'cr.id')
+                    ->where('rp.user_id', '!=', $userId); // پیدا کردن کاربری که بیمار نیست (یعنی پزشک)
+            })
+            ->leftJoin('users as u', 'rp.user_id', '=', 'u.id')
+            ->select(
+                'cr.id',
+                'o.status',
+                'o.amount as price',
+                'o.created_at',
+                DB::raw("CONCAT('دکتر ', COALESCE(u.name, 'ناشناس')) as name"),
+                DB::raw("'مشاوره متنی' as detail"),
+                DB::raw("'chat' as type"),
+                'o.id as order_id'
+            )
+            ->where('o.user_id', $userId)
+            ->where('o.reason_id', 3);
         // اجرای UNION و مرتب‌سازی
         $orders = $q1->unionAll($q2)
             ->unionAll($q3)
             ->unionAll($q4)
+            ->unionAll($q5)
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -221,7 +241,7 @@ class UserOrderController extends Controller
         $countLab      = DB::table('users_labs_requests')->where('user_id', $userId)->count();
         $countPharmacy = DB::table('users_pharmacy_requests')->where('user_id', $userId)->count();
         $countNurse    = DB::table('user_medical_center_requests')->where('user_id', $userId)->count();
-
+        $count_chat = DB::table('orders')->where('user_id', $userId)->where('reason_id', 3)->count();
         return response()->json([
             'success' => true,
             'data' => [
@@ -230,6 +250,7 @@ class UserOrderController extends Controller
                 'count_lab'      => $countLab,
                 'count_pharmacy' => $countPharmacy,
                 'count_nurse'    => $countNurse,
+                'count_chat'     => $count_chat,
             ]
         ]);
     }
