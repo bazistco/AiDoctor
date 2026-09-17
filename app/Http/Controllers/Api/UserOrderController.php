@@ -153,8 +153,7 @@ class UserOrderController extends Controller
                 DB::raw('COALESCE(sa.order_id, o.id) as order_id') // شناسه سفارش باز یا رزرو شده
             )
             ->where(function ($query) use ($userId) {
-                $query->where('sa.patient_id', $userId)
-                    ->orWhereNotNull('o.id');
+                $query->where('sa.patient_id', $userId);
             });
 
         // --- ۲. کوئری آزمایشگاه ---
