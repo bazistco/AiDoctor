@@ -210,9 +210,12 @@ class PaymentService
         }
 
         // ۴. Verify + Finalize در یک تراکنش اتمیک
-        return DB::transaction(function () use ($payment, $refNum, $payload): array {
+        DB::beginTransaction();
+
+        try {
             $paymentId = (int) $payment->id;
             $slotId    = null;
+            $chatRoomId = null;
 
             // قفل ردیف payment برای جلوگیری از Race Condition
             $locked = DB::table('payments')
@@ -222,6 +225,7 @@ class PaymentService
 
             // بررسی مجدد بعد از قفل دیتابیس
             if ((int) $locked->status === self::PAY_PAID) {
+                DB::rollBack(); // وضعیت تغییر نکرده، نیاز به کامیت نیست
                 return ['success' => true, 'ref_num' => $locked->ref_num, 'payment_id' => $paymentId];
             }
 
@@ -229,6 +233,7 @@ class PaymentService
             $order = DB::table('orders')->where('id', $locked->order_id)->first();
             if (! $order) {
                 $this->markFailed($paymentId, 'سفارش یافت نشد.');
+                DB::commit(); // آپدیت‌های انجام شده توسط markFailed را ذخیره می‌کنیم
                 return ['success' => false, 'error' => 'order_not_found', 'payment_id' => $paymentId];
             }
 
@@ -275,6 +280,7 @@ class PaymentService
                         'slot_id'    => $slotId,
                     ]);
 
+                    DB::commit(); // تغییر وضعیت سفارش به لغو شده را قطعی می‌کنیم
                     return [
                         'success'    => false,
                         'error'      => 'slot_already_booked',
@@ -282,155 +288,162 @@ class PaymentService
                     ];
                 }
             }
+
             if ((int) $order->reason_id === 3 && !empty($order->reason_ref)) {
                 $chatRoomId = (int) $order->reason_ref;
             }
-            try {
-                // تایید تراکنش در درگاه (Verify)
-                $verified = $this->gateway->verify($refNum);
 
-                // بررسی مبلغ برای جلوگیری از Partial Payment
-                if ($verified['verified_amount'] !== (int) $locked->amount) {
-                    throw new RuntimeException(
-                        sprintf(
-                            'مبلغ تأیید (%d) با سفارش (%d) مطابقت ندارد.',
-                            $verified['verified_amount'],
-                            $locked->amount
-                        )
-                    );
-                }
+            // تایید تراکنش در درگاه (Verify)
+            // توجه: اگر درگاه اینجا اکسبشن بدهد، به بلاک catch می‌رود
+            $verified = $this->gateway->verify($refNum);
 
-                // الف) به‌روزرسانی رکورد پرداخت
-                DB::table('payments')->where('id', $paymentId)->update([
-                    'status'      => self::PAY_PAID,
-                    'ref_num'     => $verified['ref_id'],
-                    'trace_no'    => $verified['trace_no'],
-                    'rrn'         => $verified['rrn'],
-                    'terminal_id' => config('payment.saman.terminal_id'),
-                    'paid_at'     => now(),
-                    'verified_at' => now(),
-                    'last_error'  => null,
-                    'updated_at'  => now(),
-                ]);
-
-                // ب) انتقال وضعیت Order
-                $this->orderService->transition(
-                    (int) $payment->order_id,
-                    OrderService::STATUS_PAID
+            // بررسی مبلغ برای جلوگیری از Partial Payment
+            if ($verified['verified_amount'] !== (int) $locked->amount) {
+                throw new RuntimeException(
+                    sprintf(
+                        'مبلغ تأیید (%d) با سفارش (%d) مطابقت ندارد.',
+                        $verified['verified_amount'],
+                        $locked->amount
+                    )
                 );
+            }
 
-                // ج) ثبت تراکنش‌های مالی و کیف پول
-                $this->financialService->completePayment(
-                    paymentId: $paymentId,
-                    authority: (string) $locked->authority,
-                    refId:     $verified['ref_id'],
-                );
+            // الف) به‌روزرسانی رکورد پرداخت
+            DB::table('payments')->where('id', $paymentId)->update([
+                'status'      => self::PAY_PAID,
+                'ref_num'     => $verified['ref_id'],
+                'trace_no'    => $verified['trace_no'],
+                'rrn'         => $verified['rrn'],
+                'terminal_id' => config('payment.saman.terminal_id'),
+                'paid_at'     => now(),
+                'verified_at' => now(),
+                'last_error'  => null,
+                'updated_at'  => now(),
+            ]);
 
-                // د) رزرو قطعی نوبت در جدول نوبت‌ها
-                if ($slotId !== null) {
-                    DB::table('appointment_slots')
-                        ->where('id', $slotId)
-                        ->update([
-                            'status'       => 'booked',
-                            'patient_id'   => $order->user_id,
-                            'order_id'     => $order->id,
-                            'booking_time' => now(),
-                            'updated_at'   => now(),
-                        ]);
+            // ب) انتقال وضعیت Order
+            $this->orderService->transition(
+                (int) $payment->order_id,
+                OrderService::STATUS_PAID
+            );
 
-                    // حذف قفل موقت از Redis
-                    Redis::del("slot:reservation:{$slotId}");
+            // ج) ثبت تراکنش‌های مالی و کیف پول
+            $this->financialService->completePayment(
+                paymentId: $paymentId,
+                authority: (string) $locked->authority,
+                refId:     $verified['ref_id'],
+            );
 
-                    Log::info('[PaymentService] Appointment booked successfully', [
-                        'slot_id'    => $slotId,
-                        'patient_id' => $order->user_id,
-                        'order_id'   => $order->id,
+            // د) رزرو قطعی نوبت در جدول نوبت‌ها
+            if ($order->reason_id === 1 && $slotId !== null) {
+                DB::table('appointment_slots')
+                    ->where('id', $slotId)
+                    ->update([
+                        'status'       => 'booked',
+                        'patient_id'   => $order->user_id,
+                        'order_id'     => $order->id,
+                        'booking_time' => now(),
+                        'updated_at'   => now(),
                     ]);
-                }
-                // 2. اگر سفارش بابت "مشاوره متنی (چت)" بود (reason_id = 3)
-                if ($chatRoomId !== null) {
-                    // *** بررسی، بروزرسانی یا افزودن بیمار (کاربر خریدار) به اتاق چت ***
 
-                    $participantExists = DB::table('room_participants')
+                // حذف قفل موقت از Redis
+                Redis::del("slot:reservation:{$slotId}");
+
+                Log::info('[PaymentService] Appointment booked successfully', [
+                    'slot_id'    => $slotId,
+                    'patient_id' => $order->user_id,
+                    'order_id'   => $order->id,
+                ]);
+            }
+
+            // 2. اگر سفارش بابت "مشاوره متنی (چت)" بود (reason_id = 3)
+            if ($chatRoomId !== null) {
+                // *** بررسی، بروزرسانی یا افزودن بیمار (کاربر خریدار) به اتاق چت ***
+
+                $participantExists = DB::table('room_participants')
+                    ->where('room_id', $chatRoomId)
+                    ->where('user_id', $order->user_id)
+                    ->exists();
+
+                if ($participantExists) {
+                    // کاربر از قبل بوده، فقط وضعیتش فعال می‌شود
+                    DB::table('room_participants')
                         ->where('room_id', $chatRoomId)
                         ->where('user_id', $order->user_id)
-                        ->exists();
-
-                    if ($participantExists) {
-                        // کاربر از قبل بوده، فقط وضعیتش فعال می‌شود
-                        DB::table('room_participants')
-                            ->where('room_id', $chatRoomId)
-                            ->where('user_id', $order->user_id)
-                            ->update([
-                                'status'     => 1,
-                                'updated_at' => now(),
-                            ]);
-                    } else {
-                        // کاربر اصلاً نبوده، به عنوان شرکت‌کننده فعال ساخته می‌شود
-                        DB::table('room_participants')->insert([
-                            'room_id'    => $chatRoomId,
-                            'user_id'    => $order->user_id, // کاربر خریدار (بیمار)
-                            'status'     => 1, // وضعیت فعال
-                            'joined_at'  => now(),
-                            'created_at' => now(),
-                            'updated_at' => now(),
-                        ]);
-                    }
-
-                    Log::info('[PaymentService] User added/updated in Chat Room successfully', [
-                        'room_id' => $chatRoomId,
-                        'user_id' => $order->user_id,
-                        'order_id' => $order->id,
-                        'action'  => $participantExists ? 'updated' : 'inserted'
-                    ]);
-                }
-
-                $this->logGateway($paymentId, 'verify_success', [
-                    'ref_num' => $refNum,
-                    'amount'  => $locked->amount,
-                ], $verified['raw']);
-
-                Log::info('[PaymentService] Verified', [
-                    'payment_id' => $paymentId,
-                    'order_id'   => $payment->order_id,
-                    'ref_num'    => $verified['ref_id'],
-                    'amount'     => $locked->amount,
-                ]);
-
-                return [
-                    'success'    => true,
-                    'ref_num'    => $verified['ref_id'],
-                    'payment_id' => $paymentId,
-                ];
-
-            } catch (\Throwable $e) {
-                $this->markFailed($paymentId, $e->getMessage());
-
-                if ($refNum !== '') {
-                    Log::critical('[PaymentService] VERIFY FAILED AFTER DEBIT — MANUAL REVIEW NEEDED', [
-                        'payment_id' => $paymentId,
-                        'ref_num'    => $refNum,
-                        'amount'     => $locked->amount,
-                        'error'      => $e->getMessage(),
-                    ]);
-                }
-
-                if ($slotId !== null) {
-                    DB::table('appointment_slots')
-                        ->where('id', $slotId)
-                        ->where('status', '!=', 'booked')
                         ->update([
-                            'patient_id' => null,
+                            'status'     => 1,
                             'updated_at' => now(),
                         ]);
-                    Redis::del("slot:reservation:{$slotId}");
+                } else {
+                    // کاربر اصلاً نبوده، به عنوان شرکت‌کننده فعال ساخته می‌شود
+                    DB::table('room_participants')->insert([
+                        'room_id'    => $chatRoomId,
+                        'user_id'    => $order->user_id, // کاربر خریدار (بیمار)
+                        'status'     => 1, // وضعیت فعال
+                        'joined_at'  => now(),
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
                 }
 
-                $this->logGateway($paymentId, 'verify_failed', $payload, ['error' => $e->getMessage()]);
-
-                return ['success' => false, 'error' => 'verify_failed', 'payment_id' => $paymentId];
+                Log::info('[PaymentService] User added/updated in Chat Room successfully', [
+                    'room_id' => $chatRoomId,
+                    'user_id' => $order->user_id,
+                    'order_id' => $order->id,
+                    'action'  => $participantExists ? 'updated' : 'inserted'
+                ]);
             }
-        });
+
+            $this->logGateway($paymentId, 'verify_success', [
+                'ref_num' => $refNum,
+                'amount'  => $locked->amount,
+            ], $verified['raw']);
+
+            Log::info('[PaymentService] Verified', [
+                'payment_id' => $paymentId,
+                'order_id'   => $payment->order_id,
+                'ref_num'    => $verified['ref_id'],
+                'amount'     => $locked->amount,
+            ]);
+
+            DB::commit(); // همه عملیات با موفقیت انجام شد
+
+            return [
+                'success'    => true,
+                'ref_num'    => $verified['ref_id'],
+                'payment_id' => $paymentId,
+            ];
+
+        } catch (\Throwable $e) {
+            DB::rollBack(); // برگرداندن تمام تغییرات دیتابیسیِ داخل تراکنش
+
+            // حالا که رول‌بک شده است، عملیات خطایابی و لاگ را روی رکوردهای آزاد انجام می‌دهیم
+            $this->markFailed($paymentId, $e->getMessage());
+
+            if ($refNum !== '') {
+                Log::critical('[PaymentService] VERIFY FAILED AFTER DEBIT — MANUAL REVIEW NEEDED', [
+                    'payment_id' => $paymentId,
+                    'ref_num'    => $refNum,
+                    'amount'     => $locked->amount ?? null,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+
+            if ( $slotId !== null) {
+                DB::table('appointment_slots')
+                    ->where('id', $slotId)
+                    ->where('status', '!=', 'booked')
+                    ->update([
+                        'patient_id' => null,
+                        'updated_at' => now(),
+                    ]);
+                Redis::del("slot:reservation:{$slotId}");
+            }
+
+            $this->logGateway($paymentId, 'verify_failed', $payload, ['error' => $e->getMessage()]);
+
+            return ['success' => false, 'error' => 'verify_failed', 'payment_id' => $paymentId];
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════
