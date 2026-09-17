@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class AppointmentController
 {
@@ -110,48 +111,95 @@ class AppointmentController
 
     public function generateSlotsForDate(Request $request): JsonResponse
     {
+        // ۱. شناسه پزشک بر اساس کاربر احراز شده
         $doctorInfoId = $this->getDoctorUserId($request);
 
         if (!$doctorInfoId) {
             return response()->json([
-                'status' => false,
+                'status'  => false,
                 'message' => 'اطلاعات پزشک یافت نشد',
             ], 404);
         }
 
-        $request->validate([
-            'date' => 'required|date',
-            'price' => 'nullable|integer|min:0',
+        // ۲. اعتبارسنجی ورودی‌ها
+        $validated = $request->validate([
+            'date'         => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
+            'price'        => ['nullable', 'integer', 'min:0'],
+            'slot_minutes' => ['nullable', 'integer', 'in:15,20,30,45,60'],
+
+            // شیفت‌ها: آرایه‌ای از بازه‌ها، مثال:
+            // "shifts": [{"start": "08:00", "end": "12:00"}, {"start": "16:00", "end": "20:00"}]
+            'shifts'                 => ['nullable', 'array', 'min:1', 'max:4'],
+            'shifts.*.start'         => ['required_with:shifts', 'date_format:H:i'],
+            'shifts.*.end'           => ['required_with:shifts', 'date_format:H:i', 'different:shifts.*.start'],
         ]);
 
-        $date = $request->input('date');
-        $price = $request->input('price', 50000);
+        $date        = $validated['date'];
+        $slotMinutes = $validated['slot_minutes'] ?? 15;
 
-        $start = Carbon::createFromFormat('Y-m-d H:i:s', $date . ' 08:00:00');
-        $end   = Carbon::createFromFormat('Y-m-d H:i:s', $date . ' 12:00:00');
+        // ۳. قیمت از doctor_info (ستون visit_price)
+        $doctorInfo = DB::table('doctor_info')
+            ->where('user_id', $doctorInfoId)
+            ->first(['visit_price']);
+
+        if (!$doctorInfo || $doctorInfo->visit_price === null) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'قیمت ویزیت پزشک تنظیم نشده است',
+            ], 422);
+        }
+
+        $price = $validated['price'] ?? (int) $doctorInfo->visit_price;
+
+        // ۴. تعیین شیفت‌ها (پیش‌فرض: صبح و عصر)
+        $shifts = $validated['shifts'] ?? [
+            ['start' => '08:00', 'end' => '12:00'],
+            ['start' => '16:00', 'end' => '20:00'],
+        ];
+
+        //یین شیفت‌ها (پیش‌فرض: صبح و عصر)
+        $shifts = $validated['shifts'] ?? [
+            ['start' => '08:00', 'end' => '12:00'],
+            ['start' => '16:00', 'end' => '20:00'],
+        ];
+
+        // تداخل شیفت‌ها با هم
+        for ($i = 1; $i < count($shifts); $i++) {
+            if ($shifts[$i]['start'] < $shifts[$i - 1]['end']) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'بازه‌های زمانی شیفت‌ها با هم تداخل دارند',
+                ], 422);
+            }
+        }
 
         $created = 0;
         $skipped = 0;
+        $details = [];
 
         DB::beginTransaction();
 
         try {
-            while ($start < $end) {
-                $slotStart = $start->format('H:i:s');
-                $slotEnd = $start->copy()->addMinutes(30)->format('H:i:s');
+            foreach ($shifts as $shift) {
+                $cursor = Carbon::createFromFormat('Y-m-d H:i', "$date {$shift['start']}");
+                $end    = Carbon::createFromFormat('Y-m-d H:i', "$date {$shift['end']}");
 
-                $exists = DB::table('appointment_slots')
-                    ->where('doctor_id', $doctorInfoId)
-                    ->whereDate('slot_date', $date)
-                    ->where('start_time', $slotStart)
-                    ->exists();
+                $shiftCreated = 0;
+                $shiftSkipped = 0;
 
-                if (!$exists) {
-                    DB::table('appointment_slots')->insert([
+                while ($cursor->lt($end)) {
+                    $slotEnd = $cursor->copy()->addMinutes($slotMinutes);
+
+                    // اسلات ناقص آخر بازه ساخته نشود
+                    if ($slotEnd->gt($end)) {
+                        break;
+                    }
+
+                    $inserted = DB::table('appointment_slots')->insertOrIgnore([
                         'doctor_id'      => $doctorInfoId,
                         'slot_date'      => $date,
-                        'start_time'     => $slotStart,
-                        'end_time'       => $slotEnd,
+                        'start_time'     => $cursor->format('H:i:s'),
+                        'end_time'       => $slotEnd->format('H:i:s'),
                         'price'          => $price,
                         'status'         => 'available',
                         'patient_id'     => null,
@@ -163,31 +211,44 @@ class AppointmentController
                         'updated_at'     => now(),
                     ]);
 
-                    $created++;
-                } else {
-                    $skipped++;
+                    $inserted ? ($created++ && $shiftCreated++) : ($skipped++ && $shiftSkipped++);
+
+                    $cursor->addMinutes($slotMinutes);
                 }
 
-                $start->addMinutes(30);
+                $details[] = [
+                    'shift'         => "{$shift['start']} - {$shift['end']}",
+                    'created_count' => $shiftCreated,
+                    'skipped_count' => $shiftSkipped,
+                ];
             }
 
             DB::commit();
 
             return response()->json([
-                'status' => true,
+                'status'  => true,
                 'message' => 'اسلات‌های روز با موفقیت ایجاد شدند',
-                'data' => [
-                    'date' => $date,
-                    'created_count' => $created,
-                    'skipped_count' => $skipped,
+                'data'    => [
+                    'date'          => $date,
+                    'slot_minutes'  => $slotMinutes,
+                    'price'         => $price,
+                    'total_created' => $created,
+                    'total_skipped' => $skipped,
+                    'shifts'        => $details,
                 ],
             ]);
         } catch (\Throwable $e) {
             DB::rollBack();
 
+            Log::error('Slot generation failed', [
+                'doctor_info_id' => $doctorInfoId,
+                'date'           => $date,
+                'error'          => $e->getMessage(),
+            ]);
+
             return response()->json([
-                'status' => false,
-                'message' => $e->getMessage(),
+                'status'  => false,
+                'message' => 'خطا در ایجاد اسلات‌ها. لطفاً دوباره تلاش کنید',
             ], 500);
         }
     }
