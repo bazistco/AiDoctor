@@ -411,7 +411,7 @@ class ReservationController extends Controller
         // ۳. ایجاد قفل اتمیک در Redis (جلوگیری قطعی از Race Condition)
         $reservationKey = "slot:reservation:{$slotId}";
 
-        $isLockAcquired = Redis::set($reservationKey, 'locking...', 'EX', 900, 'NX');
+        $isLockAcquired = Redis::set($reservationKey, 'locking...', 'EX', 120, 'NX');
 
         if (!$isLockAcquired) {
             return response()->json([
@@ -494,7 +494,7 @@ class ReservationController extends Controller
             ];
 
             // چون قفل متعلق به همین پردازش است، حالا دیتا را روی همان کلید با انقضای ۱۵ دقیقه‌ای می‌نویسیم
-            Redis::setex($reservationKey, 900, json_encode($reservationData));
+            Redis::setex($reservationKey, 120, json_encode($reservationData));
 
             DB::commit();
 
