@@ -221,6 +221,7 @@ class UserOrderController extends Controller
                 'o.id as order_id'
             )
             ->where('o.user_id', $userId)
+            ->where('o.status', 2)
             ->where('o.reason_id', 3);
         // اجرای UNION و مرتب‌سازی
         $orders = $q1->unionAll($q2)
