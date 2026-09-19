@@ -657,6 +657,172 @@ class QuizService
         ]
     ]
 ],
+            'داخلی' => [
+                'specialty' => 'داخلی',
+                'title' => 'فرم تکمیلی بیماری‌های داخلی',
+                'description' => 'لطفاً اطلاعات تکمیلی زیر را برای بررسی جامع وضعیت سلامت عمومی خود پاسخ دهید',
+                'questions' => [
+                    [
+                        'id' => 'chief_complaint',
+                        'question' => 'شکایت اصلی یا علامت عمده شما چیست؟',
+                        'type' => 'select',
+                        'options' => ['خستگی مفرط و بی‌حالی', 'کاهش وزن ناگهانی', 'تب و لرز', 'درد عمومی بدن', 'بی‌اشتهایی', 'تنگی نفس', 'سایر'],
+                        'required' => true,
+                        'placeholder' => null
+                    ],
+                    [
+                        'id' => 'chronic_diseases',
+                        'question' => 'آیا سابقه ابتلا به بیماری‌های مزمن دارید؟',
+                        'type' => 'multiselect',
+                        'options' => ['دیابت', 'فشار خون بالا', 'اختلالات تیروئید', 'بیماری‌های قلبی', 'آسم یا COPD', 'بیماری‌های کبدی', 'خیر'],
+                        'required' => true,
+                        'placeholder' => null
+                    ],
+                    [
+                        'id' => 'current_medications',
+                        'question' => 'آیا داروی خاصی به صورت مداوم مصرف می‌کنید؟',
+                        'type' => 'text',
+                        'options' => null,
+                        'required' => false,
+                        'placeholder' => 'نام داروها را وارد کنید (در صورت عدم مصرف خالی بگذارید)'
+                    ],
+                    [
+                        'id' => 'vital_signs_record',
+                        'question' => 'آیا از آخرین مقادیر فشار خون یا قند خون خود اطلاع دارید؟',
+                        'type' => 'text',
+                        'options' => null,
+                        'required' => false,
+                        'placeholder' => 'مثال: فشار 13/8، قند ناشتا 110'
+                    ],
+                    [
+                        'id' => 'recent_fever',
+                        'question' => 'آیا در دو هفته اخیر تب داشته‌اید؟',
+                        'type' => 'radio',
+                        'options' => ['بله', 'خیر'],
+                        'required' => true,
+                        'placeholder' => null
+                    ],
+                    [
+                        'id' => 'lifestyle_habits',
+                        'question' => 'آیا دخانیات مصرف می‌کنید؟',
+                        'type' => 'select',
+                        'options' => ['خیر', 'سیگار', 'قلیان', 'سایر موارد'],
+                        'required' => false,
+                        'placeholder' => null
+                    ]
+                ]
+            ],
+            'عفونی' => [
+                'specialty' => 'عفونی',
+                'title' => 'فرم تکمیلی بیماری‌های عفونی',
+                'description' => 'لطفاً برای بررسی دقیق‌تر وضعیت عفونی خود، به سوالات زیر پاسخ دهید',
+                'questions' => [
+                    [
+                        'id' => 'fever_duration',
+                        'question' => 'مدت زمان تب شما چقدر است؟',
+                        'type' => 'select',
+                        'options' => ['کمتر از 24 ساعت', '1 تا 3 روز', '3 تا 7 روز', 'بیشتر از یک هفته'],
+                        'required' => true,
+                        'placeholder' => null
+                    ],
+                    [
+                        'id' => 'fever_pattern',
+                        'question' => 'آیا الگوی تب شما مشخص است؟',
+                        'type' => 'select',
+                        'options' => ['تب متناوب (قطع و وصل می‌شود)', 'تب مداوم', 'تب همراه با لرز شدید', 'اطلاعی ندارم'],
+                        'required' => true,
+                        'placeholder' => null
+                    ],
+                    [
+                        'id' => 'systemic_symptoms',
+                        'question' => 'کدام‌یک از علائم زیر را دارید؟',
+                        'type' => 'multiselect',
+                        'options' => ['سرفه', 'گلو درد', 'بدن درد و کوفتگی', 'اسهال و استفراغ', 'راش یا بثورات پوستی', 'سردرد شدید', 'تنگی نفس'],
+                        'required' => true,
+                        'placeholder' => null
+                    ],
+                    [
+                        'id' => 'contact_history',
+                        'question' => 'آیا در 14 روز اخیر با فرد بیمار در ارتباط بوده‌اید؟',
+                        'type' => 'radio',
+                        'options' => ['بله', 'خیر', 'مطمئن نیستم'],
+                        'required' => true,
+                        'placeholder' => null
+                    ],
+                    [
+                        'id' => 'travel_history',
+                        'question' => 'آیا اخیراً به سفر خارج از شهر یا کشور داشته‌اید؟',
+                        'type' => 'text',
+                        'options' => null,
+                        'required' => false,
+                        'placeholder' => 'نام مقصد و تاریخ سفر را ذکر کنید'
+                    ],
+                    [
+                        'id' => 'immune_system',
+                        'question' => 'آیا سابقه نقص ایمنی یا مصرف داروهای سرکوب‌کننده ایمنی دارید؟',
+                        'type' => 'radio',
+                        'options' => ['بله', 'خیر'],
+                        'required' => true,
+                        'placeholder' => null
+                    ]
+                ]
+            ],
+            'اطفال' => [
+                'specialty' => 'اطفال',
+                'title' => 'فرم تکمیلی ویزیت اطفال',
+                'description' => 'لطفاً برای بررسی وضعیت سلامت کودک، مشخصات زیر را تکمیل کنید',
+                'questions' => [
+                    [
+                        'id' => 'child_age',
+                        'question' => 'سن دقیق کودک (ماه یا سال)',
+                        'type' => 'text',
+                        'options' => null,
+                        'required' => true,
+                        'placeholder' => 'مثال: 3 سال و 2 ماه'
+                    ],
+                    [
+                        'id' => 'vaccination_status',
+                        'question' => 'آیا واکسیناسیون کودک طبق برنامه پیش رفته است؟',
+                        'type' => 'radio',
+                        'options' => ['بله، کامل است', 'خیر، عقب افتاده است', 'نمی‌دانم'],
+                        'required' => true,
+                        'placeholder' => null
+                    ],
+                    [
+                        'id' => 'feeding_type',
+                        'question' => 'نوع تغذیه کودک چیست؟',
+                        'type' => 'select',
+                        'options' => ['شیر مادر', 'شیر خشک', 'شیر مادر و شیر خشک', 'غذای سفره'],
+                        'required' => true,
+                        'placeholder' => null
+                    ],
+                    [
+                        'id' => 'main_symptom',
+                        'question' => 'علت اصلی مراجعه چیست؟',
+                        'type' => 'select',
+                        'options' => ['تب', 'مشکلات گوارشی (اسهال/استفراغ)', 'سرفه و سرماخوردگی', 'مشکلات پوستی', 'پایش رشد و چکاپ', 'سایر'],
+                        'required' => true,
+                        'placeholder' => null
+                    ],
+                    [
+                        'id' => 'fever_check',
+                        'question' => 'آیا کودک در حال حاضر تب دارد؟ (دمای بدن)',
+                        'type' => 'text',
+                        'options' => null,
+                        'required' => false,
+                        'placeholder' => 'مثال: 38.5'
+                    ],
+                    [
+                        'id' => 'behavioral_changes',
+                        'question' => 'آیا تغییر رفتاری در کودک مشاهده کرده‌اید؟ (بی‌قراری، خواب‌آلودگی غیرعادی)',
+                        'type' => 'text',
+                        'options' => null,
+                        'required' => false,
+                        'placeholder' => 'توضیحات کوتاه'
+                    ]
+                ]
+            ],
+
 
         ];
     }
