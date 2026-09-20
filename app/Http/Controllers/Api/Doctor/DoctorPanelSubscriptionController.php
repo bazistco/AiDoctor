@@ -62,12 +62,16 @@ class DoctorPanelSubscriptionController extends Controller
                 $transactionType = 'renewal'; // از نوع تمدید یا ارتقا
             } else {
                 // اگر اشتراکی ندارد، یک اشتراک جدید ولی "غیرفعال (0)" می‌سازیم
+                $duration = $plan->duration_days ?? 30; // خواندن مدت زمان از پلن یا پیش‌فرض ۳۰ روز
+
                 $subId = DB::table('doctor_subscriptions')->insertGetId([
-                    'doctor_id'  => $doctorId,
-                    'plan_id'    => $plan->id,
-                    'status'     => 0, // در انتظار پرداخت
-                    'created_at' => now(),
-                    'updated_at' => now(),
+                    'doctor_id'     => $doctorId,
+                    'plan_id'       => $plan->id,
+                    'duration_days' => $duration, // ثبت مدت زمان
+                    'status'        => 0, // در انتظار پرداخت
+                    'expires_at'    => now()->addDays($duration), // تاریخ انقضا برای ۳۰ روز (یا مدت پلن) بعد
+                    'created_at'    => now(),
+                    'updated_at'    => now(),
                 ]);
                 $transactionType = 'purchase'; // از نوع خرید جدید
             }
