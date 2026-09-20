@@ -490,7 +490,7 @@ class PaymentService
                 }
             }
             if ($order->reason_id === 8) {
-                DB::table('users')->where('id', $order->user_id)->update([
+                DB::table('doctor_info')->where('user_id', $order->user_id)->update([
                     'has_paid_subscription' => 1,
                     'updated_at' => now(),
                 ]);
