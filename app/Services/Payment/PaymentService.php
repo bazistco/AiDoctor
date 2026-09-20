@@ -217,7 +217,7 @@ class PaymentService
             $slotId    = null;
             $chatRoomId = null;
             $walletId = null;
-
+            $subscriptionId = null;
             // قفل ردیف payment برای جلوگیری از Race Condition
             $locked = DB::table('payments')
                 ->where('id', $paymentId)
@@ -297,7 +297,9 @@ class PaymentService
             if ((int) $order->reason_id === 3 && !empty($order->reason_ref)) {
                 $chatRoomId = (int) $order->reason_ref;
             }
-
+            if ((int) $order->reason_id === 7 && !empty($order->reason_ref)) {
+                $subscriptionId = (int) $order->reason_ref;
+            }
             // تایید تراکنش در درگاه (Verify)
             // توجه: اگر درگاه اینجا اکسبشن بدهد، به بلاک catch می‌رود
             $verified = $this->gateway->verify($refNum);
@@ -439,7 +441,53 @@ class PaymentService
                     'action'  => $participantExists ? 'updated' : 'inserted'
                 ]);
             }
+            if ( $subscriptionId !== null) {
+                // الف: پیدا کردن تاریخچه معلقی که در مرحله قبل ساختیم
+                $history = DB::table('doctor_plan_purchase_histories')
+                    ->where('transaction_id', (string) $order->id)
+                    ->where('payment_status', 0) // فقط اگر در انتظار پرداخت است
+                    ->first();
 
+                if ($history) {
+                    $expiresAt = now()->addDays($history->duration_days);
+
+                    // ب: آپدیت و فعال کردن (status = 1) اشتراک در جدول اصلی
+                    DB::table('doctor_subscriptions')
+                        ->where('id', $subscriptionId)
+                        ->update([
+                            'plan_id'       => $history->plan_id,
+                            'paid_price'    => $history->paid_price,
+                            'duration_days' => $history->duration_days,
+                            'status'        => 1, // تغییر به وضعیت فعال
+                            'starts_at'     => now(),
+                            'expires_at'    => $expiresAt,
+                            'updated_at'    => now(),
+                        ]);
+
+                    // ج: آپدیت رکورد تاریخچه به پرداخت موفق (1)
+                    DB::table('doctor_plan_purchase_histories')
+                        ->where('id', $history->id)
+                        ->update([
+                            'payment_status'  => 1, // موفقیت‌آمیز
+                            'payment_gateway' => 'saman',
+                            'authority'       => $verified['ref_id'], // مرجع بانک
+                            'starts_at'       => now(),
+                            'expires_at'      => $expiresAt,
+                            'updated_at'      => now(),
+                        ]);
+
+                    Log::info('[PaymentService] VIP Plan activated successfully', [
+                        'doctor_id'       => $order->user_id,
+                        'subscription_id' => $subscriptionId,
+                        'plan_id'         => $history->plan_id,
+                        'order_id'        => $order->id,
+                    ]);
+                } else {
+                    Log::warning('[PaymentService] Pending history not found for VIP purchase', [
+                        'order_id' => $order->id
+                    ]);
+                }
+            }
             $this->logGateway($paymentId, 'verify_success', [
                 'ref_num' => $refNum,
                 'amount'  => $locked->amount,
