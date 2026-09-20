@@ -71,8 +71,9 @@ class PaymentService
 
         if ($existing) {
             return [
+                'token' => $existing->token,
                 'payment_id'  => (int) $existing->id,
-                'payment_url' => "http://mediraai.com/pg?token={$existing->token}" ,
+                'payment_url' => "https://mediraai.com/pg?token={$existing->token}" ,
                 'res_num'     => (string) $existing->authority,
             ];
         }
@@ -114,7 +115,7 @@ class PaymentService
             return [
                 'token' => $result['token'],
                 'payment_id'  => $paymentId,
-                'payment_url' => "http://mediraai.com/pg?token={$result['token']}",
+                'payment_url' => "https://mediraai.com/pg?token={$result['token']}",
                 'res_num'     => $resNum,
             ];
 
