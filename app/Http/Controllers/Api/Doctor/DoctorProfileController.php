@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\Doctor;
 
 use App\Http\Controllers\Controller;
+use App\Services\Payment\OrderService;
+use App\Services\Payment\PaymentService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -247,6 +249,7 @@ class DoctorProfileController extends Controller
                 'doctor_info.rank',
                 'doctor_info.reviews',
                 'doctor_info.recommendation',
+                'doctor_info.has_paid_subscription',
                 'doctor_info.phone_consultation_price',
                 'doctor_info.video_consultation_price',
                 'specialties.name as specialty_name'
@@ -293,7 +296,53 @@ class DoctorProfileController extends Controller
                 'recommendation' => (int) $profile->recommendation,
                 'phone_consultation_price'=>(int) $profile->phone_consultation_price,
                 'video_consultation_price'=>(int) $profile->video_consultation_price,
+                'has_paid_subscription'=> (int) $profile->has_paid_subscription,
             ]
         ]);
+    }
+    public function paySubscriptionFee(Request $request, OrderService $orderService, PaymentService $paymentService)
+    {
+        $doctorId = $request->user()->id;
+
+        // بررسی اینکه آیا از قبل پرداخت کرده است یا خیر
+        if ($request->user()->has_paid_subscription) {
+            return response()->json(['success' => false, 'message' => 'شما قبلاً حق اشتراک را پرداخت کرده‌اید.'], 400);
+        }
+
+        $feeAmount = 250000; // مبلغ حق اشتراک ورود به سیستم (مثلاً ۲۵۰ هزار تومان)
+
+        DB::beginTransaction();
+        try {
+            // ایجاد سفارش با reason_id = 8 و reason_ref = $doctorId
+            $orderResult = $orderService->createOrReuse(
+                userId: $doctorId,
+                reasonId: 8,
+                reasonRef: $doctorId,
+                amount: $feeAmount,
+                description: "حق اشتراک عضویت پزشک"
+            );
+
+            $callbackUrl = 'https://mediraai.com/api/pg/call_back';
+
+            $paymentResult = $paymentService->initiate(
+                orderId:     $orderResult['order_id'],
+                userId:      $doctorId,
+                callbackUrl: $callbackUrl
+            );
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'انتقال به درگاه...',
+                'data' => [
+                    'payment_url' => $paymentResult['payment_url'],
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => 'خطا در ایجاد سفارش.'], 500);
+        }
     }
 }

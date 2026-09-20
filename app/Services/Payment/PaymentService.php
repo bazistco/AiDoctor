@@ -489,6 +489,17 @@ class PaymentService
                     ]);
                 }
             }
+            if ($order->reason_id === 8) {
+                DB::table('users')->where('id', $order->user_id)->update([
+                    'has_paid_subscription' => 1,
+                    'updated_at' => now(),
+                ]);
+
+                Log::info('[PaymentService] Doctor subscription fee paid successfully', [
+                    'doctor_id' => $order->user_id,
+                    'order_id'  => $order->id,
+                ]);
+            }
             $this->logGateway($paymentId, 'verify_success', [
                 'ref_num' => $refNum,
                 'amount'  => $locked->amount,
