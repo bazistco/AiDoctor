@@ -106,7 +106,7 @@ class DoctorPanelSubscriptionController extends Controller
             ]);
 
             // ۵. دریافت لینک از درگاه پرداخت
-            $callbackUrl = config('payment.saman.callback_url', 'https://api.mediraai.com/api/pg/call_back');
+            $callbackUrl = 'https://mediraai.com/api/pg/call_back';
 
             $paymentResult = $paymentService->initiate(
                 orderId:     $orderId,
