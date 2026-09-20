@@ -88,7 +88,7 @@ class DiagnosisController extends Controller
                         'type'          => 2, // Debit (برداشت)
                         'amount'        => $cost,
                         'balance_after' => $newBalance,
-                        'subject_type'  => 8, // تایپ اختصاصی برای کلیک (به دلخواه سیستم شما)
+                        'subject_type'  => 7, // تایپ اختصاصی برای کلیک (به دلخواه سیستم شما)
                         'subject_id'    => $logId,
                         'description'   => "کسر هزینه کلیک برای کلمه کلیدی {$keyword->word}",
                         'created_at'    => $now,
