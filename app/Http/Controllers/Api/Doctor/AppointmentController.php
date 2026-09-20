@@ -309,7 +309,7 @@ class AppointmentController
             'dates'                  => ['required', 'array', 'min:1'],
             'dates.*'                => ['required', 'date_format:Y-m-d'],
             'price'                  => ['nullable', 'integer', 'min:0'],
-            'slot_minutes'           => ['nullable', 'integer', 'in:15,20,30,45,60'],
+            'slot_minutes'           => ['nullable', 'integer', 'in:5,10,15,20,30,45,60'],
             'shifts'                 => ['nullable', 'array', 'min:1', 'max:4'],
             'shifts.*.start'         => ['required_with:shifts', 'date_format:H:i'],
             'shifts.*.end'           => ['required_with:shifts', 'date_format:H:i', 'different:shifts.*.start'],
