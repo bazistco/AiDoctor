@@ -18,6 +18,104 @@ class DiagnosisController extends Controller
 {
     private string $ApiUrl = 'http://185.222.163.113:8000';
 
+    public function registerDoctorClick(Request $request, $doctorId)
+    {
+        $searchTerm = trim((string) $request->input('query', ''));
+        $searcherIp = request()->ip();
+        $userAgent = request()->userAgent();
+        $searcherId = auth()->check() ? auth()->id() : null;
+        $now = now();
+
+        // اگر کاربری بدون جستجو روی دکتری کلیک کرده، هزینه‌ای ندارد
+        if ($searchTerm === '') {
+            return response()->json(['success' => true, 'message' => 'No keyword provided.']);
+        }
+
+        // ۱. پیدا کردن کلمه کلیدی
+        $keyword = DB::table('keywords')->where('word', $searchTerm)->first();
+        if (!$keyword) {
+            return response()->json(['success' => true, 'message' => 'Keyword not found.']);
+        }
+
+        // ۲. بررسی اشتراک فعال پزشک برای این کلمه کلیدی
+        $subscription = DB::table('doctor_keyword_subscriptions')
+            ->where('doctor_id', $doctorId)
+            ->where('keyword_id', $keyword->id)
+            ->where('is_active', 1)
+            ->where('expires_at', '>', $now)
+            ->first();
+
+        if (!$subscription) {
+            return response()->json(['success' => true, 'message' => 'Doctor not subscribed to this keyword.']);
+        }
+
+        // ۳. بررسی پلن فعال برای محاسبه ضریب (Multiplier)
+        $activePlan = DB::table('doctor_subscriptions as ds')
+            ->join('doctor_plans as dp', 'ds.plan_id', '=', 'dp.id')
+            ->where('ds.doctor_id', $doctorId)
+            ->where('ds.status', 1)
+            ->where('ds.expires_at', '>', $now)
+            ->select('dp.multiplier')
+            ->first();
+
+        $multiplier = $activePlan ? (float) $activePlan->multiplier : 1.0;
+
+        // محاسبه هزینه نهایی کلیک
+        $cost = (float) $keyword->base_click_tariff * $multiplier;
+
+        if ($cost > 0) {
+            DB::transaction(function () use ($doctorId, $keyword, $cost, $searcherIp, $userAgent, $searcherId, $now) {
+                // قفل کردن ردیف کیف پول برای جلوگیری از تداخل تراکنش‌ها
+                $wallet = DB::table('wallets')->where('user_id', $doctorId)->lockForUpdate()->first();
+
+                if ($wallet && $wallet->balance >= $cost) {
+                    $newBalance = $wallet->balance - $cost;
+
+                    // ثبت لاگ کلیک
+                    $logId = DB::table('keyword_consumption_logs')->insertGetId([
+                        'doctor_id'   => $doctorId,
+                        'keyword_id'  => $keyword->id,
+                        'ip_address'  => $searcherIp,
+                        'user_id'     => $searcherId,
+                        'action_type' => 'click', // ثبت به عنوان کلیک
+                        'cost'        => $cost,
+                        'created_at'  => $now,
+                    ]);
+
+                    // ثبت تراکنش کسر از کیف پول
+                    DB::table('wallet_transactions')->insert([
+                        'wallet_id'     => $wallet->id,
+                        'type'          => 2, // Debit (برداشت)
+                        'amount'        => $cost,
+                        'balance_after' => $newBalance,
+                        'subject_type'  => 8, // تایپ اختصاصی برای کلیک (به دلخواه سیستم شما)
+                        'subject_id'    => $logId,
+                        'description'   => "کسر هزینه کلیک برای کلمه کلیدی {$keyword->word}",
+                        'created_at'    => $now,
+                        'ip_address'    => $searcherIp,
+                        'user_agent'    => $userAgent,
+                    ]);
+
+                    // آپدیت موجودی نهایی
+                    DB::table('wallets')->where('id', $wallet->id)->update([
+                        'balance' => $newBalance,
+                        'updated_at' => $now,
+                    ]);
+                } else {
+                    // موجودی کافی نیست -> غیرفعال‌سازی موقت اشتراک کلمه کلیدی
+                    DB::table('doctor_keyword_subscriptions')
+                        ->where('doctor_id', $doctorId)
+                        ->where('keyword_id', $keyword->id)
+                        ->update([
+                            'is_active' => 0,
+                            'updated_at' => $now
+                        ]);
+                }
+            });
+        }
+
+        return response()->json(['success' => true]);
+    }
     public function getRecommendations($id)
     {
         $recommenders = DB::table('doctor_recommendations')

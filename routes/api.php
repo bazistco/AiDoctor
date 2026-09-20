@@ -267,6 +267,7 @@ Route::group(['prefix' => 'user'],function (){
         Route::post('/chat', [DiagnosisController::class, 'chat']);
         Route::get('/doctors', [DiagnosisController::class, 'getDoctorsList']);
         Route::get('/keywords/suggest', [DiagnosisController::class, 'suggestKeywords']);
+        Route::post('/doctor/{id}/click', [DiagnosisController::class, 'registerDoctorClick']);
 
         // تاریخچه تشخیص‌ها (نیاز به احراز هویت)
         Route::get('/history', [DiagnosisController::class, 'history']);
