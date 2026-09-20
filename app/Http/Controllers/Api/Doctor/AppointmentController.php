@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 
 class AppointmentController
 {
@@ -63,7 +64,48 @@ class AppointmentController
 
         return $exists ? $userId : null;
     }
+    public function getScheduleRules(Request $request): JsonResponse
+    {
+        $doctorInfoId = $this->getDoctorUserId($request);
 
+        if (!$doctorInfoId) {
+            return response()->json(['status' => false, 'message' => 'پزشک یافت نشد'], 404);
+        }
+
+        $redisKey = "doctor_schedule_rules:{$doctorInfoId}";
+        $rules = Redis::get($redisKey);
+
+        return response()->json([
+            'status' => true,
+            'data' => $rules ? json_decode($rules, true) : null,
+        ]);
+    }
+
+// متد ذخیره قوانین در ردیس
+    public function saveScheduleRules(Request $request): JsonResponse
+    {
+        $doctorInfoId = $this->getDoctorUserId($request);
+
+        if (!$doctorInfoId) {
+            return response()->json(['status' => false, 'message' => 'پزشک یافت نشد'], 404);
+        }
+
+        $validated = $request->validate([
+            'rules' => 'required|array',
+            // اعتبارسنجی مقادیر روزهای هفته
+            // کلیدهای آرایه از 0 (یکشنبه) تا 6 (شنبه) است
+        ]);
+
+        $redisKey = "doctor_schedule_rules:{$doctorInfoId}";
+
+        // ذخیره در ردیس به صورت جیسون
+        Redis::set($redisKey, json_encode($validated['rules']));
+
+        return response()->json([
+            'status' => true,
+            'message' => 'قوانین زمان‌بندی با موفقیت ذخیره شد.',
+        ]);
+    }
     public function getSlotsByDate(Request $request): JsonResponse
     {
         $doctorInfoId = $this->getDoctorUserId($request);
