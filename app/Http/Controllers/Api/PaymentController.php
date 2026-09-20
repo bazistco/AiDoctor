@@ -229,55 +229,62 @@ class PaymentController extends Controller
     public function callback(Request $request): RedirectResponse
     {
         $payload = $request->all();
+
         Log::info('[PaymentController][CB] SEP Callback Received:', [
             'payload'           => $payload,
-            'ip'                => $request->ip(),                          // X-Real-IP (از طریق TrustProxies)
-            'forwarded_for'     => $request->header('X-Forwarded-For'),
-            'forwarded_proto'   => $request->header('X-Forwarded-Proto'),
-            'real_ip_header'    => $request->header('X-Real-IP'),
-            'host'              => $request->header('Host'),
+            'ip'                => $request->ip(),
         ]);
-        // آدرس صفحه نتیجه در فرانت‌‌اند React
+
+        $resNum = (string) ($payload['ResNum'] ?? '');
+        $state  = (string) ($payload['State']  ?? '');
+
         $frontendResultUrl = config('payment.frontend_result_url', 'https://app.mediraai.com/payment/result');
 
-        // اعتبارسنجی پارامترهای ضروری
-        if (empty($payload['ResNum']) || empty($payload['State'])) {
-            Log::warning('[PaymentController][CB] Missing essential parameters', [
-                'ip'      => $request->ip(),
-                'payload' => $payload,
-            ]);
-
+        if ($resNum === '' || $state === '') {
             return redirect()->away($frontendResultUrl . '?status=failed&message=' . urlencode('اطلاعات بازگشتی از درگاه نامعتبر است.'));
         }
 
-        // بررسی هویت درگاه (اختیاری بر اساس MID)
-        $this->verifyGatewayIdentity($payload, $request);
+        // استخراج اطلاعات پایه برای ارسال به فرانت
+        $paymentData = DB::table('payments')
+            ->select('payments.id', 'orders.reason_id', 'orders.reason_ref', 'users.role')
+            ->leftJoin('orders', 'payments.order_id', '=', 'orders.id')
+            ->leftJoin('users', 'payments.user_id', '=', 'users.id')
+            ->where('payments.authority', $resNum)
+            ->first();
+
+        $extraParams = [];
+        if ($paymentData) {
+            $extraParams['reason_id'] = $paymentData->reason_id;
+            $extraParams['reason_ref'] = $paymentData->reason_ref;
+            $extraParams['role'] = strtolower($paymentData->role ?? 'user');
+        }
 
         try {
-            // عملیات وریفای و ثبت وضعیت در دیتابیس
             $result = $this->paymentService->handleCallback($payload);
 
             if (!empty($result['success']) && $result['success'] === true) {
-                $queryParams = http_build_query([
+                $queryParams = http_build_query(array_merge([
                     'status'     => 'success',
                     'ref_num'    => $result['ref_num'] ?? ($payload['RefNum'] ?? ''),
-                    'res_num'    => $payload['ResNum'],
-                    'payment_id' => $result['payment_id'] ?? '',
-                ]);
+                    'res_num'    => $resNum,
+                    'payment_id' => $result['payment_id'] ?? ($paymentData->id ?? ''),
+                ], $extraParams));
 
                 return redirect()->away($frontendResultUrl . '?' . $queryParams);
             }
 
-            // در صورت عدم موفقیت تراکنش در درگاه یا وریفای
             $errorMsg = $result['error'] ?? 'پرداخت توسط کاربر لغو شد یا با خطا مواجه گردید.';
-            return redirect()->away($frontendResultUrl . '?status=failed&message=' . urlencode($errorMsg) . '&res_num=' . $payload['ResNum']);
+            $queryParams = http_build_query(array_merge([
+                'status'  => 'failed',
+                'message' => $errorMsg,
+                'res_num' => $resNum,
+            ], $extraParams));
+
+            return redirect()->away($frontendResultUrl . '?' . $queryParams);
 
         } catch (\Throwable $e) {
-            Log::error('[PaymentController][CB] Exception during verify: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return redirect()->away($frontendResultUrl . '?status=error&message=' . urlencode('خطا در پردازش و تایید تراکنش.'));
+            Log::error('[PaymentController][CB] Exception: ' . $e->getMessage());
+            return redirect()->away($frontendResultUrl . '?status=error&message=' . urlencode('خطا در پردازش تراکنش.'));
         }
     }
 
