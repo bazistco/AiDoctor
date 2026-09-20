@@ -33,7 +33,8 @@ class DoctorPanelKeywordController extends Controller
         $search = $request->input('search');
         $doctorId = $request->user()->id;
 
-        $query = DB::table('keywords');
+        $specialistId = DB::table('doctor_info')->where('user_id', $doctorId)->value('specialty_id');
+        $query = DB::table('keywords')->where('specialty_id',$specialistId);
 
         if (!empty($search)) {
             $query->where('word', 'LIKE', '%' . $search . '%');
