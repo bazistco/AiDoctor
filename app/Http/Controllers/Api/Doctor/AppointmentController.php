@@ -150,7 +150,131 @@ class AppointmentController
             ],
         ]);
     }
+    public function generateWeeklySlotsForAllDoctors(Request $request): JsonResponse
+    {
+//        // ۱. بررسی امنیت: اطمینان از اینکه درخواست از سرور/سرویس مجاز است
+//        // می‌توانید این مقدار را در فایل env. با نام CRON_SECRET_TOKEN قرار دهید
+//        $secretToken = env('CRON_SECRET_TOKEN', 'your-secure-random-string');
+//
+//        if ($request->header('X-Cron-Token') !== $secretToken) {
+//            return response()->json([
+//                'status' => false,
+//                'message' => 'Unauthorized access'
+//            ], 401);
+//        }
 
+        // ۲. دریافت اطلاعات تمام پزشکان (فقط شناسه‌ها و قیمت ویزیت)
+        $doctors = DB::table('doctor_info')->get(['user_id', 'visit_price']);
+
+        // ۳. ایجاد بازه زمانی برای ۷ روز آینده (از امروز تا ۶ روز بعد)
+        $targetDates = [];
+        $today = Carbon::today();
+        for ($i = 0; $i < 7; $i++) {
+            $targetDates[] = $today->copy()->addDays($i);
+        }
+
+        $totalDoctorsProcessed = 0;
+        $totalSlotsCreated = 0;
+
+        // ۴. بررسی هر پزشک
+        foreach ($doctors as $doctor) {
+            // خواندن قوانین پزشک از ردیس
+            $rulesJson = Redis::get("doctor_schedule_rules:{$doctor->user_id}");
+
+            // اگر پزشکی قانون نداشت، از او عبور می‌کنیم
+            if (!$rulesJson) {
+                continue;
+            }
+
+            $rules = json_decode($rulesJson, true);
+            $doctorHasNewSlots = false;
+
+            // ۵. بررسی روز به روز برای این پزشک
+            foreach ($targetDates as $dateObj) {
+                $dateStr = $dateObj->format('Y-m-d');
+
+                // dayOfWeek در کربن: یکشنبه = 0، دوشنبه = 1 ... شنبه = 6 (دقیقا مطابق فرانت‌اند)
+                $dayOfWeek = $dateObj->dayOfWeek;
+
+                // اگر قانونی برای این روزِ هفته تعریف نشده، رد شو
+                if (!isset($rules[$dayOfWeek])) {
+                    continue;
+                }
+
+                // بررسی اینکه آیا از قبل برای این روز نوبتی ساخته شده است؟
+                $slotsExist = DB::table('appointment_slots')
+                    ->where('doctor_id', $doctor->user_id)
+                    ->whereDate('slot_date', $dateStr)
+                    ->exists();
+
+                // اگر نوبت وجود دارد، برای این روز نوبت تکراری نمی‌سازیم
+                if ($slotsExist) {
+                    continue;
+                }
+
+                // استخراج قوانین روز
+                $dayRule = $rules[$dayOfWeek];
+                $slotMinutes = $dayRule['slot_minutes'] ?? 15;
+                $shifts = $dayRule['shifts'] ?? [];
+                $price = $doctor->visit_price ?? 0;
+
+                $slotsToInsert = [];
+                $now = now();
+
+                // ۶. تولید بازه‌ها بر اساس شیفت‌های امروز
+                foreach ($shifts as $shift) {
+                    if (empty($shift['start']) || empty($shift['end'])) continue;
+
+                    $cursor = Carbon::createFromFormat('Y-m-d H:i', "$dateStr {$shift['start']}");
+                    $end = Carbon::createFromFormat('Y-m-d H:i', "$dateStr {$shift['end']}");
+
+                    while ($cursor->lt($end)) {
+                        $slotEnd = $cursor->copy()->addMinutes($slotMinutes);
+
+                        if ($slotEnd->gt($end)) break; // جلوگیری از ایجاد اسلات ناقص
+
+                        $slotsToInsert[] = [
+                            'doctor_id'      => $doctor->user_id,
+                            'slot_date'      => $dateStr,
+                            'start_time'     => $cursor->format('H:i:s'),
+                            'end_time'       => $slotEnd->format('H:i:s'),
+                            'price'          => $price,
+                            'status'         => 'available',
+                            'created_at'     => $now,
+                            'updated_at'     => $now,
+                        ];
+
+                        $cursor->addMinutes($slotMinutes);
+                    }
+                }
+
+                // درج گروهی اسلات‌های امروز برای پزشک بهینه‌ترین روش
+                if (!empty($slotsToInsert)) {
+                    DB::table('appointment_slots')->insert($slotsToInsert);
+                    $totalSlotsCreated += count($slotsToInsert);
+                    $doctorHasNewSlots = true;
+                }
+            }
+
+            if ($doctorHasNewSlots) {
+                $totalDoctorsProcessed++;
+            }
+        }
+
+        Log::info("Weekly slots generated via API", [
+            'doctors_processed' => $totalDoctorsProcessed,
+            'slots_created' => $totalSlotsCreated
+        ]);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'بروزرسانی زمان‌بندی تمام پزشکان با موفقیت انجام شد.',
+            'data' => [
+                'doctors_processed' => $totalDoctorsProcessed,
+                'total_slots_created' => $totalSlotsCreated,
+            ]
+        ]);
+    }
     public function generateSlotsForDate(Request $request): JsonResponse
     {
         // ۱. شناسه پزشک بر اساس کاربر احراز شده

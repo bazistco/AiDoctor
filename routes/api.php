@@ -112,6 +112,8 @@ Route::group(['prefix' => 'doctor'], function () {
         Route::prefix('keywords')->group(function () {
             Route::delete('/{id}', [\App\Http\Controllers\Api\Doctor\DoctorPanelKeywordController::class, 'deleteKeyword']);
 
+            Route::get('/custom', [\App\Http\Controllers\Api\Doctor\DoctorPanelKeywordController::class, 'addCustomKeyword']);
+
             // لیست کلمات قابل خرید (با قابلیت جستجو)
             Route::get('/available', [\App\Http\Controllers\Api\Doctor\DoctorPanelKeywordController::class, 'getAvailableKeywords']);
 

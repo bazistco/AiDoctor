@@ -9,6 +9,50 @@ use Illuminate\Support\Facades\DB;
 
 class DoctorPanelKeywordController extends Controller
 {
+    public function addCustomKeyword(Request $request)
+    {
+        $request->validate([
+            'word' => 'required|string|max:255'
+        ]);
+
+        $doctorId = $request->user()->id;
+        $word = trim($request->input('word'));
+
+        // پیدا کردن تخصص پزشک
+        $specialtyId = DB::table('doctor_info')->where('user_id', $doctorId)->value('specialty_id');
+
+        // بررسی اینکه آیا کلمه از قبل وجود دارد یا خیر
+        $existingKeyword = DB::table('keywords')->where('word', $word)->first();
+
+        if ($existingKeyword) {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'این کلمه از قبل در سیستم وجود دارد، می‌توانید آن را جستجو و خرید کنید.',
+                'data' => $existingKeyword
+            ]);
+        }
+
+        // درج کلمه کلیدی جدید با مقادیر پیش‌فرضی که درخواست دادید
+        $insertData = [
+            'word' => $word,
+            'base_click_tariff' => 100.00,
+            'base_impression_tariff' => 1000.00,
+            'base_price' => 50000.00,
+            'specialty_id' => $specialtyId,
+            'search_volume' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+
+        $newId = DB::table('keywords')->insertGetId($insertData);
+        $insertData['id'] = $newId;
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'کلمه کلیدی دلخواه شما با موفقیت اضافه شد. اکنون می‌توانید آن را خریداری کنید.',
+            'data' => $insertData
+        ], 201);
+    }
     public function deleteKeyword($id)
     {
         $doctorId = auth()->id(); // با فرض استفاده از Sanctum
