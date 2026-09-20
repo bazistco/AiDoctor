@@ -92,6 +92,8 @@ Route::group(['prefix' => 'doctor'], function () {
         Route::get('/schedule/calendar-summary', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'getCalendarSummary']);
         Route::get('/schedule/slots', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'getSlotsByDate']);
         Route::post('/schedule/generate-slots', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'generateSlotsForDate']);
+        Route::post('/schedule/generate-slots-batch', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'generateBatchSlots']);
+
         Route::patch('/schedule/slots/{slotId}/toggle-status', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'toggleSlotStatus']);
         Route::get('/finance', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'finance'])->name('profile.finance');
 

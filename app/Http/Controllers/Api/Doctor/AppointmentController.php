@@ -252,7 +252,114 @@ class AppointmentController
             ], 500);
         }
     }
+    public function generateBatchSlots(Request $request): JsonResponse
+    {
+        $doctorInfoId = $this->getDoctorUserId($request);
 
+        if (!$doctorInfoId) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'اطلاعات پزشک یافت نشد',
+            ], 404);
+        }
+
+        $validated = $request->validate([
+            'dates'                  => ['required', 'array', 'min:1'],
+            'dates.*'                => ['required', 'date_format:Y-m-d'],
+            'price'                  => ['nullable', 'integer', 'min:0'],
+            'slot_minutes'           => ['nullable', 'integer', 'in:15,20,30,45,60'],
+            'shifts'                 => ['nullable', 'array', 'min:1', 'max:4'],
+            'shifts.*.start'         => ['required_with:shifts', 'date_format:H:i'],
+            'shifts.*.end'           => ['required_with:shifts', 'date_format:H:i', 'different:shifts.*.start'],
+        ]);
+
+        $slotMinutes = $validated['slot_minutes'] ?? 15;
+
+        $doctorInfo = DB::table('doctor_info')
+            ->where('user_id', $doctorInfoId)
+            ->first(['visit_price']);
+
+        if (!$doctorInfo || $doctorInfo->visit_price === null) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'قیمت ویزیت پزشک تنظیم نشده است',
+            ], 422);
+        }
+
+        $price = $validated['price'] ?? (int) $doctorInfo->visit_price;
+
+        $shifts = $validated['shifts'] ?? [
+            ['start' => '08:00', 'end' => '12:00'],
+            ['start' => '16:00', 'end' => '20:00'],
+        ];
+
+        // بررسی تداخل شیفت‌ها
+        for ($i = 1; $i < count($shifts); $i++) {
+            if ($shifts[$i]['start'] < $shifts[$i - 1]['end']) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'بازه‌های زمانی شیفت‌ها با هم تداخل دارند',
+                ], 422);
+            }
+        }
+
+        $totalCreated = 0;
+        $totalSkipped = 0;
+
+        DB::beginTransaction();
+
+        try {
+            // ایجاد اسلات‌ها برای تمام تاریخ‌های ارسال شده
+            foreach ($validated['dates'] as $date) {
+                foreach ($shifts as $shift) {
+                    $cursor = Carbon::createFromFormat('Y-m-d H:i', "$date {$shift['start']}");
+                    $end    = Carbon::createFromFormat('Y-m-d H:i', "$date {$shift['end']}");
+
+                    while ($cursor->lt($end)) {
+                        $slotEnd = $cursor->copy()->addMinutes($slotMinutes);
+
+                        if ($slotEnd->gt($end)) break;
+
+                        $inserted = DB::table('appointment_slots')->insertOrIgnore([
+                            'doctor_id'      => $doctorInfoId,
+                            'slot_date'      => $date,
+                            'start_time'     => $cursor->format('H:i:s'),
+                            'end_time'       => $slotEnd->format('H:i:s'),
+                            'price'          => $price,
+                            'status'         => 'available',
+                            'created_at'     => now(),
+                            'updated_at'     => now(),
+                        ]);
+
+                        $inserted ? $totalCreated++ : $totalSkipped++;
+                        $cursor->addMinutes($slotMinutes);
+                    }
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'اسلات‌های درخواستی با موفقیت ایجاد شدند',
+                'data'    => [
+                    'total_created' => $totalCreated,
+                    'total_skipped' => $totalSkipped,
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('Batch slot generation failed', [
+                'doctor_id' => $doctorInfoId,
+                'error'     => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'status'  => false,
+                'message' => 'خطا در ایجاد گروهی اسلات‌ها',
+            ], 500);
+        }
+    }
     public function toggleSlotStatus(Request $request, int $slotId): JsonResponse
     {
         $doctorInfoId = $this->getDoctorUserId($request);
