@@ -180,7 +180,7 @@ Route::group(['prefix' => 'user'],function (){
     Route::post('verify',[AuthController::class,'verify'])->middleware('throttle:5,1');
      Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
          Route::post('/appointments/pay-order', [\App\Http\Controllers\Api\PaymentController::class, 'initiateAppointmentPayment']);
-
+         Route::post('/wallet/charge', [\App\Http\Controllers\Api\WalletController::class, 'chargeWallet']);
          Route::get('/services', [MedicalServiceProviderController::class, 'activeServices']);
          Route::get('/providers/{type}/{id}', [MedicalServiceProviderController::class, 'show']);
          Route::get('/provider/reviews', [ReviewController::class, 'getProviderReviews']);

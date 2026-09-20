@@ -216,6 +216,7 @@ class PaymentService
             $paymentId = (int) $payment->id;
             $slotId    = null;
             $chatRoomId = null;
+            $walletId = null;
 
             // قفل ردیف payment برای جلوگیری از Race Condition
             $locked = DB::table('payments')
@@ -288,7 +289,11 @@ class PaymentService
                     ];
                 }
             }
-
+// دلیل 2 = شارژ کیف پول
+            if ((int) $order->reason_id === 2 && !empty($order->reason_ref)) {
+                $walletId = (int) $order->reason_ref;
+                // اینجا نیاز به قفل خاصی قبل از Verify نیست
+            }
             if ((int) $order->reason_id === 3 && !empty($order->reason_ref)) {
                 $chatRoomId = (int) $order->reason_ref;
             }
@@ -353,6 +358,47 @@ class PaymentService
                     'slot_id'    => $slotId,
                     'patient_id' => $order->user_id,
                     'order_id'   => $order->id,
+                ]);
+            }
+            // 2. شارژ کیف پول کاربر
+            // 2. شارژ کیف پول کاربر
+            if ((int) $order->reason_id === 2 && $walletId !== null) {
+                // الف: قفل کردن و خواندن موجودی فعلی کیف پول
+                $wallet = DB::table('wallets')
+                    ->where('id', $walletId)
+                    ->lockForUpdate()
+                    ->first();
+
+                // محاسبه موجودی جدید
+                $newBalance = $wallet->balance + $order->amount;
+
+                // ب: آپدیت موجودی کیف پول در دیتابیس
+                DB::table('wallets')
+                    ->where('id', $walletId)
+                    ->update([
+                        'balance'    => $newBalance,
+                        'updated_at' => now(),
+                    ]);
+
+                // ج: ثبت تراکنش با ساختار دقیق و balance_after محاسبه شده
+                DB::table('wallet_transactions')->insert([
+                    'wallet_id'     => $walletId,
+                    'type'          => 1, // 1 = واریز / Deposit
+                    'subject_type'  => 1, // 1 = Payment
+                    'subject_id'    => $paymentId,
+                    'amount'        => $order->amount,
+                    'balance_after' => $newBalance, // مقدار دقیق محاسبه شده در بالا
+                    'description'   => "افزایش موجودی از طریق درگاه بانکی (شماره پیگیری: {$verified['ref_id']})",
+                    'ip_address'    => request()->ip(),
+                    'user_agent'    => request()->userAgent(),
+                    'created_at'    => now(),
+                ]);
+
+                Log::info('[PaymentService] Wallet charged successfully', [
+                    'wallet_id'   => $walletId,
+                    'amount'      => $order->amount,
+                    'new_balance' => $newBalance,
+                    'user_id'     => $order->user_id,
                 ]);
             }
 
