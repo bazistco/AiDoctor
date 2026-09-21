@@ -213,8 +213,8 @@ class ReservationController extends Controller
                 'appointment_slots.slot_date',
                 'appointment_slots.start_time',
                 'appointment_slots.status',
-                'doctor_user.user_id as doctor_id',
-                'doctor_user.name as doctor_name',
+                'doctor_info.user_id as doctor_id',
+                'doctor_info.name as doctor_name',
                 'doctor_info.image_url as doctor_image',
                 'specialties.name as specialty_name'
             )
