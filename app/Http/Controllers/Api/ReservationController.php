@@ -213,6 +213,7 @@ class ReservationController extends Controller
                 'appointment_slots.slot_date',
                 'appointment_slots.start_time',
                 'appointment_slots.status',
+                'doctor_user.user_id as doctor_id',
                 'doctor_user.name as doctor_name',
                 'doctor_info.image_url as doctor_image',
                 'specialties.name as specialty_name'
@@ -254,6 +255,7 @@ class ReservationController extends Controller
             'success' => true,
             'data' => [
                 'id' => $slot->id,
+                'doctor_id'=> $slot->doctor_id,
                 'doctor_name' => $slot->doctor_name,
                 'doctor_image' => $slot->doctor_image ? asset('storage/' . $slot->doctor_image) : null,
                 'specialty_name' => $slot->specialty_name,
