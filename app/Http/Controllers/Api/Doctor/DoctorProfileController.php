@@ -205,6 +205,7 @@ class DoctorProfileController extends Controller
         return response()->json([
             'status' => 200,
             'data'   => [
+                'wallet_balance'=> $wallet->balance,
                 'balance'     => $wallet->balance,
                 'totalIncome' => $totalIncome,
                 'rows'        => $rows,
