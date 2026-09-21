@@ -335,12 +335,32 @@ class PaymentService
                 OrderService::STATUS_PAID
             );
 
-            // ج) ثبت تراکنش‌های مالی و کیف پول
-            $this->financialService->completePayment(
-                paymentId: $paymentId,
-                authority: (string) $locked->authority,
-                refId:     $verified['ref_id'],
+            // ─────────────────────────────────────────────────────────────
+            // ج) ثبت تراکنش‌های مالی و کیف پول (بصورت مستقیم و مطمئن)
+            // ─────────────────────────────────────────────────────────────
+
+            // ۱. واریز مبلغ پرداختی از درگاه به کیف پول کاربر (شارژ اولیه)
+            $this->financialService->recordWalletTransaction(
+                userId:      $order->user_id,
+                type:        1, // 1 = واریز (Deposit)
+                subjectId:   1, // 1 = Payment
+                subjectRef:  $paymentId,
+                amount:      $locked->amount,
+                description: "واریز از درگاه سامان (شماره پیگیری: {$verified['ref_id']})"
             );
+
+            // ۲. اگر هدف پرداخت "شارژ کیف پول" (reason_id = 2) نبود، مبلغ را بابت سفارش برداشت می‌کنیم
+            // با این کار گردش مالی (درگاه -> کیف پول -> پرداخت سفارش) به طور کامل و شفاف ثبت می‌شود.
+            if ((int) $order->reason_id !== 2) {
+                $this->financialService->recordWalletTransaction(
+                    userId:      $order->user_id,
+                    type:        2, // 2 = برداشت (Withdrawal)
+                    subjectId:   2, // 2 = Order
+                    subjectRef:  $order->id,
+                    amount:      $locked->amount,
+                    description: "پرداخت هزینه سفارش #{$order->id}"
+                );
+            }
 
             // د) رزرو قطعی نوبت در جدول نوبت‌ها
             if ($order->reason_id === 1 && $slotId !== null) {
@@ -364,46 +384,6 @@ class PaymentService
                 ]);
             }
             // 2. شارژ کیف پول کاربر
-            // 2. شارژ کیف پول کاربر
-            if ((int) $order->reason_id === 2 && $walletId !== null) {
-                // الف: قفل کردن و خواندن موجودی فعلی کیف پول
-                $wallet = DB::table('wallets')
-                    ->where('id', $walletId)
-                    ->lockForUpdate()
-                    ->first();
-
-                // محاسبه موجودی جدید
-                $newBalance = $wallet->balance + $order->amount;
-
-                // ب: آپدیت موجودی کیف پول در دیتابیس
-                DB::table('wallets')
-                    ->where('id', $walletId)
-                    ->update([
-                        'balance'    => $newBalance,
-                        'updated_at' => now(),
-                    ]);
-
-                // ج: ثبت تراکنش با ساختار دقیق و balance_after محاسبه شده
-                DB::table('wallet_transactions')->insert([
-                    'wallet_id'     => $walletId,
-                    'type'          => 1, // 1 = واریز / Deposit
-                    'subject_type'  => 1, // 1 = Payment
-                    'subject_id'    => $paymentId,
-                    'amount'        => $order->amount,
-                    'balance_after' => $newBalance, // مقدار دقیق محاسبه شده در بالا
-                    'description'   => "افزایش موجودی از طریق درگاه بانکی (شماره پیگیری: {$verified['ref_id']})",
-                    'ip_address'    => request()->ip(),
-                    'user_agent'    => request()->userAgent(),
-                    'created_at'    => now(),
-                ]);
-
-                Log::info('[PaymentService] Wallet charged successfully', [
-                    'wallet_id'   => $walletId,
-                    'amount'      => $order->amount,
-                    'new_balance' => $newBalance,
-                    'user_id'     => $order->user_id,
-                ]);
-            }
 
             // 2. اگر سفارش بابت "مشاوره متنی (چت)" بود (reason_id = 3)
             if ($chatRoomId !== null) {

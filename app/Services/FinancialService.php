@@ -347,7 +347,7 @@ class FinancialService
     /**
      * ثبت تراکنش کیف پول با قفل امن
      */
-    private function recordWalletTransaction(
+    public function recordWalletTransaction(
         int $userId,
         int $type,
         int $subjectId,
