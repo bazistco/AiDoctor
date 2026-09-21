@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\Payment\OrderService;
+use App\Services\Payment\PaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage; // <--- این خط اضافه شد
@@ -109,7 +111,7 @@ class LabController extends Controller
             ->exists();
     }
 
-    public function storeRequest(Request $request)
+    public function storeRequest(Request $request, OrderService $orderService, PaymentService $paymentService)
     {
         $validator = Validator::make($request->all(), [
             'request_type_id' => 'required|integer|exists:lab_request_types,id',
@@ -131,6 +133,7 @@ class LabController extends Controller
                 'errors' => $validator->errors(),
             ], 422);
         }
+
         $requestTypeId = (int) $request->request_type_id;
         if ($requestTypeId == 1) {
             if (!$this->isLabActive($request->lab_id)) {
@@ -140,10 +143,12 @@ class LabController extends Controller
                 ], 422);
             }
         }
+
         try {
             $user = $request->user();
 
-            $result = DB::transaction(function () use ($request, $user, $requestTypeId) {
+            // سرویس‌ها را با use به داخل کلوژر تراکنش پاس می‌دهیم
+            $result = DB::transaction(function () use ($request, $user, $requestTypeId, $orderService, $paymentService) {
 
                 $prescriptionDetails = [
                     'code' => '',
@@ -154,12 +159,9 @@ class LabController extends Controller
                     $prescriptionDetails['code'] = $request->digital_code;
                 }
 
-                // تغییرات اصلی آپلود فایل در اینجا انجام شده است:
                 if ($requestTypeId === 3 && $request->hasFile('files')) {
                     foreach ($request->file('files') as $file) {
-                        // ذخیره در دیسک امن (local) به جای public
                         $path = $file->store('prescriptions', 'local');
-                        // به جای ذخیره آدرس مستقیم مرورگر، مسیر امن داخلی را ذخیره می‌کنیم
                         $prescriptionDetails['files'][] = $path;
                     }
                 }
@@ -175,6 +177,7 @@ class LabController extends Controller
 
                 $labId = null;
                 $totalPrice = 0;
+                $paymentUrl = null;
 
                 if ($requestTypeId === 1) {
                     $labId = (int) $request->lab_id;
@@ -196,6 +199,9 @@ class LabController extends Controller
                     $totalPrice = (float) $labTests->sum('price');
                 }
 
+                // اگر درخواست از نوع ۱ (انتخاب پکیج) بود، وضعیت در انتظار پرداخت (1) می‌شود
+                $status = ($requestTypeId === 1) ? 1 : 0;
+
                 $labRequestId = DB::table('users_labs_requests')->insertGetId([
                     'address_id' => @$request->user_address_id,
                     'user_id' => $user->id,
@@ -203,7 +209,7 @@ class LabController extends Controller
                     'visit_type' => $request->visit_type,
                     'request_type_id' => $requestTypeId,
                     'user_prescription_id' => $prescriptionId,
-                    'status' => isset($labId) ? 2 : 0,
+                    'status' => $status,
                     'total_price' => $totalPrice,
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -219,6 +225,26 @@ class LabController extends Controller
                             'updated_at' => now(),
                         ]);
                     }
+
+                    // ---------- ایجاد سفارش و لینک پرداخت ----------
+                    // استفاده از reason_id = 5 برای درخواست‌های آزمایشگاه
+                    $orderResult = $orderService->createOrReuse(
+                        userId: $user->id,
+                        reasonId: 5,
+                        reasonRef: $labRequestId,
+                        amount: $totalPrice,
+                        description: "پرداخت فاکتور آزمایشگاه - درخواست #{$labRequestId}"
+                    );
+
+                    $callbackUrl = 'https://mediraai.com/api/pg/call_back';
+
+                    $paymentResult = $paymentService->initiate(
+                        orderId: $orderResult['order_id'],
+                        userId: $user->id,
+                        callbackUrl: $callbackUrl
+                    );
+
+                    $paymentUrl = $paymentResult['payment_url'];
                 }
 
                 return [
@@ -226,13 +252,14 @@ class LabController extends Controller
                     'prescription_id' => $prescriptionId,
                     'lab_id' => $labId,
                     'total_price' => $totalPrice,
-                    'status' => 0,
+                    'status' => $status,
+                    'payment_url' => $paymentUrl, // پاس دادن آدرس درگاه به فرانت
                 ];
             });
 
             return response()->json([
                 'success' => true,
-                'message' => 'درخواست با موفقیت ثبت شد.',
+                'message' => ($requestTypeId == 1) ? 'در حال انتقال به درگاه پرداخت...' : 'درخواست با موفقیت ثبت شد.',
                 'data' => $result,
             ], 201);
         } catch (\Throwable $e) {

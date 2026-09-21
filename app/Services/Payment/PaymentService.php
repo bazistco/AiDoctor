@@ -469,6 +469,21 @@ class PaymentService
                     ]);
                 }
             }
+            if ((int) $order->reason_id === 5 && !empty($order->reason_ref)) {
+                $labRequestId = (int) $order->reason_ref;
+
+                DB::table('users_labs_requests')
+                    ->where('id', $labRequestId)
+                    ->update([
+                        'status' => 2,
+                        'updated_at' => now(),
+                    ]);
+
+                Log::info('[PaymentService] Lab request paid successfully', [
+                    'lab_request_id' => $labRequestId,
+                    'order_id' => $order->id,
+                ]);
+            }
             if ($order->reason_id === 8) {
                 DB::table('doctor_info')->where('user_id', $order->user_id)->update([
                     'has_paid_subscription' => 1,
