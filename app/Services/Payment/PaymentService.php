@@ -474,6 +474,7 @@ class PaymentService
 
                 DB::table('users_labs_requests')
                     ->where('id', $labRequestId)
+                    ->whereIn('status', [0, 1])
                     ->update([
                         'status' => 2,
                         'updated_at' => now(),
@@ -530,6 +531,11 @@ class PaymentService
                 ]);
             }
 
+            $payment = DB::table('payments')
+                ->where('authority', $resNum)
+                ->first();
+            $order = DB::table('orders')->where('id', $payment->order_id)->first();
+
             if ( $slotId !== null) {
                 DB::table('appointment_slots')
                     ->where('id', $slotId)
@@ -539,6 +545,17 @@ class PaymentService
                         'updated_at' => now(),
                     ]);
                 Redis::del("slot:reservation:{$slotId}");
+            }
+            if ( (int) $order->reason_id === 5 && !empty($order->reason_ref)) {
+                $labRequestId = (int) $order->reason_ref;
+
+                DB::table('users_labs_requests')
+                    ->where('id', $labRequestId)
+                    ->whereIn('status', [0, 1])
+                    ->update([
+                        'status' => 6,
+                        'updated_at' => now(),
+                    ]);
             }
 
             $this->logGateway($paymentId, 'verify_failed', $payload, ['error' => $e->getMessage()]);
