@@ -4,6 +4,7 @@
 namespace App\Http\Controllers\Api\Owner\Labs;
 
 use App\Http\Controllers\Controller;
+use App\Services\Payment\OrderService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -590,7 +591,7 @@ class LabRequestController extends Controller
     }
 
     // اصلاح متد ثبت آزمایش برای درخواست
-    public function assignTestPacks(Request $request, $id)
+    public function assignTestPacks(Request $request, $id, OrderService $orderService)
     {
         $labId = $request->lab_id;
 
@@ -631,8 +632,6 @@ class LabRequestController extends Controller
                 $insertData[] = [
                     'lab_request_id' => $id,
                     'lab_test_id' => $test->id, // در ساختار شما این فیلد lab_test_id است
-                    // اگر فیلد قیمت هنگام ثبت در دیتابیس دارید، اینجا اضافه کنید
-                    // 'price_at_request' => $test->price,
                 ];
             }
 
@@ -641,18 +640,28 @@ class LabRequestController extends Controller
                 DB::table('lab_request_test_packs')->insert($insertData);
             }
 
-            // ۶. آپدیت قیمت کل در جدول درخواست اصلی و تغییر وضعیت به 0 (در انتظار پرداخت)
+            // ۶. آپدیت قیمت کل در جدول درخواست اصلی و تغییر وضعیت به 1 (در انتظار پرداخت)
             DB::table('users_labs_requests')->where('id', $id)->update([
                 'total_price' => $totalPrice,
                 'status' => 1, // 1: در انتظار پرداخت
                 'updated_at' => $now,
             ]);
 
+            // ۷. ایجاد یا ویرایش سفارش (Order) برای بیمار
+            // شناسه 5 به معنای پرداخت فاکتور آزمایشگاه است
+            $orderService->createOrReuse(
+                userId: $labRequest->user_id, // شناسه کاربری که درخواست را داده است (بیمار)
+                reasonId: 5,
+                reasonRef: $id, // شناسه درخواست آزمایشگاه
+                amount: $totalPrice,
+                description: "پرداخت فاکتور آزمایشگاه - درخواست #{$id}"
+            );
+
             DB::commit();
 
             return $this->success([
                 'total_price' => $totalPrice
-            ], 'آزمایش‌ها با موفقیت ثبت و هزینه به‌روزرسانی شد.');
+            ], 'آزمایش‌ها با موفقیت ثبت و هزینه جهت پرداخت برای کاربر ارسال شد.');
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -687,6 +696,18 @@ class LabRequestController extends Controller
                 'status' => 0,
                 'updated_at' => now(),
             ]);
+
+            // ۴. لغو سفارشی (Order) که قبلاً برای این درخواست ساخته شده بود
+            DB::table('orders')
+                ->where('user_id', $labRequest->user_id)
+                ->where('reason_id', 5)
+                ->where('reason_ref', $id)
+                ->where('status', 1) // فقط اگر در حالت Pending است
+                ->update([
+                    'status' => 3, // 3: Cancelled
+                    'cancelled_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
             DB::commit();
 
