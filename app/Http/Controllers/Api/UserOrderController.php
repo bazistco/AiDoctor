@@ -160,7 +160,7 @@ class UserOrderController extends Controller
         $q2 = DB::table('users_labs_requests as ulr')
             ->join('labs_info as li', 'ulr.lab_id', '=', 'li.user_id')
             ->leftJoin('orders as o', function ($join) use ($userId) {
-                $join->on('o.reason_ref', '=', DB::raw('CAST(sa.id AS CHAR)'))
+                $join->on('o.reason_ref', '=', DB::raw('CAST(ulr.id AS CHAR)'))
                     ->where('o.reason_id', '=', 5)
                     ->where('o.user_id', '=', $userId)
                     ->where('o.status', '=', 1); // سفارشات با درگاه باز/در انتظار پرداخت
