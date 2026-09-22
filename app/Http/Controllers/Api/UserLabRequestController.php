@@ -8,6 +8,69 @@ use Illuminate\Support\Facades\DB;
 
 class UserLabRequestController extends Controller
 {
+
+    public function cancelRequest(Request $request, $id)
+    {
+        $userId = $request->user()->id;
+
+        $labRequest = DB::table('users_labs_requests')
+            ->where('id', $id)
+            ->where('user_id', $userId)
+            ->first();
+
+        if (!$labRequest) {
+            return response()->json([
+                'success' => false,
+                'message' => 'درخواست یافت نشد.'
+            ], 404);
+        }
+
+        // بررسی وضعیت مجاز برای لغو (0: در انتظار بررسی، 1: در انتظار پرداخت)
+        if (!in_array((int)$labRequest->status, [0, 1])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'این درخواست در وضعیت فعلی قابل لغو نیست.'
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            // ۱. تغییر وضعیت درخواست آزمایشگاه به لغو شده (مثلاً وضعیت 4)
+            DB::table('users_labs_requests')
+                ->where('id', $id)
+                ->update([
+                    'status' => 6, // 6 = Cancelled
+                    'updated_at' => now()
+                ]);
+
+            // ۲. اگر سفارشی برای این درخواست ایجاد شده بود، آن را هم لغو می‌کنیم
+            // با فرض اینکه reason_id برای فاکتور آزمایشگاه 5 در نظر گرفته شده است
+            DB::table('orders')
+                ->where('user_id', $userId)
+                ->where('reason_id', 5)
+                ->where('reason_ref', $id)
+                ->where('status', 1) // اگر در انتظار پرداخت است
+                ->update([
+                    'status' => 3, // 3 = Cancelled Order
+                    'cancelled_at' => now(),
+                    'updated_at' => now()
+                ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'درخواست شما با موفقیت لغو شد.'
+            ]);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در لغو درخواست: ' . $e->getMessage()
+            ], 500);
+        }
+    }
     /**
      * نمایش جزئیات درخواست آزمایشگاه برای کاربر (بیمار)
      */

@@ -48,7 +48,7 @@ class PaymentGatewayController extends Controller
             return response()->json(['success' => false, 'message' => $statusText], 422);
         }
 
-        // ۲. اگر سفارش بابت نوبت است (reason_id == 1)، از فعال بودن قفل موقت اسلات در Redis مطمئن شویم
+        // ۲. بررسی مهلت زمانی نوبت پزشک (reason_id == 1)
         if ((int) $order->reason_id === 1 && !empty($order->reason_ref)) {
             $slotId = $order->reason_ref;
             $reservationKey = "slot:reservation:{$slotId}";
@@ -61,9 +61,32 @@ class PaymentGatewayController extends Controller
             }
         }
 
+        // ۳. بررسی اعتبار درخواست آزمایشگاه (reason_id == 5)
+        if ((int) $order->reason_id === 5 && !empty($order->reason_ref)) {
+            $labRequestId = $order->reason_ref;
+            $labRequest = DB::table('users_labs_requests')->where('id', $labRequestId)->first();
+
+            // اگر درخواست پیدا نشد یا از وضعیت در انتظار پرداخت (1) خارج شده بود
+            if (!$labRequest || (int)$labRequest->status !== 1) {
+
+                // اگر سفارش هنوز Pending (1) است، آن را لغو می‌کنیم
+                if ((int) $order->status === 1) {
+                    DB::table('orders')->where('id', $orderId)->update([
+                        'status' => 3, // Cancelled
+                        'cancelled_at' => now(),
+                        'updated_at' => now()
+                    ]);
+                }
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'زمان پرداخت این درخواست منقضی شده یا وضعیت آن تغییر کرده است.'
+                ], 410);
+            }
+        }
+
         try {
-            // ۳. فراخوانی PaymentService
-            // متد initiate در PaymentService به صورت خودکار چک می‌کند که آیا توکن فعال منقضی‌نشده دارد یا خیر.
+            // ۴. فراخوانی PaymentService
             $callbackUrl = 'https://mediraai.com/api/pg/call_back';
             $cellNumber  = $request->user()->phone ?? null;
 
@@ -74,7 +97,7 @@ class PaymentGatewayController extends Controller
                 cellNumber:  $cellNumber
             );
 
-            // ۴. ذخیره / به‌روزرسانی مشخصات پرداخت در قفل ردیس نوبت (اختیاری جهت تطبیق سریع)
+            // ۵. ذخیره اطلاعات پرداخت در قفل ردیس نوبت (اختیاری جهت تطبیق سریع)
             if ((int) $order->reason_id === 1) {
                 $existingLock = Redis::get("slot:reservation:{$order->reason_ref}");
                 if ($existingLock) {
