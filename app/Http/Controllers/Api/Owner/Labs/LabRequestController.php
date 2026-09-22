@@ -313,7 +313,8 @@ class LabRequestController extends Controller
                     $resultFileUrl = $baseUrl . ltrim($test->result_file, '/');
                 } else {
                     // تولید لینک ایمن برای نتایج
-                    $resultFileUrl = route('lab.results.download', ['result_id' => $test->result_id]);
+//                    $resultFileUrl = route('lab.results.download', ['result_id' => $test->result_id]);
+                       $resultFileUrl = "https://api.mediraai.com/api/owner/lab/lab-requests/results/{$test->result_id}/download";
                 }
             }
 
