@@ -350,12 +350,14 @@ class LabRequestController extends Controller
                         return $baseUrl . ltrim($path, '/');
                     }
 
+
+                    return "https://api.mediraai.com/api/owner/lab/prescription-file/{$labRequest->prescription_id}/prescriptions/{$path}";
                     // استفاده از روت امن اختصاصی آزمایشگاه (نه بیمار)
                     // آیدی درخواست را می‌فرستیم تا کنترلر مقصد بتواند چک کند آیا این آزمایشگاه مجاز است این فایل را ببیند یا خیر
-                    return route('lab.prescription.download', [
-                        'id' => $labRequest->prescription_id,
-                        'fileName' => $path // اگر چند فایل در یک نسخه هست، path فایل را هم می‌فرستیم
-                    ]);
+//                    return route('lab.prescription.download', [
+//                        'id' => ,$labRequest->prescription_id,
+//                        'fileName' => $path // اگر چند فایل در یک نسخه هست، path فایل را هم می‌فرستیم
+//                    ]);
 
                 }, $prescriptionDetails->files);
             }

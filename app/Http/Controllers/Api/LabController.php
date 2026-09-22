@@ -330,10 +330,8 @@ class LabController extends Controller
                 // نام فایل را استخراج می‌کنیم
                 $fileName = basename($filePath);
                 // ساخت URL امن برای دانلود با استفاده از روت جدید
-                $secureFileUrls[] = route('user.prescription.download', [
-                    'id' => $item->prescription_id,
-                    'file' => $fileName
-                ]);
+                $secureFileUrls[] ="https://api.mediraai.com/api/owner/lab/prescription-file/{$item->prescription_id}/prescriptions/{$fileName}";
+
             }
             $prescriptionDetails['files'] = $secureFileUrls;
         }
