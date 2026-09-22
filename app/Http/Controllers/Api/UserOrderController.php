@@ -173,7 +173,7 @@ class UserOrderController extends Controller
                 'li.name',
                 DB::raw("IF(ulr.visit_type = 0, 'در منزل', 'حضوری') as detail"),
                 DB::raw("'lab' as type"),
-                DB::raw('o.order_id as order_id')
+                DB::raw('o.id as order_id')
             )
             ->where('ulr.user_id', $userId);
 
