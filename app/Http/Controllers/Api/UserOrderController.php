@@ -146,7 +146,7 @@ class UserOrderController extends Controller
                 'sa.id',
                 'sa.status',
                 'sa.price',
-                'sa.created_at',
+                'sa.slot_date as created_at',
                 'di.name',
                 's.name as detail',
                 DB::raw("'doctor' as type"),
