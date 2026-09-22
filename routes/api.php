@@ -232,7 +232,7 @@ Route::group(['prefix' => 'user'],function (){
          Route::get('/labs-requests/{id}', [\App\Http\Controllers\Api\UserLabRequestController::class, 'show']);
          Route::get('/labs-requests/{id}/pay', [\App\Http\Controllers\Api\UserLabRequestController::class, 'pay']);
          Route::post('/labs-requests/{id}/cancel', [\App\Http\Controllers\Api\UserLabRequestController::class, 'cancelRequest']);
-
+         Route::get('/lab-requests/results/{result_id}/download', [\App\Http\Controllers\Api\UserLabRequestController::class, 'downloadResultFile'])->name('results.download')->where('fileName', '.*');
          Route::get('/user/prescriptions/{id}/download/{file}', [\App\Http\Controllers\Api\LabController::class, 'downloadPrescriptionFile'])->name('user.prescription.download');
          Route::get('/appointments/active', [ReservationController::class, 'getActiveAppointment']);
          Route::post('/appointments/cancel-temp', [ReservationController::class, 'cancelTempReservation']);

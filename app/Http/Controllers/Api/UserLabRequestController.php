@@ -5,10 +5,33 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class UserLabRequestController extends Controller
 {
 
+    public function downloadResultFile(Request $request, $resultId)
+    {
+
+
+        // پیدا کردن فایل و اطمینان از اینکه متعلق به همین آزمایشگاه است
+        $result = DB::table('lab_request_results as lrr')
+            ->join('users_labs_requests as ulr', 'lrr.lab_request_id', '=', 'ulr.id')
+            ->where('lrr.id', $resultId)
+            ->select('lrr.file_path', 'lrr.file_name', 'lrr.mime_type')
+            ->first();
+
+        if (!$result) {
+            return response()->json(['status' => false, 'message' => 'فایل یافت نشد یا عدم دسترسی'], 404);
+        }
+
+        if (!Storage::disk('local')->exists($result->file_path)) {
+            return response()->json(['status' => false, 'message' => 'فایل فیزیکی در سرور یافت نشد'], 404);
+        }
+
+        // ارسال فایل به کاربر با هدرهای مناسب
+        return Storage::disk('local')->response($result->file_path, $result->file_name);
+    }
     public function cancelRequest(Request $request, $id)
     {
         $userId = $request->user()->id;
@@ -136,7 +159,7 @@ class UserLabRequestController extends Controller
                     $baseUrl = 'http://185.222.163.113:7000/';
                     $resultFileUrl = $baseUrl . ltrim($test->result_file, '/');
                 } else {
-                    $resultFileUrl = "https://api.mediraai.com/api/owner/lab/lab-requests/results/{$test->result_id}/download";
+                    $resultFileUrl = "https://api.mediraai.com/api/user/lab-requests/results/{$test->result_id}/download";
 
 //                    $resultFileUrl = route('lab.results.download', ['result_id' => $test->result_id]);
                 }
