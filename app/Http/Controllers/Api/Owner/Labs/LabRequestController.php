@@ -74,7 +74,8 @@ class LabRequestController extends Controller
 
             $safeUrl = str_starts_with($row->file_path, 'storage/')
                 ? 'http://185.222.163.113:7000/' . ltrim($row->file_path, '/')
-                : route('lab.results.download', ['result_id' => $row->result_id]);
+                : "https://api.mediraai.com/api/owner/lab/lab-requests/results/{$row->result_id}/download";
+            ;
 
             $groupedResults[$packId]['files'][] = [
                 'result_id' => $row->result_id,
