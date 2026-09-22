@@ -136,7 +136,9 @@ class UserLabRequestController extends Controller
                     $baseUrl = 'http://185.222.163.113:7000/';
                     $resultFileUrl = $baseUrl . ltrim($test->result_file, '/');
                 } else {
-                    $resultFileUrl = route('lab.results.download', ['result_id' => $test->result_id]);
+                    $resultFileUrl = "https://api.mediraai.com/api/owner/lab/lab-requests/results/{$test->result_id}/download";
+
+//                    $resultFileUrl = route('lab.results.download', ['result_id' => $test->result_id]);
                 }
             }
             return [
