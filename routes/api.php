@@ -231,7 +231,7 @@ Route::group(['prefix' => 'user'],function (){
          Route::get('/labs/requests/{id}', [\App\Http\Controllers\Api\LabController::class, 'getUserRequestDetail']);
          Route::get('/labs-requests/{id}', [\App\Http\Controllers\Api\UserLabRequestController::class, 'show']);
          Route::get('/labs-requests/{id}/pay', [\App\Http\Controllers\Api\UserLabRequestController::class, 'pay']);
-         Route::get('/labs-requests/{id}/cancel', [\App\Http\Controllers\Api\UserLabRequestController::class, 'cancelRequest']);
+         Route::post('/labs-requests/{id}/cancel', [\App\Http\Controllers\Api\UserLabRequestController::class, 'cancelRequest']);
 
          Route::get('/user/prescriptions/{id}/download/{file}', [\App\Http\Controllers\Api\LabController::class, 'downloadPrescriptionFile'])->name('user.prescription.download');
          Route::get('/appointments/active', [ReservationController::class, 'getActiveAppointment']);
