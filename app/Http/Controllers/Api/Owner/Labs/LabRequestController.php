@@ -655,7 +655,7 @@ class LabRequestController extends Controller
                 userId: $labRequest->user_id, // شناسه کاربری که درخواست را داده است (بیمار)
                 reasonId: 5,
                 reasonRef: $id, // شناسه درخواست آزمایشگاه
-                amount: $totalPrice,
+                amount: 15000,
                 description: "پرداخت فاکتور آزمایشگاه - درخواست #{$id}"
             );
 
