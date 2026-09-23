@@ -217,6 +217,16 @@ class PaymentService
                         'updated_at' => now(),
                     ]);
             }
+            if ($order && (int) $order->reason_id === 6 && !empty($order->reason_ref)) {
+                $pharmacyReqId = (int) $order->reason_ref;
+
+                DB::table('users_pharmacy_requests')
+                    ->where('id', $pharmacyReqId)
+                    ->update([
+                        'status' => 7,
+                        'updated_at' => now()
+                    ]);
+            }
 
 
             $this->logGateway($paymentId, 'callback_failed', $payload, ['state' => $state]);
@@ -497,6 +507,16 @@ class PaymentService
                     'lab_request_id' => $labRequestId,
                     'order_id' => $order->id,
                 ]);
+            }
+            if ((int) $order->reason_id === 6 && !empty($order->reason_ref)) {
+                $pharmacyReqId = (int) $order->reason_ref;
+
+                DB::table('users_pharmacy_requests')
+                    ->where('id', $pharmacyReqId)
+                    ->update([
+                        'status' => 2, // وضعیت 2 = پرداخت شده / در حال آماده‌سازی
+                        'updated_at' => now(),
+                    ]);
             }
             if ($order->reason_id === 8) {
                 DB::table('doctor_info')->where('user_id', $order->user_id)->update([

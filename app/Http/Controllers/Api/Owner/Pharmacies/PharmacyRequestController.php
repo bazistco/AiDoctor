@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Owner\Pharmacies;
 
 use App\Http\Controllers\Controller;
+use App\Services\Payment\OrderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -300,7 +301,8 @@ class PharmacyRequestController extends Controller
     }
 
     // ---------- updateStatus: تایید نهایی و ارسال به وضعیت 1 ----------
-    public function updateStatus(Request $request, $id)
+    // ---------- updateStatus: تایید نهایی و ارسال به وضعیت 1 ----------
+    public function updateStatus(Request $request, $id, OrderService $orderService)
     {
         $pharmacyId = $this->getPharmacyId();
         $newStatus  = (int) $request->input('status');
@@ -312,23 +314,58 @@ class PharmacyRequestController extends Controller
             ], 422);
         }
 
-        $affected = DB::table('users_pharmacy_requests')
-            ->where('id', $id)
-            ->where('pharmacy_id', $pharmacyId)
-            ->where('status', 0)
-            ->update([
-                'status'     => 1,
-                'updated_at' => now()
-            ]);
+        DB::beginTransaction();
+        try {
+            // ۱. خواندن اطلاعات درخواست
+            $pharmacyRequest = DB::table('users_pharmacy_requests')
+                ->where('id', $id)
+                ->where('pharmacy_id', $pharmacyId)
+                ->where('status', 0)
+                ->first();
 
-        if ($affected === 0) {
+            if (!$pharmacyRequest) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'امکان تغییر وضعیت وجود ندارد یا درخواست یافت نشد.'
+                ], 403);
+            }
+
+            // اگر مبلغ سفارش صفر باشد خطا می‌دهیم (باید دارو اضافه شده باشد)
+            if ($pharmacyRequest->total_price <= 0) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'مبلغ کل نمی‌تواند صفر باشد. لطفاً ابتدا داروها را اضافه کنید.'
+                ], 422);
+            }
+
+            // ۲. تغییر وضعیت به ۱
+            DB::table('users_pharmacy_requests')
+                ->where('id', $id)
+                ->update([
+                    'status'     => 1,
+                    'updated_at' => now()
+                ]);
+//            $pharmacyRequest->total_price
+            // ۳. ایجاد سفارش مالی برای بیمار با reason_id = 6
+            $orderService->createOrReuse(
+                userId: $pharmacyRequest->user_id, // شناسه بیماری که درخواست را ثبت کرده
+                reasonId: 6,                       // دلیل 6: پرداخت فاکتور داروخانه
+                reasonRef: $id,                    // متصل به شناسه درخواست داروخانه
+                amount: 15000,
+                description: "پرداخت فاکتور داروخانه - درخواست #{$id}"
+            );
+
+            DB::commit();
+
+            return response()->json(['status' => 'success', 'message' => 'تایید نهایی انجام شد و فاکتور برای بیمار صادر گردید.']);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
             return response()->json([
                 'status' => 'error',
-                'message' => 'امکان تغییر وضعیت وجود ندارد.'
-            ], 403);
+                'message' => 'خطا در ثبت نهایی: ' . $e->getMessage()
+            ], 500);
         }
-
-        return response()->json(['status' => 'success', 'message' => 'تایید نهایی انجام شد.']);
     }
 
     // ---------- markAsPreparing: 1 -> 2 ----------
@@ -437,24 +474,58 @@ class PharmacyRequestController extends Controller
     }
 
     // ---------- cancelRequest: لغو (0 یا 1 -> 7) ----------
+    // ---------- cancelRequest: لغو (0 یا 1 -> 7) ----------
     public function cancelRequest($id)
     {
         $pharmacyId = $this->getPharmacyId();
 
-        $affected = DB::table('users_pharmacy_requests')
+        $pharmacyRequest = DB::table('users_pharmacy_requests')
             ->where('id', $id)
             ->where('pharmacy_id', $pharmacyId)
             ->whereIn('status', [0, 1])
-            ->update([
-                'status' => 7,
-                'updated_at' => now()
-            ]);
+            ->first();
 
-        if ($affected === 0) {
-            return response()->json(['status' => 'error', 'message' => 'فقط درخواست‌های با وضعیت 0 یا 1 قابل لغو هستند.'], 403);
+        if (!$pharmacyRequest) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'فقط درخواست‌های با وضعیت 0 یا 1 قابل لغو هستند.'
+            ], 403);
         }
 
-        return response()->json(['status' => 'success', 'message' => 'درخواست لغو شد.']);
+        DB::beginTransaction();
+        try {
+            // ۱. لغو درخواست داروخانه
+            DB::table('users_pharmacy_requests')
+                ->where('id', $id)
+                ->update([
+                    'status' => 7,
+                    'updated_at' => now()
+                ]);
+
+            // ۲. اگر سفارشی برای بیمار صادر شده بود (در حالت در انتظار پرداخت)، آن را لغو می‌کنیم
+            if ($pharmacyRequest->status == 1) {
+                DB::table('orders')
+                    ->where('user_id', $pharmacyRequest->user_id)
+                    ->where('reason_id', 6)
+                    ->where('reason_ref', $id)
+                    ->where('status', 1)
+                    ->update([
+                        'status' => 3, // 3: Cancelled
+                        'cancelled_at' => now(),
+                        'updated_at' => now()
+                    ]);
+            }
+
+            DB::commit();
+
+            return response()->json(['status' => 'success', 'message' => 'درخواست و فاکتور مربوطه با موفقیت لغو شد.']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'خطا در لغو درخواست.'
+            ], 500);
+        }
     }
 
     // ---------- stats: آمار درخواست‌ها ----------
