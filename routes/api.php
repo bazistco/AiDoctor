@@ -182,6 +182,8 @@ Route::middleware('auth:sanctum')->prefix('user/addresses')->group(function () {
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
+Route::middleware(['auth:sanctum', 'user.active'])->post('/chat/upload', [ChatController::class, 'uploadFile']);
+
 Route::group(['prefix' => 'user'],function (){
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:3,1');
     Route::post('verify',[AuthController::class,'verify'])->middleware('throttle:5,1');
@@ -267,7 +269,6 @@ Route::group(['prefix' => 'user'],function (){
         // لغو پلن
         Route::post('/cancel-plan', [UserController::class, 'cancelPlan']);
     });
-    Route::post('/chat/upload', [ChatController::class, 'uploadFile']);
 
     Route::middleware('auth:sanctum')->prefix('diagnosis')->group(function () {
         // تشخیص بیماری (عمومی)
