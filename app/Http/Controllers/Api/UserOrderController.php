@@ -180,6 +180,12 @@ class UserOrderController extends Controller
         // --- ۳. کوئری داروخانه ---
         $q3 = DB::table('users_pharmacy_requests as upr')
             ->leftJoin('pharmacies_info as pi', 'upr.pharmacy_id', '=', 'pi.user_id')
+            ->leftJoin('orders as o', function ($join) use ($userId) {
+                $join->on('o.reason_ref', '=', DB::raw('CAST(upr.id AS CHAR)'))
+                    ->where('o.reason_id', '=', 6)
+                    ->where('o.user_id', '=', $userId)
+                    ->where('o.status', '=', 1); // سفارشات با درگاه باز/در انتظار پرداخت
+            })
             ->select(
                 'upr.id',
                 'upr.status',
@@ -188,7 +194,7 @@ class UserOrderController extends Controller
                 'pi.name',
                 DB::raw("'-' as detail"),
                 DB::raw("'pharmacy' as type"),
-                DB::raw('NULL as order_id')
+                DB::raw('o.id as order_id')
             )
             ->where('upr.user_id', $userId);
 
