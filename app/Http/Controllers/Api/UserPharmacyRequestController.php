@@ -27,6 +27,82 @@ class UserPharmacyRequestController extends Controller
     }
 
     /**
+     * لغو درخواست داروخانه توسط کاربر
+     */
+    public function cancelRequest($id, Request $request)
+    {
+        $userId = $request->user()->id;
+
+        // ۱. بررسی وجود و وضعیت درخواست داروخانه
+        $pharmacyRequest = DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->where('user_id', $userId)
+            ->first();
+
+        if (!$pharmacyRequest) {
+            return response()->json([
+                'success' => false,
+                'message' => 'درخواست یافت نشد یا متعلق به شما نیست.'
+            ], 404);
+        }
+
+        // فقط در وضعیت 0 (در انتظار تایید) و 1 (در انتظار پرداخت) کاربر مجاز به لغو است
+        if (!in_array((int)$pharmacyRequest->status, [0, 1])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'این درخواست در مرحله‌ای است که دیگر امکان لغو آن توسط شما وجود ندارد.'
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            // ۲. لغو درخواست داروخانه (وضعیت 7 = لغو شده)
+            DB::table('users_pharmacy_requests')
+                ->where('id', $id)
+                ->update([
+                    'status' => 7,
+                    'updated_at' => now(),
+                ]);
+
+            // ۳. اگر سفارش مالی (Order) برای آن ایجاد شده بود، آن را هم کنسل می‌کنیم
+            // reason_id = 6 مخصوص فاکتورهای داروخانه است
+            if ((int)$pharmacyRequest->status === 1) {
+                DB::table('orders')
+                    ->where('user_id', $userId)
+                    ->where('reason_id', 6)
+                    ->where('reason_ref', $id)
+                    ->where('status', 1) // اگر هنوز پرداخت نشده (Pending)
+                    ->update([
+                        'status' => 3, // 3 = Cancelled
+                        'cancelled_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+            }
+
+            // ۴. در صورت لزوم رهاسازی داروها یا آپدیت‌های جانبی می‌تواند اینجا انجام شود
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'درخواست داروخانه با موفقیت لغو شد.'
+            ], 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Pharmacy request cancellation failed', [
+                'request_id' => $id,
+                'user_id'    => $userId,
+                'error'      => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در لغو درخواست. لطفاً دوباره تلاش کنید.'
+            ], 500);
+        }
+    }
+    /**
      * نمایش جزئیات درخواست داروخانه به همراه فاکتور
      */
     public function show($id)

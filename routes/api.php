@@ -223,6 +223,8 @@ Route::group(['prefix' => 'user'],function (){
          Route::post('/pharmacy-requests', [UserPharmacyRequestController::class, 'storeRequest']);
          Route::get('pharmacy-requests/{id}', [UserPharmacyRequestController::class, 'show']);
          Route::post('pharmacy-requests/{id}/pay', [UserPharmacyRequestController::class, 'pay']);
+         Route::post('pharmacy-requests/{id}/cancel', [UserPharmacyRequestController::class, 'cancelRequest']);
+
          Route::get('/labs/prescription-types', [\App\Http\Controllers\Api\LabController::class, 'getPrescriptionTypes']);
          Route::get('/labs/test-packs', [\App\Http\Controllers\Api\LabController::class, 'getTestPacks']);
          Route::post('/labs/search-centers', [\App\Http\Controllers\Api\LabController::class, 'searchCenters']);
