@@ -190,22 +190,49 @@ class PharmacyRequestController extends Controller
             ], 403);
         }
 
-        $medicineId = $request->input('medicine_id');
-        $qty        = (int) $request->input('qty', 1);
-        $price      = (float) $request->input('price', 0);
-        $unit       = $request->input('unit', 'عدد');
+        $medicineId   = $request->input('medicine_id');
+        $medicineName = $request->input('medicine_name'); // اضافه شدن دریافت نام دارو
+        $qty          = (int) $request->input('qty', 1);
+        $price        = (float) $request->input('price', 0);
+        $unit         = $request->input('unit', 'عدد');
 
-        // پیدا کردن یا ایجاد pharmacy_medicine
+        // 🟢 بخش جدید: اگر شناسه دارو نداریم اما نام تایپ شده است (داروی جدید)
+        if (empty($medicineId) && !empty($medicineName)) {
+            // ابتدا جستجو می‌کنیم تا اگر با همین نام وجود داشت، داروی تکراری نسازیم
+            $existingMed = DB::table('medicines')->where('name', $medicineName)->first();
+
+            if ($existingMed) {
+                $medicineId = $existingMed->id;
+            } else {
+                // ثبت داروی جدید در جدول کل داروها (medicines)
+                $medicineId = DB::table('medicines')->insertGetId([
+                    'name'       => $medicineName,
+                    'slug'       => \Illuminate\Support\Str::slug($medicineName) ?: str_replace(' ', '-', $medicineName),
+                    'created_at' => now(),
+                    // فیلدهای دیگر مانند base_price خالی می‌مانند تا زمانی که ادمین کل بررسی کند
+                ]);
+            }
+        }
+
+        if (empty($medicineId)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'دارو مشخص نشده است.'
+            ], 400);
+        }
+
+        // 🟢 بررسی وجود این دارو در انبار همین داروخانه (pharmacy_medicines)
         $pharmacyMedicine = DB::table('pharmacy_medicines')
             ->where('pharmacy_id', $pharmacyId)
             ->where('medicine_id', $medicineId)
             ->first();
 
         if (!$pharmacyMedicine) {
+            // اضافه کردن مستقیم دارو برای داروخانه به همراه قیمت‌گذاری
             $pharmacyMedicineId = DB::table('pharmacy_medicines')->insertGetId([
                 'pharmacy_id'      => $pharmacyId,
                 'medicine_id'      => $medicineId,
-                'medicine_type_id' => 1,             // نوع پیش‌فرض
+                'medicine_type_id' => 1,             // نوع پیش‌فرض (مثلاً قرص)
                 'unit'             => $unit,
                 'price_per_unit'   => $price,
                 'status'           => 1,
@@ -213,6 +240,7 @@ class PharmacyRequestController extends Controller
                 'updated_at'       => now(),
             ]);
         } else {
+            // اگر قبلا در داروخانه بود فقط قیمت و واحد به‌روز می‌شود
             $pharmacyMedicineId = $pharmacyMedicine->id;
             DB::table('pharmacy_medicines')
                 ->where('id', $pharmacyMedicineId)
@@ -223,6 +251,7 @@ class PharmacyRequestController extends Controller
                 ]);
         }
 
+        // 🟢 ثبت نهایی دارو در درخواست بیمار
         DB::table('user_pharmacy_request_medicines')->insert([
             'user_pharmacy_request_id' => $id,
             'pharmacy_medicine_id'     => $pharmacyMedicineId,
