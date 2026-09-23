@@ -213,6 +213,7 @@ Route::group(['prefix' => 'user'],function (){
          Route::delete('/period-tracker/partner/disconnect', [PeriodTrackerController::class, 'disconnectPartner']);
          Route::get('/period-tracker/partner/dashboard', [PeriodTrackerController::class, 'partnerDashboard']);
 
+
          Route::post('/period-tracker/share-link', [PeriodShareController::class, 'create']);
          Route::delete('/period-tracker/share-link', [PeriodShareController::class, 'disable']);
          Route::get('/period-tracker/share-link', [PeriodShareController::class, 'activeLink']);
@@ -266,10 +267,13 @@ Route::group(['prefix' => 'user'],function (){
         // لغو پلن
         Route::post('/cancel-plan', [UserController::class, 'cancelPlan']);
     });
+    Route::post('/chat/upload', [ChatController::class, 'uploadFile']);
+
     Route::middleware('auth:sanctum')->prefix('diagnosis')->group(function () {
         // تشخیص بیماری (عمومی)
         Route::middleware('api.rate.limit')->post('/diagnose', [DiagnosisController::class, 'diagnose']);
         Route::post('/chat', [DiagnosisController::class, 'chat']);
+
         Route::get('/doctors', [DiagnosisController::class, 'getDoctorsList']);
         Route::get('/keywords/suggest', [DiagnosisController::class, 'suggestKeywords']);
         Route::post('/doctor/{id}/click', [DiagnosisController::class, 'registerDoctorClick']);

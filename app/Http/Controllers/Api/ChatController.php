@@ -22,6 +22,7 @@ class ChatController extends Controller
             ->select(
                 'm.id',
                 'm.message',
+                'm.message_type',
                 'm.created_at as sent_at',
                 // تعیین نقش فرستنده
                 DB::raw("
@@ -508,6 +509,7 @@ class ChatController extends Controller
                     'room_id' => $message->room_id,
                     'user_id' => $message->user_id,
                     'message' => $message->message,
+                    'message_type' => $message->message_type,
                     'created_at' => $message->created_at
                 ];
             });
@@ -572,5 +574,34 @@ class ChatController extends Controller
                 'last_seen' => $status->last_seen ?? null
             ]
         ]);
+    }
+    public function uploadFile(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'file' => 'required|file|max:10240', // حداکثر 10 مگابایت
+            'room_id' => 'required|integer'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+            // ایجاد یک نام یکتا برای فایل
+            $filename = time() . '_' . $file->getClientOriginalName();
+            // ذخیره فایل در پوشه storage/app/public/chat_files
+            $path = $file->storeAs('chat_files', $filename, 'public');
+            // تولید لینک مستقیم فایل
+            $url = asset('storage/' . $path);
+
+            return response()->json([
+                'success' => true,
+                'file_url' => $url,
+                'message_type' => 'file'
+            ]);
+        }
+
+        return response()->json(['success' => false, 'message' => 'فایلی یافت نشد'], 400);
     }
 }
