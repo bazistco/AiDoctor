@@ -188,6 +188,8 @@ Route::group(['prefix' => 'user'],function (){
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:3,1');
     Route::post('verify',[AuthController::class,'verify'])->middleware('throttle:5,1');
      Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
+         Route::get('/chat/rooms', [ChatController::class, 'getMyRooms']);
+
          Route::post('/appointments/pay-order', [\App\Http\Controllers\Api\PaymentController::class, 'initiateAppointmentPayment']);
          Route::post('/wallet/charge', [\App\Http\Controllers\Api\WalletController::class, 'chargeWallet']);
          Route::get('/services', [MedicalServiceProviderController::class, 'activeServices']);
