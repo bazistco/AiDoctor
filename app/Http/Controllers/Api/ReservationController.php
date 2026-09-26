@@ -508,7 +508,7 @@ class ReservationController extends Controller
                     'slot_id'           => $slotId,
                     'amount'            => $amount,
                     'reservation_token' => $reservationToken,
-                    'expires_at'        => \Carbon\Carbon::now()->timezone('Asia/Tehran')->addMinutes(15)->toDateTimeString(),
+                    'expires_at'        => \Carbon\Carbon::now()->addMinutes(15)->toDateTimeString(),
                     'patient_type'      => $isForOther ? 'other' : 'self',
                 ]
             ], 201);
