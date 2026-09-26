@@ -301,7 +301,8 @@ class LabController extends Controller
                     // ----------------------------------------------------------------------
                     // فراخوانی تابع مجزا جهت اعتبارسنجی شیفت و دریافت شماره صف
                     // ----------------------------------------------------------------------
-                    $dailyQueueNumber = $this->validateAndGetQueueNumber($labId, $appointmentDate, $shiftType);
+//                    $dailyQueueNumber = $this->validateAndGetQueueNumber($labId, $appointmentDate, $shiftType);
+                    $dailyQueueNumber = null;
                 }
 
                 $status = ($requestTypeId === 1) ? 1 : 0;
@@ -315,7 +316,7 @@ class LabController extends Controller
                     'user_prescription_id' => $prescriptionId,
                     'appointment_date' => $appointmentDate,
                     'shift_type' => $shiftType,
-                    'daily_queue_number' => $dailyQueueNumber,
+                    'daily_queue_number' => null,
                     'status' => $status,
                     'total_price' => $totalPrice,
                     'created_at' => now(),

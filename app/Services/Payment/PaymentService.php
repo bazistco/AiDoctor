@@ -253,11 +253,18 @@ class PaymentService
             $chatRoomId = null;
             $walletId = null;
             $subscriptionId = null;
+            $labRequestId   = null;
+
             // قفل ردیف payment برای جلوگیری از Race Condition
             $locked = DB::table('payments')
                 ->where('id', $paymentId)
                 ->lockForUpdate()
                 ->first();
+
+            if (! $locked) {
+                DB::rollBack();
+                return ['success' => false, 'error' => 'payment_not_found_after_lock', 'payment_id' => $paymentId];
+            }
 
             // بررسی مجدد بعد از قفل دیتابیس
             if ((int) $locked->status === self::PAY_PAID) {
@@ -335,8 +342,61 @@ class PaymentService
             if ((int) $order->reason_id === 7 && !empty($order->reason_ref)) {
                 $subscriptionId = (int) $order->reason_ref;
             }
-            // تایید تراکنش در درگاه (Verify)
-            // توجه: اگر درگاه اینجا اکسبشن بدهد، به بلاک catch می‌رود
+
+            // (5) آزمایشگاه: باید شماره صف را همینجا (قبل verify) به صورت اتمیک رزرو کنیم
+            // هدف: اگر ظرفیت پر شده -> verify نزنیم، سفارش/درخواست را کنسل کنیم
+            if ((int) $order->reason_id === 5 && !empty($order->reason_ref)) {
+                $labRequestId = (int) $order->reason_ref;
+
+                try {
+                    // این متد را باید شما اضافه کنید (نمونه‌اش در پیام قبلی دادم)
+                    // - lockForUpdate روی users_labs_requests
+                    // - خواندن rules از redis
+                    // - چک active day / shift active / محدودیت ۱ ساعت
+                    // - max(daily_queue_number)+1 با lockForUpdate
+                    // - چک capacity
+                    // - update users_labs_requests.daily_queue_number
+                    $this->assignLabQueueNumberOrFail($labRequestId);
+                } catch (\Throwable $e) {
+                    $reason = $e->getMessage();
+
+                    $this->markFailed($paymentId, $reason);
+
+                    DB::table('orders')
+                        ->where('id', $order->id)
+                        ->where('status', OrderService::STATUS_PENDING)
+                        ->update([
+                            'status'       => OrderService::STATUS_FAILED,
+                            'cancelled_at' => now(),
+                            'updated_at'   => now(),
+                        ]);
+
+                    DB::table('users_labs_requests')
+                        ->where('id', $labRequestId)
+                        ->whereIn('status', [0, 1])
+                        ->update([
+                            'status'     => 6, // cancelled
+                            'updated_at' => now(),
+                        ]);
+
+                    $this->logGateway($paymentId, 'verify_aborted_lab_capacity_or_shift', [
+                        'lab_request_id' => $labRequestId,
+                        'reason'         => $reason,
+                    ], $payload);
+
+                    DB::commit();
+
+                    return [
+                        'success'    => false,
+                        'error'      => 'lab_capacity_full_or_shift_closed',
+                        'payment_id' => $paymentId,
+                    ];
+                }
+            }
+
+            // ─────────────────────────────────────────────────────────────
+            // 4-B) Verify (بعد از پاس شدن گاردها)
+            // ─────────────────────────────────────────────────────────────
             $verified = $this->gateway->verify($refNum);
 
             // بررسی مبلغ برای جلوگیری از Partial Payment
@@ -723,4 +783,78 @@ class PaymentService
             Log::warning('[PaymentService] Gateway log failed', ['error' => $e->getMessage()]);
         }
     }
+    private function assignLabQueueNumberOrFail(int $labRequestId): int
+    {
+        // ریکوئست را قفل می‌کنیم
+        $req = DB::table('users_labs_requests')
+            ->where('id', $labRequestId)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $req) {
+            throw new RuntimeException('درخواست آزمایشگاه یافت نشد.');
+        }
+
+        // اگر قبلا شماره صف گرفته، idempotent
+        if (!empty($req->daily_queue_number)) {
+            return (int) $req->daily_queue_number;
+        }
+
+        // قوانین از ردیس
+        $redisKey = "lab_rules_config:{$req->lab_id}";
+        $rulesJson = Redis::get($redisKey);
+        if (!$rulesJson) {
+            throw new RuntimeException('تنظیمات شیفت‌ها برای این آزمایشگاه یافت نشد.');
+        }
+        $rules = json_decode($rulesJson, true);
+
+        // ۱) چک روز فعال
+        $dayOfWeek = \Carbon\Carbon::parse($req->appointment_date)->dayOfWeek;
+        $activeDays = $rules['active_days'] ?? [];
+        if (!in_array($dayOfWeek, $activeDays)) {
+            throw new RuntimeException('آزمایشگاه در تاریخ انتخابی فعالیتی ندارد.');
+        }
+
+        // ۲) چک شیفت فعال
+        $shiftType = (int)$req->shift_type;
+        $shiftConfig = $rules['shifts'][$shiftType] ?? null;
+        if (!$shiftConfig || empty($shiftConfig['isActive'])) {
+            throw new RuntimeException('شیفت انتخابی غیرفعال است.');
+        }
+
+        // ۳) چک محدودیت زمانی امروز (۱ ساعت مانده)
+        if ($req->appointment_date === now()->toDateString()) {
+            $shiftEnd = \Carbon\Carbon::parse($req->appointment_date . ' ' . $shiftConfig['end']);
+            if (now()->greaterThanOrEqualTo($shiftEnd->copy()->subHour())) {
+                throw new RuntimeException('زمان مجاز ثبت در این شیفت تمام شده است.');
+            }
+        }
+
+        // ۴) محاسبه max صف برای همان lab/date/shift با قفل
+        $maxQueueNumber = DB::table('users_labs_requests')
+            ->where('lab_id', $req->lab_id)
+            ->where('appointment_date', $req->appointment_date)
+            ->where('shift_type', $req->shift_type)
+            ->lockForUpdate()
+            ->max('daily_queue_number');
+
+        $dailyQueueNumber = ((int)($maxQueueNumber ?? 0)) + 1;
+
+        // ۵) ظرفیت
+        $shiftCapacity = (int)($shiftConfig['capacity'] ?? 0);
+        if ($dailyQueueNumber > $shiftCapacity) {
+            throw new RuntimeException('ظرفیت این شیفت تکمیل شده است.');
+        }
+
+        // ۶) ثبت شماره صف روی خود درخواست
+        DB::table('users_labs_requests')
+            ->where('id', $labRequestId)
+            ->update([
+                'daily_queue_number' => $dailyQueueNumber,
+                'updated_at' => now(),
+            ]);
+
+        return $dailyQueueNumber;
+    }
+
 }
