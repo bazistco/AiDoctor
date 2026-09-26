@@ -29,6 +29,7 @@ class MedicalRequestController extends Controller
                 ->where('ur.user_id', $userId)
                 ->select(
                     'ur.id',
+                    'ur.address_id',
                     'ur.status',
                     'ur.total_price',
                     'ur.created_at',
@@ -53,7 +54,17 @@ class MedicalRequestController extends Controller
                 ->where('urs.user_medical_center_request_id', $id)
                 ->select('ms.name as service_name', 'urs.price')
                 ->get();
+            $extraInfo = json_decode($medicalRequest->extra_info, true) ?? [];
 
+// ۲. بررسی وجود address_id و دریافت اطلاعات آدرس از دیتابیس
+            if (!empty($medicalRequest->address_id)) {
+                $address = DB::table('addresses')->where('id', $medicalRequest->address_id)->first();
+
+                if ($address) {
+                    // ۳. اضافه کردن کل اطلاعات آدرس (یا فیلدهای دلخواه) به extra_info
+                    $extraInfo['address'] =$address->address ?? null;
+                }
+            }
             $data = [
                 'id' => $medicalRequest->id,
                 'status' => $medicalRequest->status,
@@ -66,7 +77,7 @@ class MedicalRequestController extends Controller
                     'mobile' => $medicalRequest->staff_mobile
                 ] : null,
                 'services' => $services,
-                'extra_info' => json_decode($medicalRequest->extra_info, true) ?? [],
+                'extra_info' => $extraInfo ?? [],
             ];
 
             return response()->json([
