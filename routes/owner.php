@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Owner\Lab\LabRulesController;
 use App\Http\Controllers\Api\Owner\Labs\LabAuthController;
 use App\Http\Controllers\Api\Owner\Labs\LabProfileController;
 use App\Http\Controllers\Api\Owner\Labs\LabRequestController;
@@ -73,6 +74,10 @@ Route::prefix('lab')->name('lab.')->group(function () {
         Route::get('/profile', [LabProfileController::class, 'show'])->name('profile.show');
         Route::put('/profile', [LabProfileController::class, 'update'])->name('profile.update');
         Route::put('/status', [LabProfileController::class, 'toggleStatus'])->name('profile.status');
+
+        Route::get('/rules/get', [LabRulesController::class, 'getRules']);
+        Route::post('/rules/save', [LabRulesController::class, 'saveRules']);
+        Route::get('/rules/regions', [LabRulesController::class, 'getRegions']);
 
         Route::get('/tests/available', [LabRequestController::class, 'getAvailableTests']);
         Route::get('/test-packs', [LabTestController::class, 'getTestPacks'])->name('test-packs.index');

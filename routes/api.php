@@ -2,6 +2,7 @@
 
 use App\Http\Api\Controllers\Auth\AuthController;
 use App\Http\Controllers\Api\DiagnosisController;
+use App\Http\Controllers\Api\Owner\MedicalCenters\CoverageController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaymentGatewayController;
 use App\Services\Payment\OrderService;
@@ -235,6 +236,7 @@ Route::group(['prefix' => 'user'],function (){
          Route::get('/labs/test-packs', [\App\Http\Controllers\Api\LabController::class, 'getTestPacks']);
          Route::post('/labs/search-centers', [\App\Http\Controllers\Api\LabController::class, 'searchCenters']);
          Route::post('/labs/requests', [\App\Http\Controllers\Api\LabController::class, 'storeRequest']);
+         Route::get('lab/{id}/shifts', [CoverageController::class, 'getLabShifts']);
          Route::get('/labs/requests', [\App\Http\Controllers\Api\LabController::class, 'getUserRequests']);
          Route::get('/labs/requests/{id}', [\App\Http\Controllers\Api\LabController::class, 'getUserRequestDetail']);
          Route::get('/labs-requests/{id}', [\App\Http\Controllers\Api\UserLabRequestController::class, 'show']);
