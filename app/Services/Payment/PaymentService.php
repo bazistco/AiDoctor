@@ -827,6 +827,7 @@ class PaymentService
 
         // ترکیب تاریخ دقیق نوبت با ساعت پایان شیفت
         $shiftEnd = \Carbon\Carbon::parse($appointmentDateOnly . ' ' . $shiftConfig['end']);
+        Log::info('DATE LOGGG!!!', ['DATE' => $shiftEnd,'APPOINT'=>$appointmentDateOnly,'NOW'=>now()->toDateString()]);
 
         // بررسی اینکه آیا از زمان مجاز (یک ساعت مانده به پایان این شیفت در آن تاریخ مشخص) گذشته‌ایم؟
         if (now()->greaterThanOrEqualTo($shiftEnd->copy()->subHour())) {
