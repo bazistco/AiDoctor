@@ -293,7 +293,7 @@ class LabController extends Controller
                     // تعیین تاریخ نوبت
                     $appointmentDate = $request->filled('appointment_date')
                         ? $request->appointment_date
-                        : now()->addDay()->toDateString();
+                        : now()->toDateString();
 
                     // تعیین شیفت انتخابی
                     $shiftType = $request->filled('shift_type') ? (int) $request->shift_type : 1;
