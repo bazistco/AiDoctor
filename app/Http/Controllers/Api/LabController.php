@@ -7,11 +7,38 @@ use App\Services\Payment\OrderService;
 use App\Services\Payment\PaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Storage; // <--- این خط اضافه شد
 use Illuminate\Support\Facades\Validator;
 
 class LabController extends Controller
 {
+
+    public function getLabShifts($labId)
+    {
+        // خواندن تنظیمات ذخیره شده آزمایشگاه از ردیس (همان کلیدی که در پنل آزمایشگاه ذخیره کردیم)
+        $redisKey = "lab_rules_config:{$labId}";
+        $rules = Redis::get($redisKey);
+
+        if (!$rules) {
+            // اگر تنظیماتی یافت نشد، مقادیر پیش‌فرض برمی‌گردانیم (یا ارور 404)
+            $defaultShifts = [
+                1 => ['isActive' => true, 'start' => '08:00', 'end' => '12:00', 'capacity' => 20],
+                2 => ['isActive' => true, 'start' => '12:00', 'end' => '18:00', 'capacity' => 20],
+                3 => ['isActive' => false, 'start' => '18:00', 'end' => '22:00', 'capacity' => 10],
+            ];
+            return response()->json(['success' => true, 'data' => $defaultShifts]);
+        }
+
+        $decodedRules = json_decode($rules, true);
+        $shifts = $decodedRules['shifts'] ?? [];
+
+        return response()->json([
+            'success' => true,
+            'data' => $shifts
+        ]);
+    }
+
     public function getPrescriptionTypes()
     {
         $items = DB::table('prescription_types')
