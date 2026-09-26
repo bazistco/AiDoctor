@@ -62,7 +62,7 @@ class MedicalRequestController extends Controller
 
                 if ($address) {
                     // ۳. اضافه کردن کل اطلاعات آدرس (یا فیلدهای دلخواه) به extra_info
-                    $extraInfo['address'] =$address->address ?? null;
+                    $extraInfo['custom_address'] =$address->address ?? null;
                 }
             }
             $data = [

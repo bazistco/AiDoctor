@@ -187,13 +187,13 @@ class MedicalCenterRequestController extends Controller
             if ($addressRecord) {
                 // ۳. قرار دادن فقط "متن آدرس" به عنوان یک رشته (String)
                 // فرض بر این است که ستون متن آدرس در دیتابیس شما 'address' نام دارد
-                $extraInfo['address'] = $addressRecord->address;
+                $extraInfo['custom_address'] = $addressRecord->address;
             }
         }
 
 // در نهایت اگر خواستید مطمئن شوید کلید address حتما وجود دارد (حتی اگر آدرسی نبود):
-        if (!isset($extraInfo['address'])) {
-            $extraInfo['address'] = null;
+        if (!isset($extraInfo['custom_address'])) {
+            $extraInfo['custom_address'] = null;
         }
         // timeline بر اساس وضعیت‌ها
         $timeline = [];
