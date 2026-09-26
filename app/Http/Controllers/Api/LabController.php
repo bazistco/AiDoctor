@@ -117,6 +117,12 @@ class LabController extends Controller
             'request_type_id' => 'required|integer|exists:lab_request_types,id',
             'visit_type' => 'required|integer|in:0,1',
             'user_address_id' => 'required|integer|exists:addresses,id',
+
+            // شیفت: ۱=صبح، ۲=ظهر/عصر، ۳=شب
+            'shift_type' => 'required_if:request_type_id,1|nullable|integer|in:1,2,3',
+            // تاریخ نوبت اختیاری (اگر از سمت فرانت نیاید، خودکار فردا ست می‌شود)
+            'appointment_date' => 'nullable|date|after_or_equal:today',
+
             'lab_id' => 'required_if:request_type_id,1|nullable|integer',
             'test_pack_ids' => 'required_if:request_type_id,1|array|min:1',
             'test_pack_ids.*' => 'integer|exists:test_packs,id',
@@ -139,7 +145,7 @@ class LabController extends Controller
             if (!$this->isLabActive($request->lab_id)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'ازمایشگاه مورد نظر در حال حاضر غیرفعال است و امکان رزرو نوبت وجود ندارد'
+                    'message' => 'آزمایشگاه مورد نظر در حال حاضر غیرفعال است و امکان رزرو نوبت وجود ندارد'
                 ], 422);
             }
         }
@@ -178,6 +184,9 @@ class LabController extends Controller
                 $labId = null;
                 $totalPrice = 0;
                 $paymentUrl = null;
+                $appointmentDate = null;
+                $shiftType = null;
+                $dailyQueueNumber = null;
 
                 if ($requestTypeId === 1) {
                     $labId = (int) $request->lab_id;
@@ -193,13 +202,31 @@ class LabController extends Controller
                         ->get();
 
                     if ($labTests->count() !== count($testPackIds)) {
-                        throw new \RuntimeException('برخی تست های انتخابی در این آزمایشگاه موجود نیست.');
+                        throw new \RuntimeException('برخی تست‌های انتخابی در این آزمایشگاه موجود نیست.');
                     }
 
                     $totalPrice = (float) $labTests->sum('price');
+
+                    // ۱. تعیین تاریخ نوبت (اگر فرانت نفرستاده باشد، تاریخ فردا لحاظ می‌شود)
+                    $appointmentDate = $request->filled('appointment_date')
+                        ? $request->appointment_date
+                        : now()->addDay()->toDateString();
+
+                    // ۲. تعیین شیفت انتخابی (پیش‌فرض ۱ = صبح)
+                    $shiftType = $request->filled('shift_type') ? (int) $request->shift_type : 1;
+
+                    // ۳. تولید شماره صف به صورت اتمیک و ترتیبی برای همان آزمایشگاه، تاریخ و شیفت
+                    $maxQueueNumber = DB::table('users_labs_requests')
+                        ->where('lab_id', $labId)
+                        ->where('appointment_date', $appointmentDate)
+                        ->where('shift_type', $shiftType)
+                        ->lockForUpdate()
+                        ->max('daily_queue_number');
+
+                    $dailyQueueNumber = ($maxQueueNumber ?? 0) + 1;
                 }
 
-                // اگر درخواست از نوع ۱ (انتخاب پکیج) بود، وضعیت در انتظار پرداخت (1) می‌شود
+                // وضعیت اولیه: اگر نوع ۱ باشد در انتظار پرداخت (1)، در غیر این صورت در انتظار بررسی (0)
                 $status = ($requestTypeId === 1) ? 1 : 0;
 
                 $labRequestId = DB::table('users_labs_requests')->insertGetId([
@@ -209,6 +236,9 @@ class LabController extends Controller
                     'visit_type' => $request->visit_type,
                     'request_type_id' => $requestTypeId,
                     'user_prescription_id' => $prescriptionId,
+                    'appointment_date' => $appointmentDate,
+                    'shift_type' => $shiftType,
+                    'daily_queue_number' => $dailyQueueNumber,
                     'status' => $status,
                     'total_price' => $totalPrice,
                     'created_at' => now(),
@@ -227,7 +257,6 @@ class LabController extends Controller
                     }
 
                     // ---------- ایجاد سفارش و لینک پرداخت ----------
-                    // استفاده از reason_id = 5 برای درخواست‌های آزمایشگاه
                     $orderResult = $orderService->createOrReuse(
                         userId: $user->id,
                         reasonId: 5,
@@ -251,9 +280,12 @@ class LabController extends Controller
                     'request_id' => $labRequestId,
                     'prescription_id' => $prescriptionId,
                     'lab_id' => $labId,
+                    'appointment_date' => $appointmentDate,
+                    'shift_type' => $shiftType,
+                    'daily_queue_number' => $dailyQueueNumber,
                     'total_price' => $totalPrice,
                     'status' => $status,
-                    'payment_url' => $paymentUrl, // پاس دادن آدرس درگاه به فرانت
+                    'payment_url' => $paymentUrl,
                 ];
             });
 
