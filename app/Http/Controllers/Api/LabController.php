@@ -138,6 +138,62 @@ class LabController extends Controller
             ->exists();
     }
 
+    /**
+     * اعتبارسنجی شیفت، زمان مجاز و ظرفیت و تولید شماره صف
+     */
+    private function validateAndGetQueueNumber($labId, $appointmentDate, $shiftType)
+    {
+        $redisKey = "lab_rules_config:{$labId}";
+        $rulesJson = \Illuminate\Support\Facades\Redis::get($redisKey);
+
+        if (!$rulesJson) {
+            throw new \RuntimeException('تنظیمات شیفت‌ها برای این آزمایشگاه یافت نشد.');
+        }
+
+        $rules = json_decode($rulesJson, true);
+
+        // ۱. بررسی باز بودن آزمایشگاه در روز انتخابی (۰=یکشنبه تا ۶=شنبه)
+        $dayOfWeek = \Carbon\Carbon::parse($appointmentDate)->dayOfWeek;
+        $activeDays = $rules['active_days'] ?? [];
+        if (!in_array($dayOfWeek, $activeDays)) {
+            throw new \RuntimeException('آزمایشگاه در تاریخ انتخابی فعالیتی ندارد.');
+        }
+
+        // ۲. بررسی فعال بودن شیفت انتخابی
+        $shiftConfig = $rules['shifts'][$shiftType] ?? null;
+        if (!$shiftConfig || empty($shiftConfig['isActive'])) {
+            throw new \RuntimeException('شیفت انتخابی در حال حاضر برای این آزمایشگاه غیرفعال است.');
+        }
+
+        // ۳. بررسی محدودیت زمانی (اگر تاریخ نوبت برای امروز باشد)
+        if ($appointmentDate === now()->toDateString()) {
+            // محاسبه ساعت پایان شیفت برای امروز
+            $shiftEnd = \Carbon\Carbon::parse($appointmentDate . ' ' . $shiftConfig['end']);
+
+            // بررسی اینکه حداقل ۱ ساعت تا پایان شیفت زمان باقی مانده باشد
+            if (now()->greaterThanOrEqualTo($shiftEnd->copy()->subHour())) {
+                throw new \RuntimeException('زمان مجاز برای ثبت درخواست در این شیفت پایان یافته است (حداقل باید ۱ ساعت به پایان شیفت مانده باشد).');
+            }
+        }
+
+        // ۴. قفل کردن رکوردها و محاسبه شماره صف جدید
+        $maxQueueNumber = DB::table('users_labs_requests')
+            ->where('lab_id', $labId)
+            ->where('appointment_date', $appointmentDate)
+            ->where('shift_type', $shiftType)
+            ->lockForUpdate() // استفاده از قفل برای جلوگیری از تداخل (Race Condition)
+            ->max('daily_queue_number');
+
+        $dailyQueueNumber = ($maxQueueNumber ?? 0) + 1;
+
+        // ۵. بررسی ظرفیت باقیمانده شیفت
+        $shiftCapacity = (int) ($shiftConfig['capacity'] ?? 0);
+        if ($dailyQueueNumber > $shiftCapacity) {
+            throw new \RuntimeException('ظرفیت پذیرش این شیفت تکمیل شده است، لطفاً شیفت یا روز دیگری را انتخاب کنید.');
+        }
+
+        return $dailyQueueNumber;
+    }
     public function storeRequest(Request $request, OrderService $orderService, PaymentService $paymentService)
     {
         $validator = Validator::make($request->all(), [
@@ -234,26 +290,20 @@ class LabController extends Controller
 
                     $totalPrice = (float) $labTests->sum('price');
 
-                    // ۱. تعیین تاریخ نوبت (اگر فرانت نفرستاده باشد، تاریخ فردا لحاظ می‌شود)
+                    // تعیین تاریخ نوبت
                     $appointmentDate = $request->filled('appointment_date')
                         ? $request->appointment_date
                         : now()->addDay()->toDateString();
 
-                    // ۲. تعیین شیفت انتخابی (پیش‌فرض ۱ = صبح)
+                    // تعیین شیفت انتخابی
                     $shiftType = $request->filled('shift_type') ? (int) $request->shift_type : 1;
 
-                    // ۳. تولید شماره صف به صورت اتمیک و ترتیبی برای همان آزمایشگاه، تاریخ و شیفت
-                    $maxQueueNumber = DB::table('users_labs_requests')
-                        ->where('lab_id', $labId)
-                        ->where('appointment_date', $appointmentDate)
-                        ->where('shift_type', $shiftType)
-                        ->lockForUpdate()
-                        ->max('daily_queue_number');
-
-                    $dailyQueueNumber = ($maxQueueNumber ?? 0) + 1;
+                    // ----------------------------------------------------------------------
+                    // فراخوانی تابع مجزا جهت اعتبارسنجی شیفت و دریافت شماره صف
+                    // ----------------------------------------------------------------------
+                    $dailyQueueNumber = $this->validateAndGetQueueNumber($labId, $appointmentDate, $shiftType);
                 }
 
-                // وضعیت اولیه: اگر نوع ۱ باشد در انتظار پرداخت (1)، در غیر این صورت در انتظار بررسی (0)
                 $status = ($requestTypeId === 1) ? 1 : 0;
 
                 $labRequestId = DB::table('users_labs_requests')->insertGetId([
@@ -283,7 +333,7 @@ class LabController extends Controller
                         ]);
                     }
 
-                    // ---------- ایجاد سفارش و لینک پرداخت ----------
+                    // ایجاد سفارش و لینک پرداخت
                     $orderResult = $orderService->createOrReuse(
                         userId: $user->id,
                         reasonId: 5,
@@ -321,14 +371,21 @@ class LabController extends Controller
                 'message' => ($requestTypeId == 1) ? 'در حال انتقال به درگاه پرداخت...' : 'درخواست با موفقیت ثبت شد.',
                 'data' => $result,
             ], 201);
-        } catch (\Throwable $e) {
+
+        } catch (\RuntimeException $e) {
+            // خطاهای مربوط به منطق کسب‌وکار (ظرفیت، زمان، تعطیلی و ...)
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
+            ], 422);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'خطای سیستمی در پردازش درخواست رخ داده است.',
+                // 'error' => $e->getMessage()
             ], 500);
         }
     }
-
     public function getUserRequests(Request $request)
     {
         $items = DB::table('users_labs_requests')
