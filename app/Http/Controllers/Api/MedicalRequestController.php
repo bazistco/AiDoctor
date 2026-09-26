@@ -230,8 +230,9 @@ class MedicalRequestController extends Controller
                 'gender_pref'       => 'nullable|string',
                 'condition'         => 'nullable|string',
                 'is_urgent'         => 'boolean',
-                'address'           => 'required|string',
                 'time_type_id'      => 'required|integer',
+                // فیلد آدرس متنی حذف و شناسه آدرس اجباری شد
+                'user_address_id'   => 'required|integer|exists:addresses,id',
             ]);
 
             $userId= $request->user()->id;
@@ -257,16 +258,16 @@ class MedicalRequestController extends Controller
                 $requestId = DB::table('user_medical_center_requests')->insertGetId([
                     'user_id'           => $userId,
                     'medical_center_id' => $centerId,
-                    'address_id'        => null,
+                    'address_id'        => $validated['user_address_id'], // <--- استفاده از شناسه آدرس دریافتی
                     'time_type_id'      => $validated['time_type_id'],
                     'start_time'        => $now->toDateTimeString(),
                     'total_price'       => $totalPrice,
                     'status'            => 0, // در انتظار پرداخت
                     'extra_info'        => json_encode([
-                        'gender_pref'=> $validated['gender_pref'] ?? null,
+                        'gender_pref'    => $validated['gender_pref'] ?? null,
                         'condition'      => $validated['condition'] ?? null,
                         'is_urgent'      => $validated['is_urgent'] ?? false,
-                        'custom_address' => $validated['address'],
+                        // custom_address حذف شد چون آدرس دیتابیسی داریم
                     ], JSON_UNESCAPED_UNICODE),
                     'created_at'        => $now,
                     'updated_at'        => $now,
@@ -291,7 +292,7 @@ class MedicalRequestController extends Controller
                     userId: $userId,
                     reasonId: 4,
                     reasonRef: $requestId,
-                    amount: 15000,
+                    amount: 15000, // مبلغ فعلی هاردکد است، در صورت نیاز به $totalPrice تغییر دهید
                     description: "پرداخت خدمات پرستاری/درمانی - درخواست #{$requestId}"
                 );
 
