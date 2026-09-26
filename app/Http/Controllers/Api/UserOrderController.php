@@ -203,7 +203,7 @@ class UserOrderController extends Controller
             ->join('medical_centers_info as mci', 'umcr.medical_center_id', '=', 'mci.user_id')
             ->join('medical_services_time_types as mcty', 'mcty.id', '=', 'umcr.time_type_id')
             ->leftJoin('orders as o', function ($join) use ($userId) {
-                $join->on('o.reason_ref', '=', DB::raw('CAST(upr.id AS CHAR)'))
+                $join->on('o.reason_ref', '=', DB::raw('CAST(umcr.id AS CHAR)'))
                     ->where('o.reason_id', '=', 4)
                     ->where('o.user_id', '=', $userId)
                     ->where('o.status', '=', 1); // سفارشات با درگاه باز/در انتظار پرداخت
