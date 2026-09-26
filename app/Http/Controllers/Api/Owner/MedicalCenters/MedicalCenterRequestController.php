@@ -178,9 +178,23 @@ class MedicalCenterRequestController extends Controller
         $endDate = $req->end_time ? Carbon::parse($req->end_time) : null;
         $duration = $endDate ? $startDate->diffInMinutes($endDate) : 60;
 
-        // extra_info را پردازش کنیم
-        $extraInfo = is_string($req->extra_info) ? json_decode($req->extra_info, true) : $req->extra_info;
+        $extraInfo = is_string($req->extra_info) ? json_decode($req->extra_info, true) : (is_array($req->extra_info) ? $req->extra_info : []);
 
+// ۲. واکشی آدرس از دیتابیس (در صورتی که address_id وجود داشته باشد)
+        if (!empty($req->address_id)) {
+            $addressRecord = DB::table('addresses')->where('id', $req->address_id)->first();
+
+            if ($addressRecord) {
+                // ۳. قرار دادن فقط "متن آدرس" به عنوان یک رشته (String)
+                // فرض بر این است که ستون متن آدرس در دیتابیس شما 'address' نام دارد
+                $extraInfo['address'] = $addressRecord->address;
+            }
+        }
+
+// در نهایت اگر خواستید مطمئن شوید کلید address حتما وجود دارد (حتی اگر آدرسی نبود):
+        if (!isset($extraInfo['address'])) {
+            $extraInfo['address'] = null;
+        }
         // timeline بر اساس وضعیت‌ها
         $timeline = [];
         $timeline[] = [
