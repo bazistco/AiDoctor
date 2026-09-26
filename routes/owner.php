@@ -112,9 +112,9 @@ Route::prefix('medical-center')->name('medical_center.')->group(function () {
         Route::get('/profile', [MedicalCenterProfileController::class, 'show'])->name('profile.show');
         Route::put('/profile', [MedicalCenterProfileController::class, 'update'])->name('profile.update');
 
-        Route::get('/coverage/regions', [CoverageController::class, 'getAvailableRegions'])->name('coverage.regions');
-        Route::get('/coverage', [CoverageController::class, 'getCoverage'])->name('coverage.show');
-        Route::post('/coverage', [CoverageController::class, 'updateCoverage'])->name('coverage.update');
+        Route::get('/coverage/regions', [CoverageController::class, 'getAvailableRegions']);
+        Route::get('/coverage/rules', [CoverageController::class, 'getRules']);
+        Route::post('/coverage/rules', [CoverageController::class, 'saveRules']);
 
         // Staff
         Route::get('/staff', [MedicalCenterStaffController::class, 'index'])->name('staff.index');
