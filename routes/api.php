@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Owner\MedicalCenters\CoverageController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaymentGatewayController;
 use App\Services\Payment\OrderService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
@@ -27,6 +28,83 @@ use Kavenegar\KavenegarApi;
 
 
 
+Route::get('/test/lab-time-check', function () {
+    $labId = 64;
+    $targetShiftId = 1;
+
+    // ۱. دریافت تنظیمات آزمایشگاه از ردیس
+    $redisKey = "lab_rules_config:{$labId}";
+    $rulesJson = Redis::get($redisKey);
+
+    if (!$rulesJson) {
+        return response()->json([
+            'success' => false,
+            'message' => "تنظیمات آزمایشگاه {$labId} در ردیس یافت نشد."
+        ], 404);
+    }
+
+    $rules = json_decode($rulesJson, true);
+
+    // ۲. دریافت زمان فعلی سرور
+    $now = Carbon::now();
+    $todayDate = $now->toDateString(); // فقط تاریخ امروز مثلا 2026-09-26
+
+    $shiftAnalysis = [];
+
+    // ۳. تحلیل وضعیت تمامی شیفت‌ها نسبت به زمان فعلی
+    foreach ($rules['shifts'] ?? [] as $shiftId => $shiftConfig) {
+        // اگر شیفت غیرفعال باشد
+        if (empty($shiftConfig['isActive'])) {
+            $shiftAnalysis[$shiftId] = [
+                'status' => 'inactive',
+                'message' => 'این شیفت غیرفعال است.'
+            ];
+            continue;
+        }
+
+        // ترکیب تاریخ امروز با ساعت شروع و پایان شیفت
+        $shiftStart = Carbon::parse($todayDate . ' ' . $shiftConfig['start']);
+        $shiftEnd = Carbon::parse($todayDate . ' ' . $shiftConfig['end']);
+
+        // زمان کات‌آف: ۱ ساعت مانده به پایان شیفت
+        $cutoffTime = $shiftEnd->copy()->subHour();
+
+        $shiftAnalysis[$shiftId] = [
+            'config' => [
+                'start_time' => $shiftConfig['start'],
+                'end_time' => $shiftConfig['end'],
+                'capacity' => $shiftConfig['capacity']
+            ],
+            'timestamps' => [
+                'shift_start' => $shiftStart->toDateTimeString(),
+                'shift_end' => $shiftEnd->toDateTimeString(),
+                'cutoff_time' => $cutoffTime->toDateTimeString(),
+            ],
+            'analysis' => [
+                'has_started' => $now->greaterThanOrEqualTo($shiftStart),
+                'is_currently_active' => $now->between($shiftStart, $shiftEnd),
+                'is_cutoff_passed' => $now->greaterThanOrEqualTo($cutoffTime), // آیا از زمان مجاز (۱ ساعت به پایان) گذشته؟
+                'is_completely_passed' => $now->greaterThanOrEqualTo($shiftEnd), // آیا شیفت کلا تمام شده؟
+
+                // پیام وضعیت نهایی برای درک بهتر
+                'status_message' => $now->greaterThanOrEqualTo($shiftEnd) ? 'شیفت کاملا پایان یافته است.' :
+                    ($now->greaterThanOrEqualTo($cutoffTime) ? 'شیفت هنوز تمام نشده اما مهلت ثبت‌نام (۱ ساعت آخر) گذشته است.' :
+                        ($now->greaterThanOrEqualTo($shiftStart) ? 'شیفت در جریان است و امکان ثبت‌نام وجود دارد.' :
+                            'شیفت هنوز شروع نشده است.'))
+            ]
+        ];
+    }
+
+    // ۴. برگرداندن خروجی نهایی
+    return response()->json([
+        'success' => true,
+        'server_current_time' => $now->toDateTimeString(),
+        'lab_id' => $labId,
+        'target_shift_1_status' => $shiftAnalysis[$targetShiftId] ?? 'تنظیمات شیفت ۱ یافت نشد',
+        'all_shifts_analysis' => $shiftAnalysis,
+        'raw_settings' => $rules // کل تنظیمات خام ردیس
+    ], 200, [], JSON_UNESCAPED_UNICODE);
+});
 Route::get('/health',function (){
     return response()->json(["status"=>"success","data"=>['date'=>now()]]);
 });
