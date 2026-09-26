@@ -296,7 +296,7 @@ class MedicalRequestController extends Controller
                 );
 
                 // ۴. ساخت لینک پرداخت با درگاه سامان
-                $callbackUrl = config('payment.saman.callback_url', 'https://api.mediraai.com/api/pg/call_back');
+                $callbackUrl = 'https://mediraai.com/api/pg/call_back';
 
                 $paymentResult = $paymentService->initiate(
                     orderId: $orderResult['order_id'],
