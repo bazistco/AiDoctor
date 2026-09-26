@@ -201,6 +201,7 @@ Route::group(['prefix' => 'user'],function (){
          Route::post('/reviews', [ReviewController::class, 'storeReview']);
 
          Route::get('/medical-requests/{id}', [MedicalRequestController::class, 'getRequestDetail']);
+         Route::get('/medical-requests/{id}/cancel', [MedicalRequestController::class, 'cancelRequest']);
 
          Route::get('/period-tracker', [PeriodTrackerController::class, 'show']);
          Route::post('/period-tracker/init', [PeriodTrackerController::class, 'storeOrUpdate']);

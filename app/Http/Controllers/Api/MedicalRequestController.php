@@ -3,19 +3,17 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Services\FinancialService;
+use App\Services\Payment\OrderService;
+use App\Services\Payment\PaymentService;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
 
 class MedicalRequestController extends Controller
 {
-    private FinancialService $financialService;
-
     /**
      * دریافت جزئیات درخواست پرستاری/پزشکی برای کاربر
      */
@@ -49,7 +47,6 @@ class MedicalRequestController extends Controller
                 ], 404);
             }
 
-            // دریافت لیست خدمات داخل این درخواست
             $services = DB::table('user_medical_center_request_services as urs')
                 ->join('medical_center_services as mcs', 'urs.medical_center_service_id', '=', 'mcs.id')
                 ->join('medical_services as ms', 'mcs.medical_service_id', '=', 'ms.id')
@@ -83,11 +80,6 @@ class MedicalRequestController extends Controller
                 'message' => $e->getMessage()
             ], 500);
         }
-    }
-
-    public function __construct(FinancialService $financialService)
-    {
-        $this->financialService = $financialService;
     }
 
     /**
@@ -143,23 +135,92 @@ class MedicalRequestController extends Controller
             ]);
 
         } catch (ValidationException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'خطای اعتبارسنجی',
-                'errors'  => $e->errors(),
-            ], 422);
+            return response()->json(['success' => false, 'message' => 'خطای اعتبارسنجی', 'errors'  => $e->errors()], 422);
         } catch (Exception $e) {
+            return response()->json(['success' => false, 'message' => 'خطا در دریافت مراکز درمانی: ' . $e->getMessage()], 500);
+        }
+    }
+
+
+    /**
+     * لغو درخواست خدمات درمانی/پرستاری توسط کاربر
+     */
+    public function cancelRequest($id, Request $request)
+    {
+        $userId = $request->user()->id;
+
+        // ۱. بررسی وجود و وضعیت درخواست
+        $medicalRequest = DB::table('user_medical_center_requests')
+            ->where('id', $id)
+            ->where('user_id', $userId)
+            ->first();
+
+        if (!$medicalRequest) {
             return response()->json([
                 'success' => false,
-                'message' => 'خطا در دریافت مراکز درمانی: ' . $e->getMessage(),
+                'message' => 'درخواست یافت نشد یا متعلق به شما نیست.'
+            ], 404);
+        }
+
+        // فقط در وضعیت 0 (در انتظار پرداخت) و 1 (در انتظار انتخاب پرستار) امکان لغو هست
+        if (!in_array((int)$medicalRequest->status, [0, 1])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'این درخواست در مرحله‌ای است که دیگر امکان لغو آن توسط شما وجود ندارد.'
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            // ۲. تغییر وضعیت به ۵ (لغو شده)
+            DB::table('user_medical_center_requests')
+                ->where('id', $id)
+                ->update([
+                    'status' => 5, // 5 = لغو شده
+                    'updated_at' => now(),
+                ]);
+
+            // ۳. در صورت وجود سفارش مالی (Order) برای آن، آن را هم کنسل می‌کنیم
+            // reason_id = 4 مخصوص خدمات درمانی/پرستاری است
+            if ((int)$medicalRequest->status === 0) {
+                DB::table('orders')
+                    ->where('user_id', $userId)
+                    ->where('reason_id', 4)
+                    ->where('reason_ref', $id)
+                    ->where('status', 1) // 1 = در انتظار پرداخت در جدول orders
+                    ->update([
+                        'status' => 3, // 3 = لغو شده در جدول orders
+                        'cancelled_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'درخواست خدمات پرستاری با موفقیت لغو شد.'
+            ], 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Medical request cancellation failed', [
+                'request_id' => $id,
+                'user_id'    => $userId,
+                'error'      => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در لغو درخواست. لطفاً دوباره تلاش کنید.'
             ], 500);
         }
     }
 
     /**
-     * ثبت درخواست خدمات پزشکی + پرداخت شبیه‌سازی‌شده از کیف پول
+     * ثبت درخواست خدمات پزشکی و اتصال به درگاه پرداخت
      */
-    public function storeRequest(Request $request)
+    public function storeRequest(Request $request, OrderService $orderService, PaymentService $paymentService)
     {
         try {
             $validated = $request->validate([
@@ -167,7 +228,7 @@ class MedicalRequestController extends Controller
                 'service_ids'       => 'required|array',
                 'service_ids.*'     => 'integer|exists:medical_services,id',
                 'gender_pref'       => 'nullable|string',
-                'condition'=> 'nullable|string',
+                'condition'         => 'nullable|string',
                 'is_urgent'         => 'boolean',
                 'address'           => 'required|string',
                 'time_type_id'      => 'required|integer',
@@ -177,7 +238,6 @@ class MedicalRequestController extends Controller
             $centerId  = $validated['medical_center_id'];
             $now       = Carbon::now();
 
-            // ──۱. واکشی سرویس‌های انتخاب‌شده برای این مرکز ─────────────
             $services = DB::table('medical_center_services')
                 ->where('medical_center_id', $centerId)
                 ->whereIn('medical_service_id', $validated['service_ids'])
@@ -185,18 +245,15 @@ class MedicalRequestController extends Controller
                 ->get();
 
             if ($services->isEmpty()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'خدمات انتخاب‌شده برای این مرکز درمانی یافت نشد.',], 422);
+                return response()->json(['success' => false, 'message' => 'خدمات انتخاب‌شده برای این مرکز درمانی یافت نشد.'], 422);
             }
 
             $totalPrice = $services->sum('price');
 
-            // ── ۲.ثبت درخواست + فرآیند مالی (داخل تراکنش) ─────────────
             DB::beginTransaction();
 
             try {
-                //۲.۱ ثبت درخواست اصلی
+                // ۱. ثبت درخواست اصلی (وضعیت 0: در انتظار پرداخت)
                 $requestId = DB::table('user_medical_center_requests')->insertGetId([
                     'user_id'           => $userId,
                     'medical_center_id' => $centerId,
@@ -204,17 +261,18 @@ class MedicalRequestController extends Controller
                     'time_type_id'      => $validated['time_type_id'],
                     'start_time'        => $now->toDateTimeString(),
                     'total_price'       => $totalPrice,
-                    'status'            => 1, // در انتظار تایید
+                    'status'            => 0, // در انتظار پرداخت
                     'extra_info'        => json_encode([
                         'gender_pref'=> $validated['gender_pref'] ?? null,
                         'condition'      => $validated['condition'] ?? null,
                         'is_urgent'      => $validated['is_urgent'] ?? false,
                         'custom_address' => $validated['address'],
-                    ], JSON_UNESCAPED_UNICODE),'created_at'        => $now,
+                    ], JSON_UNESCAPED_UNICODE),
+                    'created_at'        => $now,
                     'updated_at'        => $now,
                 ]);
 
-                // ۲.۲ ثبت آیتم‌های سرویس
+                // ۲. ثبت آیتم‌های سرویس
                 $serviceRows = [];
                 foreach ($services as $service) {
                     $serviceRows[] = [
@@ -228,81 +286,34 @@ class MedicalRequestController extends Controller
                 }
                 DB::table('user_medical_center_request_services')->insert($serviceRows);
 
-                // ── ۳. فرآیند مالی (همانند ReservationController) ─────────
-
-                // ۳.۱ ایجاد سفارش
-                $orderId = $this->financialService->createOrder(
-                    userId:$userId,
-                    reasonId:    4, // medical_service
-                    reasonRef:   $requestId,
-                    amount:      $totalPrice,
-                    description: "درخواست خدمات پزشکی #{$requestId}"
-                );
-
-                // ۳.۲ ایجاد پرداخت (gateway: mock)
-                $paymentId = $this->financialService->createPayment(
-                    userId:    $userId,
-                    orderId:   $orderId,
-                    reasonId:  4,
+                // ۳. ایجاد سفارش مالی با reason_id = 4
+                $orderResult = $orderService->createOrReuse(
+                    userId: $userId,
+                    reasonId: 4,
                     reasonRef: $requestId,
-                    amount:    $totalPrice,
-                    gateway:   'mock'
+                    amount: 15000,
+                    description: "پرداخت خدمات پرستاری/درمانی - درخواست #{$requestId}"
                 );
 
-                // ۳.۳ شبیه‌سازی authority (مشابه ReservationController)
-                $authority = 'MOCK-' . str_pad($paymentId, 30, '0', STR_PAD_LEFT);
-                $refId     = 'SIM-' . strtoupper(Str::random(12));
+                // ۴. ساخت لینک پرداخت با درگاه سامان
+                $callbackUrl = config('payment.saman.callback_url', 'https://api.mediraai.com/api/pg/call_back');
 
-                // ثبت authority در پرداخت (مشابه reserveSlot)
-                DB::table('payments')
-                    ->where('id', $paymentId)
-                    ->update([
-                        'authority'  => $authority,
-                        'updated_at' => $now,
-                    ]);
-
-                // ۳.۴ تکمیل پرداخت + کسر از کیف پول کاربر + واریز به مرکز درمانی
-                // completePayment داخلاً:
-                //   - واریز از درگاه mock به کیف پول کاربر
-                //   - برداشت بابت سفارش از کیف پول کاربر
-                //   - واریز به کیف پول مرکز درمانی (providerId)
-                $patient = DB::table('users')
-                    ->where('id', $userId)
-                    ->first(['name']);
-                $patientName = trim(($patient->name ?? ''));
-                $description = "درآمد از ارائه خدمات درمانی - درخواست #{$requestId} (سفارش #{$orderId}) - بیمار: {$patientName}";
-
-                $this->financialService->completePayment(
-                    paymentId:  $paymentId,
-                    authority:  $authority,
-                    refId:      $refId,
-                    providerId: $centerId,
-                    providerId_payment_description:$description
+                $paymentResult = $paymentService->initiate(
+                    orderId: $orderResult['order_id'],
+                    userId: $userId,
+                    callbackUrl: $callbackUrl
                 );
 
                 DB::commit();
 
-                Log::info('Medical request created and paid', [
-                    'request_id' => $requestId,
-                    'user_id'    => $userId,
-                    'center_id'  => $centerId,
-                    'order_id'   => $orderId,
-                    'payment_id' => $paymentId,
-                    'amount'     => $totalPrice,]);
-
                 return response()->json([
                     'success' => true,
-                    'message' => 'درخواست شما با موفقیت ثبت و پرداخت انجام شد.',
+                    'message' => 'در حال انتقال به درگاه پرداخت...',
                     'data'    => [
                         'request_id'  => $requestId,
-                        'total_price' => $totalPrice,
-                        'payment'     => [
-                            'order_id'   => $orderId,
-                            'payment_id' => $paymentId,
-                            'ref_id'     => $refId,
-                            'amount'     => $totalPrice,
-                            'status'     => 'completed',
-                        ],
+                        'order_id'    => $orderResult['order_id'],
+                        'payment_id'  => $paymentResult['payment_id'],
+                        'payment_url' => $paymentResult['payment_url'],
                     ],
                 ], 201);
 
@@ -312,22 +323,16 @@ class MedicalRequestController extends Controller
             }
 
         } catch (ValidationException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'خطای اعتبارسنجی',
-                'errors'  => $e->errors(),
-            ], 422);
+            return response()->json(['success' => false, 'message' => 'خطای اعتبارسنجی', 'errors'  => $e->errors()], 422);
 
         } catch (Exception $e) {
             Log::error('Medical request store failed', [
                 'user_id' => $request->user()?->id,
-                'error'   => $e->getMessage(),'trace'   => $e->getTraceAsString(),
+                'error'   => $e->getMessage(),
+                'trace'   => $e->getTraceAsString(),
             ]);
 
-            return response()->json([
-                'success' => false,
-                'message' => 'خطا در ثبت درخواست: ' . $e->getMessage(),
-            ], 500);
+            return response()->json(['success' => false, 'message' => 'خطا در ثبت درخواست: ' . $e->getMessage()], 500);
         }
     }
 }

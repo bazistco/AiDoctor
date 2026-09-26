@@ -228,6 +228,17 @@ class PaymentService
                     ]);
             }
 
+            if ($order && (int) $order->reason_id === 4 && !empty($order->reason_ref)) {
+                $medicalRequestId = (int) $order->reason_ref;
+
+                DB::table('user_medical_center_requests')
+                    ->where('id', $medicalRequestId)
+                    ->whereIn('status', [0]) // 0 یا 1 بسته به اینکه در زمان ساخت چه وضعیتی گذاشتید
+                    ->update([
+                        'status' => 5, // فرض بر اینکه 5 یعنی لغوشده (Cancelled)
+                        'updated_at' => now()
+                    ]);
+            }
 
             $this->logGateway($paymentId, 'callback_failed', $payload, ['state' => $state]);
             return ['success' => false, 'error' => $reason, 'payment_id' => $paymentId];
@@ -491,6 +502,22 @@ class PaymentService
                         'order_id' => $order->id
                     ]);
                 }
+            }
+            if ((int) $order->reason_id === 4 && !empty($order->reason_ref)) {
+                $medicalRequestId = (int) $order->reason_ref;
+
+                DB::table('user_medical_center_requests')
+                    ->where('id', $medicalRequestId)
+                    ->whereIn('status', [0]) // وضعیتِ "در انتظار پرداخت"
+                    ->update([
+                        'status' => 1, // وضعیت 2 = پرداخت شده / ارجاع به مرکز جهت اعزام پرستار
+                        'updated_at' => now(),
+                    ]);
+
+                Log::info('[PaymentService] Medical request paid successfully', [
+                    'medical_request_id' => $medicalRequestId,
+                    'order_id' => $order->id,
+                ]);
             }
             if ((int) $order->reason_id === 5 && !empty($order->reason_ref)) {
                 $labRequestId = (int) $order->reason_ref;
