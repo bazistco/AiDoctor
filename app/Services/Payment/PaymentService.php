@@ -823,11 +823,14 @@ class PaymentService
         }
 
         // ۳) چک محدودیت زمانی امروز (۱ ساعت مانده)
-        if ($req->appointment_date === now()->toDateString()) {
-            $shiftEnd = \Carbon\Carbon::parse($req->appointment_date . ' ' . $shiftConfig['end']);
-            if (now()->greaterThanOrEqualTo($shiftEnd->copy()->subHour())) {
-                throw new RuntimeException('زمان مجاز ثبت در این شیفت تمام شده است.');
-            }
+        $appointmentDateOnly = \Carbon\Carbon::parse($req->appointment_date)->toDateString();
+
+        // ترکیب تاریخ دقیق نوبت با ساعت پایان شیفت
+        $shiftEnd = \Carbon\Carbon::parse($appointmentDateOnly . ' ' . $shiftConfig['end']);
+
+        // بررسی اینکه آیا از زمان مجاز (یک ساعت مانده به پایان این شیفت در آن تاریخ مشخص) گذشته‌ایم؟
+        if (now()->greaterThanOrEqualTo($shiftEnd->copy()->subHour())) {
+            throw new RuntimeException('زمان مجاز برای پرداخت و قطعی کردن این شیفت به پایان رسیده است.');
         }
 
         // ۴) محاسبه max صف برای همان lab/date/shift با قفل
