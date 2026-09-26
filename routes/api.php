@@ -22,7 +22,7 @@ use App\Http\Controllers\Api\ReviewController;
 use App\Http\Controllers\Api\MedicalServiceProviderController;
 use App\Http\Controllers\Api\Admin\AdminServiceController;
 use Kavenegar\KavenegarApi;
-
+use Illuminate\Support\Facades\Redis;
 
 
 
