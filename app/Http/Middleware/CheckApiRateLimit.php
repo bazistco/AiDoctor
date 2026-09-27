@@ -58,13 +58,13 @@ class CheckApiRateLimit
             ], 400);
         }
 
-        // ثبت لاگ
-        DB::table('api_request_logs')->insert([
-            'user_id' => $user->id,
-            'endpoint' => $request->path(),
-            'created_at' => now(),
-            'updated_at' => now()
-        ]);
+//        // ثبت لاگ
+//        DB::table('api_request_logs')->insert([
+//            'user_id' => $user->id,
+//            'endpoint' => $request->path(),
+//            'created_at' => now(),
+//            'updated_at' => now()
+//        ]);
 
         // اضافه کردن اطلاعات به response
         $request->attributes->add([
