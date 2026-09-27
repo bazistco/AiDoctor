@@ -112,8 +112,18 @@ class UserController extends Controller
         try {
             $userId = $request->user()->id;
 
+            // کوئری با جداول جدید برای پلن کاربر
             $user = DB::table('users')
-                ->leftJoin('user_plans', 'users.id', '=', 'user_plans.user_id')
+                ->leftJoin('user_plans', function ($join) {
+                    $join->on('users.id', '=', 'user_plans.user_id')
+                        ->where('user_plans.is_active', 1)
+                        ->where(function($q) {
+                            $q->whereNull('user_plans.end_date')
+                                ->orWhere('user_plans.end_date', '>', now());
+                        });
+                })
+                // جوین با جدول مرجع پلن‌ها برای گرفتن slug و استفاده از آن به عنوان plan_type قدیمی
+                ->leftJoin('subscription_plans', 'user_plans.plan_id', '=', 'subscription_plans.id')
                 ->leftJoin('user_profiles', 'users.id', '=', 'user_profiles.user_id')
                 ->select(
                     'users.id',
@@ -126,12 +136,14 @@ class UserController extends Controller
                     'users.avatar',
                     'users.novu_subscriber_id',
                     'users.created_at',
-                    'user_plans.plan_type',
+                    // ما slug را می‌گیریم اما به فرانت تحت عنوان plan_type پاس می‌دهیم تا ساختار نشکند
+                    'subscription_plans.slug as plan_type',
                     'user_plans.start_date',
                     'user_plans.end_date',
                     'user_plans.is_active as plan_is_active',
                     'user_plans.auto_renew',
-                    'user_plans.next_billing_date',
+                    // جدول جدید فیلد next_billing_date ندارد (اگر در جدول جدید ندارید null رد می‌کنیم)
+                    // 'user_plans.next_billing_date',
                     'user_profiles.height',
                     'user_profiles.weight',
                     'user_profiles.age',
@@ -162,31 +174,49 @@ class UserController extends Controller
                 ], 403);
             }
 
-            // اگر پلن نداشت، پلن پایه بساز
+            // اگر کاربر پلن نداشت یا منقضی شده بود، پلن دیفالت (basic) را به او اختصاص می‌دهیم
             if (!$user->plan_type) {
-                DB::table('user_plans')->insert([
-                    'user_id' => $userId,
-                    'plan_type' => 'basic',
-                    'is_active' => true,
-                    'created_at' => now(),
-                    'updated_at' => now()
-                ]);
-                $user->plan_type = 'basic';
-                $user->plan_is_active = true;
+                // پیدا کردن آی‌دی پلن پایه (basic) از جدول مرجع
+                $basicPlan = DB::table('subscription_plans')->where('slug', 'basic')->first();
+
+                if ($basicPlan) {
+                    $now = now();
+                    DB::table('user_plans')->updateOrInsert(
+                        ['user_id' => $userId],
+                        [
+                            'plan_id' => $basicPlan->id,
+                            'is_active' => 1,
+                            'start_date' => $now,
+                            // پلن پایه نامحدود فرض شده، می‌توانید تاریخ انقضا بدهید در صورت نیاز
+                            'end_date' => null,
+                            'created_at' => clone $now,
+                            'updated_at' => clone $now
+                        ]
+                    );
+
+                    $user->plan_type = 'basic';
+                    $user->plan_is_active = 1;
+                    $user->start_date = $now;
+                    $user->end_date = null;
+                } else {
+                    // در صورتی که کوئری ساخت جداول پایه را اجرا نکرده باشید!
+                    $user->plan_type = 'basic';
+                    $user->plan_is_active = 0;
+                }
             }
 
             // اگر پروفایل نداشت، پروفایل پایه بساز
             if (!$user->height && !$user->weight && !$user->age) {
-                 $genders = ['male', 'female'];
+                $genders = ['male', 'female'];
                 DB::table('user_profiles')->insert([
                     'user_id' => $userId,
                     'created_at' => now(),
                     'updated_at' => now(),
                     'age' => rand(18, 65),
-                'weight' => rand(50, 120),
-                'height' => rand(150, 195),
-                'gender' => $genders[rand(0, 1)],
-                'birth_date' => now()
+                    'weight' => rand(50, 120),
+                    'height' => rand(150, 195),
+                    'gender' => $genders[rand(0, 1)],
+                    'birth_date' => now()
                 ]);
             }
 
@@ -197,6 +227,15 @@ class UserController extends Controller
                 $bmi = round($user->weight / ($heightInMeters * $heightInMeters), 2);
             }
             $isVerify = !empty($user->name) && in_array($user->gender, [0, 1], true);
+
+            // محاسبه دقیق‌تر days_remaining برای فرانت (که در کد ریکت نیاز دارید)
+            $remainingDays = 0;
+            if ($user->end_date) {
+                $endDate = \Carbon\Carbon::parse($user->end_date);
+                $now = \Carbon\Carbon::now();
+                $diff = $endDate->diffInDays($now, false); // منفی یعنی گذشته
+                $remainingDays = $diff > 0 ? 0 : abs((int)$diff);
+            }
 
             return response()->json([
                 'success' => true,
@@ -210,7 +249,7 @@ class UserController extends Controller
                         'gender' => $user->gender,
                         'avatar' => $user->avatar,
                         'novu_subscriber_id' => $user->novu_subscriber_id,
-                          'is_verify' => $isVerify,
+                        'is_verify' => $isVerify,
                         'created_at' => $user->created_at,
                         'height' => $user->height,
                         'weight' => $user->weight,
@@ -228,12 +267,15 @@ class UserController extends Controller
                         'bmi' => $bmi
                     ],
                     'plan' => [
+                        // اینجا plan_type همون slug هست تا ساختار JSON فرانت نشکنه
                         'type' => $user->plan_type,
                         'is_active' => (bool)$user->plan_is_active,
                         'start_date' => $user->start_date,
                         'end_date' => $user->end_date,
-                        'auto_renew' => (bool)$user->auto_renew,
-                        'next_billing_date' => $user->next_billing_date
+                        'auto_renew' => (bool) ($user->auto_renew ?? false),
+                        // در فرانتِ جدید شما به remainingDays نیاز داشتید:
+                        'remainingDays' => $remainingDays,
+                        // 'next_billing_date' => $user->next_billing_date // اگر نیاز بود اضافه کنید
                     ]
                 ]
             ], 200);
