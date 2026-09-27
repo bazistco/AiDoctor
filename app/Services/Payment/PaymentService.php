@@ -616,6 +616,50 @@ class PaymentService
                     'order_id'  => $order->id,
                 ]);
             }
+            // 9. قطعی کردن خرید پلن کاربر
+            if ((int) $order->reason_id === 9 && !empty($order->reason_ref)) {
+                $historyId = (int) $order->reason_ref;
+
+                // پیدا کردن تاریخچه معلق
+                $history = DB::table('plan_history')
+                    ->where('id', $historyId)
+                    ->where('payment_status', 0)
+                    ->first();
+
+                if ($history) {
+                    // تغییر وضعیت فاکتور/تاریخچه به پرداخت شده (1)
+                    DB::table('plan_history')
+                        ->where('id', $historyId)
+                        ->update([
+                            'payment_status' => 1,
+                            'updated_at' => now(),
+                        ]);
+
+                    // واکشی مشخصات پلن برای محاسبه تاریخ انقضا
+                    $planData = DB::table('subscription_plans')->where('id', $history->plan_id)->first();
+                    $duration = $planData ? $planData->duration_days : 30;
+                    $endDate = now()->addDays($duration);
+
+                    // بروزرسانی یا درج در جدول user_plans
+                    DB::table('user_plans')->updateOrInsert(
+                        ['user_id' => $order->user_id],
+                        [
+                            'plan_id'    => $history->plan_id,
+                            'start_date' => now(),
+                            'end_date'   => $endDate,
+                            'is_active'  => 1,
+                            'updated_at' => now(),
+                        ]
+                    );
+
+                    Log::info('[PaymentService] User subscription plan activated successfully', [
+                        'user_id'    => $order->user_id,
+                        'plan_id'    => $history->plan_id,
+                        'history_id' => $historyId,
+                        'order_id'   => $order->id,
+                    ]);
+                }
+            }
             $this->logGateway($paymentId, 'verify_success', [
                 'ref_num' => $refNum,
                 'amount'  => $locked->amount,

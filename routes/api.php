@@ -2,13 +2,11 @@
 
 use App\Http\Api\Controllers\Auth\AuthController;
 use App\Http\Controllers\Api\DiagnosisController;
-use App\Http\Controllers\Api\Owner\MedicalCenters\CoverageController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaymentGatewayController;
 use App\Services\Payment\OrderService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\ChatController;
@@ -267,6 +265,12 @@ Route::group(['prefix' => 'user'],function (){
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:3,1');
     Route::post('verify',[AuthController::class,'verify'])->middleware('throttle:5,1');
      Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
+         Route::prefix('/plans')->group(function () {
+             Route::get('/', [\App\Http\Controllers\Api\UserPlanController::class, 'getPlans']);
+             Route::get('/current', [\App\Http\Controllers\Api\UserPlanController::class, 'currentPlan']);
+             Route::get('/history', [\App\Http\Controllers\Api\UserPlanController::class, 'getHistory']);
+             Route::post('/purchase', [\App\Http\Controllers\Api\UserPlanController::class, 'purchasePlan']);
+         });
          Route::get('/chat/rooms', [ChatController::class, 'getMyRooms']);
 
          Route::post('/appointments/pay-order', [\App\Http\Controllers\Api\PaymentController::class, 'initiateAppointmentPayment']);
