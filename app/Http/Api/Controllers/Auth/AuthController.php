@@ -194,24 +194,6 @@ class AuthController extends Controller
                 'height' => rand(150, 195),
                 'birth_date' => now(),
             ]);
-
-            // ایجاد پلن رایگان
-            DB::table('user_plans')->insert([
-                'user_id' => $user->id,
-                'plan_type' => 'basic',
-                'is_active' => 1,
-                'start_date' => now(),
-                'end_date' => null, // پلن رایگان بدون تاریخ انقضا
-                'created_at' => now(),
-                'updated_at' => now()
-            ]);
-
-            DB::table('plan_history')->insert([
-                'user_id' => $user->id,
-                'old_plan' => 'basic',
-                'new_plan' => 'basic',
-                'changed_at' => now()
-            ]);
         }
 
         if (!$user) {

@@ -17,14 +17,27 @@ class CheckApiRateLimit
             return response()->json(['success' => false, 'message' => 'احراز هویت نشده'], 401);
         }
 
-        // دریافت نوع پلن
         $userPlan = DB::table('user_plans')
-            ->where('user_id', $user->id)
-            ->where('is_active', true)
+            ->join('subscription_plans', 'user_plans.plan_id', '=', 'subscription_plans.id')
+            ->where('user_plans.user_id', $user->id)
+            ->where('user_plans.is_active', 1)
+            ->where(function($query) {
+                $query->whereNull('user_plans.end_date')
+                    ->orWhere('user_plans.end_date', '>', now());
+            })
+            ->select('subscription_plans.slug')
             ->first();
 
-        $planType = $userPlan ? $userPlan->plan_type : 'basic';
-        $dailyLimit = $planType === 'basic' ? 10 : 15;
+// اگر کاربر پلن نداشت (یا منقضی شده بود)، مقدار 'none' در نظر گرفته می‌شود
+        $planSlug = $userPlan ? $userPlan->slug : 'none';
+
+// تعیین محدودیت روزانه: بدون پلن = 3، پایه = 10، حرفه‌ای = 20، پریمیوم = 30
+        $dailyLimit = match ($planSlug) {
+            'basic'   => 15,
+            'pro'     => 05,
+            'premium' => 25,
+            default   => 3, // کاربرانی که هیچ پلن فعالی ندارند
+        };
 
         // شمارش درخواست‌های امروز
         $today = Carbon::today();
@@ -40,7 +53,7 @@ class CheckApiRateLimit
                 'data' => [
                     'daily_limit' => $dailyLimit,
                     'used_requests' => $requestCount,
-                    'plan_type' => $planType
+                    'plan_type' => $planSlug
                 ]
             ], 400);
         }
