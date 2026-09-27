@@ -301,7 +301,7 @@ class LabController extends Controller
                     // ----------------------------------------------------------------------
                     // فراخوانی تابع مجزا جهت اعتبارسنجی شیفت و دریافت شماره صف
                     // ----------------------------------------------------------------------
-//                    $dailyQueueNumber = $this->validateAndGetQueueNumber($labId, $appointmentDate, $shiftType);
+                    $dailyQueueNumber = $this->validateAndGetQueueNumber($labId, $appointmentDate, $shiftType);
                     $dailyQueueNumber = null;
                 }
 
