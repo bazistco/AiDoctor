@@ -359,7 +359,7 @@ Route::group(['prefix' => 'user'],function (){
     Route::middleware('auth:sanctum')->prefix('diagnosis')->group(function () {
         // تشخیص بیماری (عمومی)
         Route::middleware('api.rate.limit')->post('/diagnose', [DiagnosisController::class, 'diagnose']);
-        Route::middleware('api.rate.limit')->post('/chat', [DiagnosisController::class, 'chat']);
+        Route::post('/chat', [DiagnosisController::class, 'chat']);
 
         Route::get('/doctors', [DiagnosisController::class, 'getDoctorsList']);
         Route::get('/keywords/suggest', [DiagnosisController::class, 'suggestKeywords']);

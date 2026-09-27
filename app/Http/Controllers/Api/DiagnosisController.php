@@ -235,6 +235,13 @@ class DiagnosisController extends Controller
             $diagnosisData = null;
 
             if (($data['status'] ?? null) === 'complete' && isset($data['diagnosis'])) {
+                DB::table('api_request_logs')->insert([
+                    'user_id' => auth()->id(),
+                    'endpoint' => $request->path(),
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+
                 $data = $this->enrichDiagnosisData($data, 1);
                 $diagnosisData = $data;
 
