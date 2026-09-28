@@ -756,7 +756,8 @@ class LabRequestController extends Controller
                 reasonId: 5,
                 reasonRef: $id, // شناسه درخواست آزمایشگاه
                 amount: 15000,
-                description: "پرداخت فاکتور آزمایشگاه - درخواست #{$id}"
+                description: "پرداخت فاکتور آزمایشگاه - درخواست #{$id}",
+                providerId: $labId,
             );
 
             DB::commit();

@@ -304,7 +304,8 @@ class MedicalRequestController extends Controller
                     reasonId: 4,
                     reasonRef: $requestId,
                     amount: 15000, // مبلغ فعلی هاردکد است، در صورت نیاز به $totalPrice تغییر دهید
-                    description: "پرداخت خدمات پرستاری/درمانی - درخواست #{$requestId}"
+                    description: "پرداخت خدمات پرستاری/درمانی - درخواست #{$requestId}",
+                    providerId: $centerId,
                 );
 
                 // ۴. ساخت لینک پرداخت با درگاه سامان

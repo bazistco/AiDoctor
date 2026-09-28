@@ -340,7 +340,8 @@ class LabController extends Controller
                         reasonId: 5,
                         reasonRef: $labRequestId,
                         amount: 15000,
-                        description: "پرداخت فاکتور آزمایشگاه - درخواست #{$labRequestId}"
+                        description: "پرداخت فاکتور آزمایشگاه - درخواست #{$labRequestId}",
+                        providerId: $labId
                     );
 
                     $callbackUrl = 'https://mediraai.com/api/pg/call_back';

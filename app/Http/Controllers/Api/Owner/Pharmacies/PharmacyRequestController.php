@@ -381,7 +381,8 @@ class PharmacyRequestController extends Controller
                 reasonId: 6,                       // دلیل 6: پرداخت فاکتور داروخانه
                 reasonRef: $id,                    // متصل به شناسه درخواست داروخانه
                 amount: 15000,
-                description: "پرداخت فاکتور داروخانه - درخواست #{$id}"
+                description: "پرداخت فاکتور داروخانه - درخواست #{$id}",
+                providerId: $pharmacyId
             );
 
             DB::commit();

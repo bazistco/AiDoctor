@@ -2,6 +2,7 @@
 
 use App\Http\Api\Controllers\Auth\AuthController;
 use App\Http\Controllers\Api\DiagnosisController;
+use App\Http\Controllers\Api\HealthInsightController;
 use App\Http\Controllers\Api\MealPlanController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaymentGatewayController;
@@ -112,7 +113,7 @@ Route::get('/health',function (){
  });
 // ─── Endpoints نیاز به auth دارند ─────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
-    Route::post('/payments/order',    [PaymentController::class, 'createOrder']);
+//    Route::post('/payments/order',    [PaymentController::class, 'createOrder']);
     Route::post('/payments/initiate', [PaymentController::class, 'initiate']);
 });
 
@@ -308,9 +309,8 @@ Route::group(['prefix' => 'user'],function (){
          Route::get('/period-tracker/share-link', [PeriodShareController::class, 'activeLink']);
          Route::get('/orders', [\App\Http\Controllers\Api\UserOrderController::class,'index' ]);
          Route::get('/finance_orders', [\App\Http\Controllers\Api\UserOrderController::class,'getUserOrders' ]);
-         Route::get('/health-insights', [MealPlanController::class, 'show']);
-         Route::post('/health-insights', [MealPlanController::class, 'store']);
-
+         Route::get('/user/health-insights', [HealthInsightController::class, 'index']);
+         Route::post('/user/health-insights', [HealthInsightController::class, 'store']);
          Route::post('/pharmacy-requests', [UserPharmacyRequestController::class, 'storeRequest']);
          Route::get('pharmacy-requests/{id}', [UserPharmacyRequestController::class, 'show']);
          Route::post('pharmacy-requests/{id}/pay', [UserPharmacyRequestController::class, 'pay']);

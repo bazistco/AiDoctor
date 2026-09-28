@@ -37,6 +37,7 @@ class OrderService
         int     $reasonRef,
         int     $amount,
         ?string $description = null,
+        int $providerId = null
     ): array {
         // بررسی سفارش فعال قبلی
         $existing = DB::table('orders')
@@ -64,6 +65,7 @@ class OrderService
             'description' => $description,
             'created_at'  => now(),
             'updated_at'  => now(),
+            'provider_id' => $providerId,
         ]);
 
         return [

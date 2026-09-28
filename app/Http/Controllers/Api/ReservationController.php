@@ -109,7 +109,8 @@ class ReservationController extends Controller
                 reasonId: 3, // 3 = مشاوره متنی (Chat)
                 reasonRef: $roomId,
                 amount: $amount,
-                description: "هزینه مشاوره متنی با دکتر #{$doctorId}"
+                description: "هزینه مشاوره متنی با دکتر #{$doctorId}",
+                providerId: $doctorId
             );
 
             DB::commit();
