@@ -431,6 +431,9 @@ class LabRequestController extends Controller
     }
 
     // --- ۳. متد جدید برای ویرایش زمان‌بندی (آن را به کنترلر اضافه کنید) ---
+    /**
+     * تغییر زمان‌بندی و شیفت توسط ادمین آزمایشگاه
+     */
     public function updateSchedule(Request $request, $id)
     {
         $labId = $request->lab_id;
@@ -440,27 +443,90 @@ class LabRequestController extends Controller
             'shift_type'       => 'required|integer|in:1,2,3',
         ]);
 
-        $labRequest = DB::table('users_labs_requests')
-            ->where('id', $id)
-            ->where('lab_id', $labId)
-            ->first();
+        DB::beginTransaction();
+        try {
+            // دریافت درخواست با قفل کردن ردیف برای جلوگیری از تداخل تولید شماره صف
+            $labRequest = DB::table('users_labs_requests')
+                ->where('id', $id)
+                ->where('lab_id', $labId) // بررسی اینکه درخواست متعلق به همین آزمایشگاه است
+                ->lockForUpdate()
+                ->first();
 
-        if (!$labRequest) {
-            return $this->error('درخواست یافت نشد.', 404);
+            if (!$labRequest) {
+                DB::rollBack();
+                return $this->error('درخواست یافت نشد.', 404);
+            }
+
+            // اجازه ویرایش فقط در وضعیت‌های 0، 1 و 2 (تا قبل از اعلام نتیجه)
+            if ($labRequest->status > 2) {
+                DB::rollBack();
+                return $this->error('در این مرحله از درخواست، امکان تغییر زمان‌بندی وجود ندارد.', 403);
+            }
+
+            // داده‌های پیش‌فرض برای آپدیت
+            $updateData = [
+                'appointment_date' => $request->appointment_date,
+                'shift_type'       => $request->shift_type,
+                'updated_at'       => now(),
+            ];
+
+            // اگر وضعیت 2 (در انتظار نمونه‌گیری) باشد، باید قوانین چک شده و شماره صف جدید تولید شود
+            if ($labRequest->status == 2) {
+                $redisKey = "lab_rules_config:{$labId}";
+                $rulesJson = \Illuminate\Support\Facades\Redis::get($redisKey);
+
+                if (!$rulesJson) {
+                    throw new \Exception('تنظیمات شیفت‌ها برای این آزمایشگاه یافت نشد.');
+                }
+                $rules = json_decode($rulesJson, true);
+
+                // ۱) چک روز فعال
+                $dayOfWeek = \Carbon\Carbon::parse($request->appointment_date)->dayOfWeek;
+                $activeDays = $rules['active_days'] ?? [];
+                if (!in_array($dayOfWeek, $activeDays)) {
+                    throw new \Exception('آزمایشگاه در تاریخ انتخابی فعالیتی ندارد.');
+                }
+
+                // ۲) چک شیفت فعال
+                $shiftType = (int)$request->shift_type;
+                $shiftConfig = $rules['shifts'][$shiftType] ?? null;
+                if (!$shiftConfig || empty($shiftConfig['isActive'])) {
+                    throw new \Exception('شیفت انتخابی غیرفعال است.');
+                }
+
+                // ۳) چک محدودیت زمانی (۱ ساعت مانده به پایان شیفت)
+                $appointmentDateOnly = \Carbon\Carbon::parse($request->appointment_date)->toDateString();
+                $shiftEnd = \Carbon\Carbon::parse($appointmentDateOnly . ' ' . $shiftConfig['end']);
+
+                if (now()->greaterThanOrEqualTo($shiftEnd->copy()->subHour())) {
+                    throw new \Exception('زمان مجاز برای اختصاص این شیفت به پایان رسیده است (حداقل 1 ساعت تا پایان شیفت).');
+                }
+
+                // ۴) تولید شماره صف جدید در تاریخ و شیفت جدید (با قفل، اما بدون محدودیت ظرفیت)
+                $maxQueueNumber = DB::table('users_labs_requests')
+                    ->where('lab_id', $labId)
+                    ->where('appointment_date', $request->appointment_date)
+                    ->where('shift_type', $request->shift_type)
+                    ->lockForUpdate()
+                    ->max('daily_queue_number');
+
+                $dailyQueueNumber = ((int)($maxQueueNumber ?? 0)) + 1;
+
+                // افزودن شماره صف جدید به داده‌های آپدیت
+                $updateData['daily_queue_number'] = $dailyQueueNumber;
+            }
+
+            // ثبت تغییرات در دیتابیس
+            DB::table('users_labs_requests')->where('id', $id)->update($updateData);
+
+            DB::commit();
+            return $this->success(null, 'زمان‌بندی با موفقیت تغییر کرد.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            // خطاهایی که ما پرتاب کردیم (از نوع Rule Validation)
+            return $this->error($e->getMessage(), 422);
         }
-
-        // اجازه ویرایش فقط در وضعیت‌های 0، 1 و 2 (تا قبل از اعلام نتیجه)
-        if ($labRequest->status > 2) {
-            return $this->error('در این مرحله از درخواست، امکان تغییر زمان‌بندی وجود ندارد.', 403);
-        }
-
-        DB::table('users_labs_requests')->where('id', $id)->update([
-            'appointment_date' => $request->appointment_date,
-            'shift_type'       => $request->shift_type,
-            'updated_at'       => now(),
-        ]);
-
-        return $this->success(null, 'زمان‌بندی با موفقیت تغییر کرد.');
     }
 
 
