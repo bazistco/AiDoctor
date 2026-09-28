@@ -245,8 +245,8 @@ class UserOrderController extends Controller
             ->unionAll($q3)
             ->unionAll($q4)
             ->unionAll($q5)
-            ->orderByRaw("CASE WHEN status IN (0, 1) THEN 0 ELSE 1 END ASC")
             ->orderBy('created_at', 'desc')
+            ->orderByRaw("CASE WHEN status IN (0, 1, 'booked', 'available') THEN 0 ELSE 1 END ASC")
             ->get();
 
         // --- تبدیل وضعیت به برچسب فارسی ---
