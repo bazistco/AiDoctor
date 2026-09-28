@@ -269,6 +269,8 @@ class LabRequestController extends Controller
                 'ulr.visit_type',
                 'ulr.created_at',
                 'ulr.total_price',
+                'ulr.appointment_date',
+                'ulr.shift_type',
                 'u.name as patient_name',
                 'u.phone as patient_phone',
                 'up.id as prescription_id', // دریافت آیدی نسخه برای سیستم امنیتی دانلود
@@ -370,6 +372,8 @@ class LabRequestController extends Controller
             'is_assigned' => !is_null($labRequest->lab_id),
             'status' => (int) $labRequest->status,
             'type' => $labRequest->visit_type == 0 ? 'home' : 'in-person',
+            'appointmentDate' => $labRequest->appointment_date,
+            'shiftType' => (int) $labRequest->shift_type,
             'scheduledDate' => $labRequest->created_at,
             'patientName' => $labRequest->patient_name,
             'patientPhone' => $labRequest->patient_phone,
@@ -390,43 +394,73 @@ class LabRequestController extends Controller
     /**
      * پذیرش درخواستی که فاقد آزمایشگاه است (تخصیص به آزمایشگاه فعلی)
      */
+    // --- ۲. بروزرسانی متد acceptRequest ---
     public function acceptRequest(Request $request, $id)
     {
-        $labId = $request->lab_id; // دریافت شناسه آزمایشگاه از میدل‌ور
+        $labId = $request->lab_id;
+
+        $request->validate([
+            'appointment_date' => 'required|date',
+            'shift_type'       => 'required|integer|in:1,2,3',
+        ]);
 
         DB::beginTransaction();
         try {
-            // ۱. بررسی وجود درخواست
             $labRequest = DB::table('users_labs_requests')->where('id', $id)->first();
 
-            if (!$labRequest) {
-                return $this->error('درخواست یافت نشد.', 404);
-            }
-
-            // ۲. بررسی اینکه آیا درخواست قبلاً توسط آزمایشگاه دیگری گرفته شده است یا خیر
+            if (!$labRequest) return $this->error('درخواست یافت نشد.', 404);
             if (!is_null($labRequest->lab_id) && $labRequest->lab_id != $labId) {
                 return $this->error('این درخواست قبلاً توسط آزمایشگاه دیگری پذیرش شده است.', 403);
             }
 
-            // ۳. اگر قبلاً توسط همین آزمایشگاه پذیرش شده باشد
-            if ($labRequest->lab_id == $labId) {
-                return $this->success(null, 'این درخواست قبلاً توسط شما پذیرش شده است و می‌توانید آزمایش‌ها را اختصاص دهید.');
-            }
-
-            // ۴. پذیرش درخواست (پر کردن lab_id)
+            // ثبت پذیرش به همراه شیفت و تاریخ
             DB::table('users_labs_requests')->where('id', $id)->update([
-                'lab_id' => $labId,
-                'updated_at' => now(),
+                'lab_id'           => $labId,
+                'appointment_date' => $request->appointment_date,
+                'shift_type'       => $request->shift_type,
+                'updated_at'       => now(),
             ]);
 
             DB::commit();
-
-            return $this->success(null, 'درخواست با موفقیت توسط شما پذیرش شد. اکنون می‌توانید آزمایش‌ها را تخصیص دهید.');
+            return $this->success(null, 'درخواست با موفقیت پذیرش و زمان‌بندی شد.');
 
         } catch (\Exception $e) {
             DB::rollBack();
             return $this->error('خطا در پذیرش درخواست: ' . $e->getMessage(), 500);
         }
+    }
+
+    // --- ۳. متد جدید برای ویرایش زمان‌بندی (آن را به کنترلر اضافه کنید) ---
+    public function updateSchedule(Request $request, $id)
+    {
+        $labId = $request->lab_id;
+
+        $request->validate([
+            'appointment_date' => 'required|date',
+            'shift_type'       => 'required|integer|in:1,2,3',
+        ]);
+
+        $labRequest = DB::table('users_labs_requests')
+            ->where('id', $id)
+            ->where('lab_id', $labId)
+            ->first();
+
+        if (!$labRequest) {
+            return $this->error('درخواست یافت نشد.', 404);
+        }
+
+        // اجازه ویرایش فقط در وضعیت‌های 0، 1 و 2 (تا قبل از اعلام نتیجه)
+        if ($labRequest->status > 2) {
+            return $this->error('در این مرحله از درخواست، امکان تغییر زمان‌بندی وجود ندارد.', 403);
+        }
+
+        DB::table('users_labs_requests')->where('id', $id)->update([
+            'appointment_date' => $request->appointment_date,
+            'shift_type'       => $request->shift_type,
+            'updated_at'       => now(),
+        ]);
+
+        return $this->success(null, 'زمان‌بندی با موفقیت تغییر کرد.');
     }
 
 
