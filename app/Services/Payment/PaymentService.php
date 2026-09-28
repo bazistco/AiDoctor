@@ -442,6 +442,17 @@ class PaymentService
                 amount:      $locked->amount,
                 description: "واریز از درگاه سامان (شماره پیگیری: {$verified['ref_id']})"
             );
+            if (isset($order->provider_id))
+            {
+                $this->financialService->recordWalletTransaction(
+                    userId:      $order->provider_id,
+                    type:        1, // 1 = واریز (Deposit)
+                    subjectId:   2, // 2 = Order
+                    subjectRef:  $order->id,
+                    amount:      $locked->amount,
+                    description: "واریز بابت سفارش #{$order->id}"
+                );
+            }
 
             // ۲. اگر هدف پرداخت "شارژ کیف پول" (reason_id = 2) نبود، مبلغ را بابت سفارش برداشت می‌کنیم
             // با این کار گردش مالی (درگاه -> کیف پول -> پرداخت سفارش) به طور کامل و شفاف ثبت می‌شود.
