@@ -2,6 +2,7 @@
 
 use App\Http\Api\Controllers\Auth\AuthController;
 use App\Http\Controllers\Api\DiagnosisController;
+use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\HealthInsightController;
 use App\Http\Controllers\Api\MealPlanController;
 use App\Http\Controllers\Api\PaymentController;
@@ -267,6 +268,16 @@ Route::group(['prefix' => 'user'],function (){
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:3,1');
     Route::post('verify',[AuthController::class,'verify'])->middleware('throttle:5,1');
      Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
+         Route::get('/health-insights', [HealthController::class, 'getInsights']);
+
+         // سینک کردن برنامه غذایی و وعده‌های یک روز (افزودن و حذف)
+         Route::post('/health-insights', [HealthController::class, 'syncMealPlan']);
+
+         // ذخیره اندازه‌های بدن
+         Route::post('/body-measurements', [HealthController::class, 'saveMeasurements']);
+
+         // ذخیره وزن ایده‌آل
+         Route::post('/ideal-weight', [HealthController::class, 'saveIdealWeight']);
          Route::prefix('/plans')->group(function () {
              Route::get('/', [\App\Http\Controllers\Api\UserPlanController::class, 'getPlans']);
              Route::get('/current', [\App\Http\Controllers\Api\UserPlanController::class, 'currentPlan']);
@@ -309,8 +320,6 @@ Route::group(['prefix' => 'user'],function (){
          Route::get('/period-tracker/share-link', [PeriodShareController::class, 'activeLink']);
          Route::get('/orders', [\App\Http\Controllers\Api\UserOrderController::class,'index' ]);
          Route::get('/finance_orders', [\App\Http\Controllers\Api\UserOrderController::class,'getUserOrders' ]);
-         Route::get('/user/health-insights', [HealthInsightController::class, 'index']);
-         Route::post('/user/health-insights', [HealthInsightController::class, 'store']);
          Route::post('/pharmacy-requests', [UserPharmacyRequestController::class, 'storeRequest']);
          Route::get('pharmacy-requests/{id}', [UserPharmacyRequestController::class, 'show']);
          Route::post('pharmacy-requests/{id}/pay', [UserPharmacyRequestController::class, 'pay']);
