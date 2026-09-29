@@ -101,7 +101,7 @@ class UserLabRequestController extends Controller
     {
         $userId = auth()->id();
 
-        // ۱. واکشی درخواست اصلی از جدول users_labs_requests
+        // ۱. واکشی درخواست اصلی از جدول users_labs_requests به همراه فیلدهای زمان‌بندی و صف
         $request = DB::table('users_labs_requests as ulr')
             ->where('ulr.id', $id)
             ->where('ulr.user_id', $userId)
@@ -111,6 +111,9 @@ class UserLabRequestController extends Controller
                 'ulr.address_id',
                 'ulr.status',
                 'ulr.visit_type',
+                'ulr.appointment_date',
+                'ulr.shift_type',
+                'ulr.daily_queue_number',
                 'ulr.created_at',
                 'ulr.total_price'
             )
@@ -126,12 +129,40 @@ class UserLabRequestController extends Controller
             $address = DB::table('addresses')->where('id', $request->address_id)->value('address');
         }
 
-        // ۲. دریافت نام آزمایشگاه (در صورت اختصاص)
+        // ۲. دریافت نام آزمایشگاه و استخراج اطلاعات شیفت از Redis
         $labName = 'در انتظار تعیین آزمایشگاه';
+        $shiftLabel = 'نامشخص';
+        $shiftTime = null;
+
         if ($request->lab_id) {
+            // دریافت نام آزمایشگاه
             $labName = DB::table('labs_info')
                 ->where('user_id', $request->lab_id)
                 ->value('name') ?? 'آزمایشگاه';
+
+            // لیبل‌های ثابت شیفت
+            $shiftNames = [
+                1 => 'شیفت صبح',
+                2 => 'شیفت ظهر / عصر',
+                3 => 'شیفت شب'
+            ];
+
+            if ($request->shift_type) {
+                $shiftLabel = $shiftNames[$request->shift_type] ?? 'نامشخص';
+
+                // خواندن تنظیمات شیفت از ردیس برای دریافت بازه زمانی
+                $redisKey = "lab_rules_config:{$request->lab_id}";
+                $rulesJson = \Illuminate\Support\Facades\Redis::get($redisKey);
+
+                if ($rulesJson) {
+                    $rules = json_decode($rulesJson, true);
+                    $shiftConfig = $rules['shifts'][$request->shift_type] ?? null;
+
+                    if ($shiftConfig && isset($shiftConfig['start']) && isset($shiftConfig['end'])) {
+                        $shiftTime = $shiftConfig['start'] . ' الی ' . $shiftConfig['end'];
+                    }
+                }
+            }
         }
 
         // ۳. واکشی آزمایش‌ها همراه با فایل نتیجه (مشابه ساختار ادمین)
@@ -185,6 +216,11 @@ class UserLabRequestController extends Controller
                 'visit_type'        => (int) $request->visit_type, // 0 = در منزل، 1 = حضوری
                 'visit_type_label'  => $request->visit_type == 0 ? 'نمونه‌گیری در منزل' : 'مراجعه حضوری',
                 'request_date'      => $request->created_at,
+                'appointment_date'  => $request->appointment_date, // تاریخ انتخابی برای آزمایش
+                'shift_type'        => $request->shift_type, // آیدی شیفت (1, 2, 3)
+                'shift_label'       => $shiftLabel, // نام شیفت (مثلاً شیفت صبح)
+                'shift_time'        => $shiftTime, // بازه زمانی (مثلاً 08:00 الی 12:00)
+                'daily_queue_number'=> $request->daily_queue_number, // شماره صف نوبت
                 'lab_name'          => $labName,
                 'address'           => $address,
                 'tests'             => $processedTests,
