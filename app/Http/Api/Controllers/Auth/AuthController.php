@@ -182,6 +182,36 @@ class AuthController extends Controller
                 Log::error('Novu API Exception: ' . $e->getMessage());
             }
         }
+        // بررسی وجود fcm_token در درخواست کلاینت
+        if ($request->has('fcm_token') && !empty($user->novu_subscriber_id)) {
+            try {
+                // آدرس API برای آپدیت Credentials کاربر در Novu
+                $novuCredsUrl = 'http://185.222.163.113:3000/v1/subscribers/' . $user->novu_subscriber_id . '/credentials';
+                $novuApiKey = config('services.novu.api_key');
+
+                $fcmResponse = Http::withHeaders([
+                    'Authorization' => 'ApiKey ' . $novuApiKey,
+                    'Content-Type'  => 'application/json',
+                ])->put($novuCredsUrl, [
+                    'providerId'  => 'fcm',
+                    'credentials' => [
+                        // Novu توکن‌ها را صرفا به صورت آرایه می‌پذیرد
+                        'deviceTokens' => [$request->fcm_token]
+                    ]
+                ]);
+
+                if (!$fcmResponse->successful()) {
+                    Log::error('Novu FCM Token Update Failed: ' . $fcmResponse->body());
+                }
+
+                // اختیاری: می‌توانید توکن را در دیتابیس لاراول هم ذخیره کنید
+                 $user->fcm_token = $request->fcm_token;
+                 $user->save();
+
+            } catch (\Exception $e) {
+                Log::error('Novu FCM Creds API Exception: ' . $e->getMessage());
+            }
+        }
         // اگر کاربر تازه ساخته شد، پروفایل و پلن پیش‌فرض ایجاد کن
         if ($user->wasRecentlyCreated) {
             // ایجاد پروفایل خالی
@@ -226,6 +256,38 @@ class AuthController extends Controller
             'success' => true,
             'data' => ['access_token' => $token],
         ]);
+    }
+    public function updateFcmToken(Request $request)
+    {
+        $request->validate([
+            'fcm_token' => 'required|string'
+        ]);
+
+        $user = $request->user();
+
+        if (empty($user->novu_subscriber_id)) {
+            return response()->json(['success' => false, 'message' => 'شناسه Novu یافت نشد.'], 400);
+        }
+
+        try {
+            $novuCredsUrl = 'http://185.222.163.113:3000/v1/subscribers/' . $user->novu_subscriber_id . '/credentials';
+            $novuApiKey = config('services.novu.api_key');
+
+            Http::withHeaders([
+                'Authorization' => 'ApiKey ' . $novuApiKey,
+                'Content-Type'  => 'application/json',
+            ])->put($novuCredsUrl, [
+                'providerId'  => 'fcm',
+                'credentials' => [
+                    'deviceTokens' => [$request->fcm_token]
+                ]
+            ]);
+
+            return response()->json(['success' => true, 'message' => 'توکن نوتیفیکیشن با موفقیت ثبت شد.']);
+        } catch (\Exception $e) {
+            Log::error('FCM Update Error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'خطای سرور.'], 500);
+        }
     }
     /**
      * لاگ‌اوت مادر (Master Logout)

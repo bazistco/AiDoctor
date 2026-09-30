@@ -51,7 +51,9 @@ class User extends Authenticatable
 		'email_verified_at',
 		'password',
         'status',
-		'remember_token'
+		'remember_token',
+        'fcm_token',
+        'novu_subscriber_id'
 	];
     public function createToken(string $name, array $abilities = ['*'])
     {
