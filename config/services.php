@@ -35,7 +35,7 @@ return [
         ],
     ],
     'novu' => [
-        'api_key' => env('9bf460e9cafb98ca32e7da42e36a5217'),
+        'api_key' => env('NOVU_SECRET_KEY','9bf460e9cafb98ca32e7da42e36a5217'),
     ]
 
 
