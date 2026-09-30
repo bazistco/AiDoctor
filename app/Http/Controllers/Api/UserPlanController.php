@@ -16,8 +16,17 @@ class UserPlanController extends Controller
      */
     public function getPlans()
     {
-        $plans = DB::table('subscription_plans')->where('status', 1)->get();
-        return response()->json(['success' => true, 'data' => $plans]);
+        $plans = DB::table('subscription_plans')
+            ->where('status', 1)
+            ->get()
+            ->transform(function ($plan) {
+                $plan->price = (int) ($plan->price / 10);
+                return $plan;
+            });
+        return response()->json([
+            'success' => true,
+            'data'    => $plans
+        ]);
     }
 
     /**
@@ -81,7 +90,7 @@ class UserPlanController extends Controller
                 userId: $userId,
                 reasonId: 9,
                 reasonRef: $historyId, // متصل به شناسه تاریخچه
-                amount: 15000,
+                amount: $plan->price,
                 description: "خرید اشتراک - پلن {$plan->name}"
             );
 
