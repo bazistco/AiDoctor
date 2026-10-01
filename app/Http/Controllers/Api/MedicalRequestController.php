@@ -247,6 +247,20 @@ class MedicalRequestController extends Controller
             ]);
 
             $userId= $request->user()->id;
+            // -------------------------------------------------------------
+            // بررسی وجود درخواست پرداخت‌نشده فعال برای کاربر
+            // -------------------------------------------------------------
+            $hasPendingRequest = DB::table('user_medical_center_requests')
+                ->where('user_id', $userId)
+                ->where('status', 0) // در انتظار پرداخت
+                ->exists();
+
+            if ($hasPendingRequest) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'شما یک درخواست در انتظار پرداخت دارید. لطفاً ابتدا آن را تعیین تکلیف یا پرداخت نمایید.',
+                ], 400);
+            }
             $centerId  = $validated['medical_center_id'];
             $now       = Carbon::now();
 
