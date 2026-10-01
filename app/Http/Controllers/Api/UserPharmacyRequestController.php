@@ -320,6 +320,13 @@ class UserPharmacyRequestController extends Controller
             return response()->json(['status' => 'error', 'errors' => $validator->errors()], 422);
         }
 
+        $pharRequestId = DB::table('users_pharmacy_requests')->where('user_id', $request->user()->id)->whereIn('status',[0,1])->exists();
+        if ($pharRequestId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'شما یک درخواست در انتظار پرداخت دارید. لطفاً ابتدا آن را تعیین تکلیف یا پرداخت نمایید.',
+            ], 400);
+        }
         // ۱. تعیین نوع نسخه (prescription_type_id)
         $prescriptionTypeId = 1; // پیش‌فرض: 1 (بدون نسخه / متنی)
         if ($request->hasFile('prescription_image')) {
