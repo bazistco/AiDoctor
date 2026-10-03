@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\Payment\PaymentService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -81,6 +82,88 @@ class PaymentGatewayController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => 'زمان پرداخت این درخواست منقضی شده یا وضعیت آن تغییر کرده است.'
+                ], 410);
+            }
+        }
+        if ((int) $order->reason_id === 6 && !empty($order->reason_ref)) {
+            $pharReqId = $order->reason_ref;
+            $pharReq = DB::table('users_pharmacy_requests')->where('id', $pharReqId)->first();
+
+            // بررسی منقضی شدن درخواست (گذشت بیش از ۳۰ دقیقه از زمان ایجاد)
+            $isExpired = false;
+            if ($pharReq && $pharReq->created_at) {
+                // آیا زمان ایجاد درخواست بیش از ۳۰ دقیقه با زمان فعلی فاصله دارد؟
+                $isExpired = Carbon::parse($pharReq->created_at)->addMinutes(30)->isPast();
+                // یا به شکل معادل: Carbon::parse($pharReq->created_at)->diffInMinutes(now()) >= 30;
+            }
+
+            // اگر درخواست وجود نداشت، وضعیت آن ۱ نبود، یا ۳۰ دقیقه گذشته بود
+            if (!$pharReq || (int)$pharReq->status !== 1 || $isExpired) {
+
+                // اگر سفارش هنوز در انتظار پرداخت (1) است، آن را لغو می‌کنیم
+                if ((int) $order->status === 1) {
+                    DB::table('orders')->where('id', $orderId)->update([
+                        'status'       => 3, // Cancelled
+                        'cancelled_at' => now(),
+                        'updated_at'   => now()
+                    ]);
+                }
+
+                // اگر درخواست داروخانه پیدا شده بود ولی منقضی شده، وضعیت خود درخواست داروخانه را هم لغو/منقضی می‌کنیم
+                if ($pharReq && (int)$pharReq->status === 1 && $isExpired) {
+                    DB::table('users_pharmacy_requests')->where('id', $pharReqId)->update([
+                        'status'     => 7, // فرض: وضعیت ۴ یا وضعیت متناظر با Cancelled/Expired در سیستم شما
+                        'updated_at' => now()
+                    ]);
+                }
+
+                $message = $isExpired
+                    ? 'مهلت ۳۰ دقیقه‌ای پرداخت این درخواست به پایان رسیده است.'
+                    : 'این درخواست نامعتبر است یا وضعیت آن تغییر کرده است.';
+
+                return response()->json([
+                    'success' => false,
+                    'message' => $message
+                ], 410);
+            }
+        }
+        if ((int) $order->reason_id === 4 && !empty($order->reason_ref)) {
+            $medRequestId = $order->reason_ref;
+            $medRequest = DB::table('user_medical_center_requests')->where('id', $medRequestId)->first();
+
+            // بررسی منقضی شدن درخواست (گذشت بیش از ۳۰ دقیقه از زمان ایجاد)
+            $isExpired = false;
+            if ($medRequest && $medRequest->created_at) {
+                $isExpired = Carbon::parse($medRequest->created_at)->addMinutes(30)->isPast();
+            }
+
+            // اگر درخواست وجود نداشت، وضعیت ۱ نبود، یا ۳۰ دقیقه منقضی شده بود
+            if (!$medRequest || (int)$medRequest->status !== 0 || $isExpired) {
+
+                // اگر سفارش هنوز در انتظار پرداخت (Pending = 1) است، آن را لغو می‌کنیم
+                if ((int) $order->status === 1) {
+                    DB::table('orders')->where('id', $orderId)->update([
+                        'status'       => 3, // Cancelled
+                        'cancelled_at' => now(),
+                        'updated_at'   => now()
+                    ]);
+                }
+
+                // در صورت انقضای زمان، خود رکورد درخواست مرکز درمانی را هم لغو/منقضی می‌کنیم
+                if ($medRequest && (int)$medRequest->status === 0 && $isExpired) {
+                    DB::table('user_medical_center_requests')->where('id', $medRequestId)->update([
+                        'status'     => 5, // وضعیت معادل لغو شده / منقضی شده در سیستم شما
+                        'updated_at' => now()
+                    ]);
+                }
+
+                $message = $isExpired
+                    ? 'مهلت ۳۰ دقیقه‌ای پرداخت این درخواست به پایان رسیده است.'
+                    : 'زمان پرداخت این درخواست منقضی شده یا وضعیت آن تغییر کرده است.';
+
+                return response()->json([
+                    'success' => false,
+                    'message' => $message
                 ], 410);
             }
         }
