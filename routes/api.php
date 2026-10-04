@@ -347,7 +347,7 @@ Route::group(['prefix' => 'user'],function (){
          Route::prefix('reservations')->group(function () {
             // رزرو موقت اسلات (15 دقیقه)
             Route::post('/reserve', [ReservationController::class, 'reserveSlot']);
-             Route::post('/reserve-saman', [ReservationController::class, 'reserveWithSaman']);
+//             Route::post('/reserve-saman', [ReservationController::class, 'reserveWithSaman']);
 
             // تایید نهایی رزرو
             Route::post('/confirm', [ReservationController::class, 'confirmReservation'])->name('payment.callback');
