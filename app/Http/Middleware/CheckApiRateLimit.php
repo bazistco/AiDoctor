@@ -33,7 +33,7 @@ class CheckApiRateLimit
 
 // تعیین محدودیت روزانه: بدون پلن = 3، پایه = 10، حرفه‌ای = 20، پریمیوم = 30
         $dailyLimit = match ($planSlug) {
-            'basic'   => 1,
+            'basic'   => 5,
             'pro'     => 5,
             'premium' => 8,
             default   => 1, // کاربرانی که هیچ پلن فعالی ندارند
