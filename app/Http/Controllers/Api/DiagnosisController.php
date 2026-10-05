@@ -193,14 +193,14 @@ class DiagnosisController extends Controller
             return response()->json(['success' => true, 'message' => 'پزشک با موفقیت پیشنهاد داده شد', 'is_recommended' => true]);
         }
     }
-  public function chat(Request $request): JsonResponse
+    public function chat(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'messages' => 'required|array|min:1',
-            'messages.*.role' => 'required|in:user,assistant',
-            'messages.*.content' => 'required|string',
-            'session_id' => 'nullable|string|uuid',
-            'image' => 'nullable|string',      // ← فیلد عکس (Base64) اضافه شد
+            'messages'           => 'required|array|min:1',
+            'messages.*.role'    => 'required|in:user,assistant',
+            'messages.*.content' => 'nullable|string', // ← تغییر از required به nullable
+            'session_id'         => 'nullable|string|uuid',
+            'image'              => 'nullable|string',
         ]);
 
         $messages = $validated['messages'];
@@ -209,9 +209,12 @@ class DiagnosisController extends Controller
         $firstUserMsg = collect($messages)->last(fn($m) => $m['role'] === 'user');
         $history = collect($messages)->slice(1)->values()->toArray();
 
+        // در صورتی که کاربر متنی ننوشته و فقط تصویر فرستاده باشد
+        $textContent = trim($firstUserMsg['content'] ?? '');
+
         try {
-            // ثبت پیام کاربر در دیتابیس (می‌توانید اشاره کنید که عکس هم داشته است)
-            $userContentToSave = $firstUserMsg['content'];
+            // ۱. آماده‌سازی متن جهت ذخیره در تاریخچه دیتابیس
+            $userContentToSave = !empty($textContent) ? $textContent : 'تحلیل تصویر پیوست شده';
             if (!empty($validated['image'])) {
                 $userContentToSave .= "\n[کاربر یک تصویر نیز ارسال کرده است]";
             }
@@ -225,18 +228,17 @@ class DiagnosisController extends Controller
                 'updated_at' => now(),
             ]);
 
-            // ۲. آماده‌سازی دیتای ارسالی به هوش مصنوعی (FastAPI)
+            // ۲. آماده‌سازی دیتای ارسالی به FastAPI
             $aiPayload = [
-                'symptoms' => $firstUserMsg['content'],
+                'symptoms' => !empty($textContent) ? $textContent : 'تصویر ارسال‌شده را بررسی و در صورت امکان دارو/نسخه را تحلیل کنید.',
                 'history'  => $history,
             ];
 
-            // اگر عکسی وجود داشت، به Payload اضافه می‌شود
             if (!empty($validated['image'])) {
                 $aiPayload['image'] = $validated['image'];
             }
 
-            // ۳. افزایش Timeout به 60 ثانیه (زیرا پردازش عکس توسط هوش مصنوعی زمان‌برتر است)
+            // ۳. فراخوانی سرور FastAPI با تایم‌اوت ۶۰ ثانیه
             $response = Http::timeout(60)
                 ->post("http://185.222.163.113:8000/chat", $aiPayload);
 
@@ -248,18 +250,19 @@ class DiagnosisController extends Controller
             $status = $data['status'] ?? null;
             $diagnosisData = null;
 
-            if (($data['status'] ?? null) === 'drug_info' or ($data['status'] ?? null) === 'irrelevant_image') {
+            if (($data['status'] ?? null) === 'drug_info' || ($data['status'] ?? null) === 'irrelevant_image') {
                 DB::table('api_request_logs')->insert([
-                    'user_id' => auth()->id(),
-                    'endpoint' => $request->path(),
+                    'user_id'    => auth()->id(),
+                    'endpoint'   => $request->path(),
                     'created_at' => now(),
                     'updated_at' => now()
                 ]);
             }
+
             if (($data['status'] ?? null) === 'complete' && isset($data['diagnosis'])) {
                 DB::table('api_request_logs')->insert([
-                    'user_id' => auth()->id(),
-                    'endpoint' => $request->path(),
+                    'user_id'    => auth()->id(),
+                    'endpoint'   => $request->path(),
                     'created_at' => now(),
                     'updated_at' => now()
                 ]);
@@ -291,20 +294,21 @@ class DiagnosisController extends Controller
             ]);
 
             return response()->json([
-                'success' => true,
-                'data' => $data,
+                'success'    => true,
+                'data'       => $data,
                 'session_id' => $sessionId,
             ]);
 
         } catch (\Exception $e) {
             Log::error('Chat API Error', [
                 'message' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine()
+                'file'    => $e->getFile(),
+                'line'    => $e->getLine()
             ]);
             return response()->json(['success' => false, 'message' => 'خطا در پردازش درخواست'], 500);
         }
     }
+
 
     /**
      * دریافت تشخیص از API خارجی و غنی‌سازی با داده‌های دیتابیس
