@@ -248,6 +248,14 @@ class DiagnosisController extends Controller
             $status = $data['status'] ?? null;
             $diagnosisData = null;
 
+            if (($data['status'] ?? null) === 'drug_info') {
+                DB::table('api_request_logs')->insert([
+                    'user_id' => auth()->id(),
+                    'endpoint' => $request->path(),
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+            }
             if (($data['status'] ?? null) === 'complete' && isset($data['diagnosis'])) {
                 DB::table('api_request_logs')->insert([
                     'user_id' => auth()->id(),
