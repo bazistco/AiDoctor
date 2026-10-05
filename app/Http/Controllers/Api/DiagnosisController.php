@@ -199,32 +199,46 @@ class DiagnosisController extends Controller
             'messages' => 'required|array|min:1',
             'messages.*.role' => 'required|in:user,assistant',
             'messages.*.content' => 'required|string',
-            'session_id' => 'nullable|string|uuid', // ← اضافه کن
+            'session_id' => 'nullable|string|uuid',
+            'image' => 'nullable|string',      // ← فیلد عکس (Base64) اضافه شد
         ]);
 
         $messages = $validated['messages'];
-
-        // اگر فرانت session_id فرستاده، استفاده کن؛ وگرنه یکی جدید بساز
         $sessionId = $validated['session_id'] ?? (string) Str::uuid();
 
         $firstUserMsg = collect($messages)->last(fn($m) => $m['role'] === 'user');
         $history = collect($messages)->slice(1)->values()->toArray();
 
         try {
+            // ثبت پیام کاربر در دیتابیس (می‌توانید اشاره کنید که عکس هم داشته است)
+            $userContentToSave = $firstUserMsg['content'];
+            if (!empty($validated['image'])) {
+                $userContentToSave .= "\n[کاربر یک تصویر نیز ارسال کرده است]";
+            }
+
             DB::table('ai_messages')->insert([
                 'user_id'    => auth()->id(),
-                'session_id' => $sessionId, // ← از session_id یکتا استفاده کن
+                'session_id' => $sessionId,
                 'role'       => 'user',
-                'content'    => $firstUserMsg['content'],
+                'content'    => $userContentToSave,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
 
-            $response = Http::timeout(30)
-                ->post("http://185.222.163.113:8000/chat", [
-                    'symptoms' => $firstUserMsg['content'],
-                    'history'  => $history,
-                ]);
+            // ۲. آماده‌سازی دیتای ارسالی به هوش مصنوعی (FastAPI)
+            $aiPayload = [
+                'symptoms' => $firstUserMsg['content'],
+                'history'  => $history,
+            ];
+
+            // اگر عکسی وجود داشت، به Payload اضافه می‌شود
+            if (!empty($validated['image'])) {
+                $aiPayload['image'] = $validated['image'];
+            }
+
+            // ۳. افزایش Timeout به 60 ثانیه (زیرا پردازش عکس توسط هوش مصنوعی زمان‌برتر است)
+            $response = Http::timeout(60)
+                ->post("http://185.222.163.113:8000/chat", $aiPayload);
 
             if (!$response->successful()) {
                 return response()->json(['success' => false, 'message' => 'خطا در دریافت پاسخ'], 500);
@@ -259,7 +273,7 @@ class DiagnosisController extends Controller
 
             DB::table('ai_messages')->insert([
                 'user_id'        => auth()->id(),
-                'session_id'     => $sessionId, // ← همان session_id
+                'session_id'     => $sessionId,
                 'role'           => 'assistant',
                 'content'        => $data['message'] ?? '',
                 'status'         => $status,
@@ -271,11 +285,15 @@ class DiagnosisController extends Controller
             return response()->json([
                 'success' => true,
                 'data' => $data,
-                'session_id' => $sessionId, // ← برگردون به فرانت
+                'session_id' => $sessionId,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Chat API Error', ['message' => $e->getMessage()]);
+            Log::error('Chat API Error', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]);
             return response()->json(['success' => false, 'message' => 'خطا در پردازش درخواست'], 500);
         }
     }
