@@ -214,7 +214,7 @@ class DiagnosisController extends Controller
 
         try {
             // ۱. آماده‌سازی متن جهت ذخیره در تاریخچه دیتابیس
-            $userContentToSave = !empty($textContent) ? $textContent : 'تحلیل تصویر پیوست شده';
+            $userContentToSave = !empty($textContent) ? $textContent : null;
             if (!empty($validated['image'])) {
                 $userContentToSave .= "\n[کاربر یک تصویر نیز ارسال کرده است]";
             }
