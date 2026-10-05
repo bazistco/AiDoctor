@@ -195,13 +195,37 @@ class DiagnosisController extends Controller
     }
     public function chat(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'messages'           => 'required|array|min:1',
-            'messages.*.role'    => 'required|in:user,assistant',
-            'messages.*.content' => 'nullable|string', // ← تغییر از required به nullable
-            'session_id'         => 'nullable|string|uuid',
-            'image'              => 'nullable|string',
+        $request->validate([
+            'messages' => 'required|array',
+            'messages.*.role' => 'required|in:user,assistant',
+            'messages.*.content' => 'nullable|string',
+            'image' => [
+                'nullable',
+                'string',
+                function ($attribute, $value, $fail) {
+                    // ۱. حذف پیشوند احتمالی Data URI برای دسترسی به دیتای خام Base64
+                    $base64Data = preg_replace('#^data:image/\w+;base64,#i', '', $value);
+
+                    // ۲. دیکد کردن به باینری برای محاسبه حجم واقعی
+                    $decodedData = base64_decode($base64Data, true);
+
+                    if ($decodedData === false) {
+                        $fail('تصویر ارسالی معتبر نیست.');
+                        return;
+                    }
+
+                    // ۳. محاسبه حجم به کیلوبایت
+                    $sizeInBytes = strlen($decodedData);
+                    $maxSizeInBytes = 300 * 1024; // 300 KB
+
+                    if ($sizeInBytes > $maxSizeInBytes) {
+                        $fail('حجم تصویر نباید بیشتر از 300 کیلوبایت باشد.');
+                    }
+                },
+            ],
+            'session_id' => 'nullable|string',
         ]);
+
 
         $messages = $validated['messages'];
         $sessionId = $validated['session_id'] ?? (string) Str::uuid();
