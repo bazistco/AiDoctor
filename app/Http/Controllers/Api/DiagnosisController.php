@@ -198,25 +198,34 @@ class DiagnosisController extends Controller
         $validated = $request->validate([
             'messages'           => 'required|array|min:1',
             'messages.*.role'    => 'required|in:user,assistant',
-            'messages.*.content' => 'nullable|string', // ← تغییر از required به nullable
-            'session_id'         => 'nullable|string|uuid',
-            'image'              => 'nullable|string',
+            'messages.*.content' => 'nullable|string',
+            'session_id'         => 'nullable|string',
+            'image'              => [
+                'nullable',
+                'string',
+                function ($attribute, $value, $fail) {
+                    $base64Data = preg_replace('#^data:image/\w+;base64,#i', '', $value);
+                    $decodedData = base64_decode($base64Data, true);
+                    if ($decodedData === false || strlen($decodedData) > (300 * 1024)) {
+                        $fail('تصویر ارسالی نامعتبر است یا حجم آن بیشتر از ۳۰۰ کیلوبایت است.');
+                    }
+                },
+            ],
         ]);
 
-        $messages = $validated['messages'];
+        $messages  = $validated['messages'];
         $sessionId = $validated['session_id'] ?? (string) Str::uuid();
 
         $firstUserMsg = collect($messages)->last(fn($m) => $m['role'] === 'user');
-        $history = collect($messages)->slice(1)->values()->toArray();
+        $history      = collect($messages)->slice(1)->values()->toArray();
 
-        // در صورتی که کاربر متنی ننوشته و فقط تصویر فرستاده باشد
         $textContent = trim($firstUserMsg['content'] ?? '');
 
         try {
-            // ۱. آماده‌سازی متن جهت ذخیره در تاریخچه دیتابیس
+            // ۱. ذخیره پیام کاربر در دیتابیس
             $userContentToSave = !empty($textContent) ? $textContent : null;
             if (!empty($validated['image'])) {
-                $userContentToSave .= "\n[کاربر یک تصویر نیز ارسال کرده است]";
+                $userContentToSave = trim(($userContentToSave ?? '') . "\n[کاربر یک تصویر نیز ارسال کرده است]");
             }
 
             DB::table('ai_messages')->insert([
@@ -228,7 +237,7 @@ class DiagnosisController extends Controller
                 'updated_at' => now(),
             ]);
 
-            // ۲. آماده‌سازی دیتای ارسالی به FastAPI
+            // ۲. آماده‌سازی Payload برای FastAPI
             $aiPayload = [
                 'symptoms' => !empty($textContent) ? $textContent : 'تصویر ارسال‌شده را بررسی و در صورت امکان دارو/نسخه را تحلیل کنید.',
                 'history'  => $history,
@@ -238,28 +247,35 @@ class DiagnosisController extends Controller
                 $aiPayload['image'] = $validated['image'];
             }
 
-            // ۳. فراخوانی سرور FastAPI با تایم‌اوت ۶۰ ثانیه
-            $response = Http::timeout(60)
-                ->post("http://185.222.163.113:8000/chat", $aiPayload);
+            // ۳. ارتباط با میکروسرویس هوش مصنوعی
+            $response = Http::timeout(60)->post("http://185.222.163.113:8000/chat", $aiPayload);
 
             if (!$response->successful()) {
-                return response()->json(['success' => false, 'message' => 'خطا در دریافت پاسخ'], 500);
+                return response()->json(['success' => false, 'message' => 'خطا در دریافت پاسخ از سرور هوش مصنوعی'], 500);
             }
 
-            $data = $response->json();
-            $status = $data['status'] ?? null;
+            $data          = $response->json();
+            $status        = $data['status'] ?? null;
             $diagnosisData = null;
 
-            if (($data['status'] ?? null) === 'drug_info' || ($data['status'] ?? null) === 'irrelevant_image') {
+            // ۴. لاگ و غنی‌سازی دیتای دارو
+            if ($status === 'drug_info' || $status === 'irrelevant_image') {
                 DB::table('api_request_logs')->insert([
                     'user_id'    => auth()->id(),
                     'endpoint'   => $request->path(),
                     'created_at' => now(),
                     'updated_at' => now()
                 ]);
+
+                // افزودن لیست داروخانه‌های طرف قرارداد/نمونه به خروجی دارو
+                if ($status === 'drug_info') {
+                    $data['pharmacies'] = $this->getMockPharmacies();
+                    $diagnosisData = $data;
+                }
             }
 
-            if (($data['status'] ?? null) === 'complete' && isset($data['diagnosis'])) {
+            // ۵. در صورتی که پاسخ، تشخیص بالینی نهایی بود
+            if ($status === 'complete' && isset($data['diagnosis'])) {
                 DB::table('api_request_logs')->insert([
                     'user_id'    => auth()->id(),
                     'endpoint'   => $request->path(),
@@ -282,13 +298,14 @@ class DiagnosisController extends Controller
                 }
             }
 
+            // ۶. ثبت پاسخ دستیار در دیتابیس
             DB::table('ai_messages')->insert([
                 'user_id'        => auth()->id(),
                 'session_id'     => $sessionId,
                 'role'           => 'assistant',
-                'content'        => $data['message'] ?? '',
+                'content'        => $data['message'] ?? ($data['drug_details']['description'] ?? ''),
                 'status'         => $status,
-                'diagnosis_data' => $diagnosisData ? json_encode($diagnosisData) : null,
+                'diagnosis_data' => $diagnosisData ? json_encode($diagnosisData, JSON_UNESCAPED_UNICODE) : null,
                 'created_at'     => now(),
                 'updated_at'     => now(),
             ]);
@@ -308,6 +325,39 @@ class DiagnosisController extends Controller
             return response()->json(['success' => false, 'message' => 'خطا در پردازش درخواست'], 500);
         }
     }
+    /**
+     * دریافت لیست داروخانه‌های نمونه جهت استعلام یا ثبت سفارش دارو
+     */
+    private function getMockPharmacies(): array
+    {
+        return [
+            [
+                'id'           => 1,
+                'name'         => 'داروخانه شبانه‌روزی دکتر محمدی',
+                'phone'        => '021-88776655',
+                'address'      => 'تهران، خیابان ولیعصر، نرسیده به میدان ونک',
+                'has_delivery' => true,
+                'url'          => 'https://app.mediraai.com/services/pharmacy',
+            ],
+            [
+                'id'           => 2,
+                'name'         => 'داروخانه مرکزی رازی',
+                'phone'        => '021-66554433',
+                'address'      => 'تهران، میدان انقلاب، ابتدای خیابان کارگر شمالی',
+                'has_delivery' => true,
+                'url'          => 'https://app.mediraai.com/services/pharmacy',
+            ],
+            [
+                'id'           => 3,
+                'name'         => 'داروخانه سلامت نوین',
+                'phone'        => '021-22334455',
+                'address'      => 'تهران، خیابان شریعتی، بالاتر از پل رومی',
+                'has_delivery' => false,
+                'url'          => 'https://app.mediraai.com/services/pharmacy',
+            ],
+        ];
+    }
+
 
 
     /**
