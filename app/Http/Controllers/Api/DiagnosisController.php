@@ -248,7 +248,7 @@ class DiagnosisController extends Controller
             $status = $data['status'] ?? null;
             $diagnosisData = null;
 
-            if (($data['status'] ?? null) === 'drug_info') {
+            if (($data['status'] ?? null) === 'drug_info' or ($data['status'] ?? null) === 'irrelevant_image') {
                 DB::table('api_request_logs')->insert([
                     'user_id' => auth()->id(),
                     'endpoint' => $request->path(),
