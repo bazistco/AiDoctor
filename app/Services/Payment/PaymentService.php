@@ -426,7 +426,8 @@ class PaymentService
             // ب) انتقال وضعیت Order
             $this->orderService->transition(
                 (int) $payment->order_id,
-                OrderService::STATUS_PAID
+                OrderService::STATUS_PAID,
+                (int) $payment->id
             );
 
             // ─────────────────────────────────────────────────────────────

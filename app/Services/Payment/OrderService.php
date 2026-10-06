@@ -81,7 +81,7 @@ class OrderService
      *
      * @throws RuntimeException
      */
-    public function transition(int $orderId, int $toStatus): void
+    public function transition(int $orderId, int $toStatus, ?int $paymentId = null, array $extraAttributes = []): void
     {
         $order = DB::table('orders')
             ->where('id', $orderId)
@@ -100,15 +100,26 @@ class OrderService
             );
         }
 
-        $extra = match ($toStatus) {
-            self::STATUS_PAID => ['paid_at' => now()],
-            default           => [],
+        // فیلدهای پیش‌فرض بر اساس وضعیت جدید
+        $statusFields = match ($toStatus) {
+            self::STATUS_PAID => array_filter([
+                'paid_at'    => now(),
+                'payment_id' => $paymentId,
+            ], fn ($value) => ! is_null($value)),
+            default => [],
         };
 
-        DB::table('orders')->where('id', $orderId)->update(array_merge(
-            ['status' => $toStatus, 'updated_at' => now()],
-            $extra,
-        ));
+        // ترکیب داده‌ها و ذخیره
+        $updateData = array_merge(
+            [
+                'status'     => $toStatus,
+                'updated_at' => now(),
+            ],
+            $statusFields,
+            $extraAttributes
+        );
+
+        DB::table('orders')->where('id', $orderId)->update($updateData);
     }
 
     /**
