@@ -20,7 +20,16 @@ class UserPlanController extends Controller
             ->where('status', 1)
             ->get()
             ->transform(function ($plan) {
+                // تبدیل ریال به تومان
                 $plan->price = (int) ($plan->price / 10);
+
+                // تبدیل JSON ذخیره شده به آرایه PHP (در صورت خالی بودن یا نال بودن، آرایه خالی برمی‌گرداند)
+                if (isset($plan->features) && is_string($plan->features)) {
+                    $plan->features = json_decode($plan->features, true) ?: [];
+                } else {
+                    $plan->features = is_array($plan->features) ? $plan->features : [];
+                }
+
                 return $plan;
             });
         return response()->json([
