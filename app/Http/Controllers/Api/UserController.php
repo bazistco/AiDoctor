@@ -181,14 +181,15 @@ class UserController extends Controller
 
                 if ($basicPlan) {
                     $now = now();
+                    $endDate = $now->copy()->addDays(30);
+                    $now = now();
                     DB::table('user_plans')->updateOrInsert(
                         ['user_id' => $userId],
                         [
                             'plan_id' => $basicPlan->id,
                             'is_active' => 1,
                             'start_date' => $now,
-                            // پلن پایه نامحدود فرض شده، می‌توانید تاریخ انقضا بدهید در صورت نیاز
-                            'end_date' => null,
+                            'end_date' => $endDate,
                             'created_at' => clone $now,
                             'updated_at' => clone $now
                         ]
@@ -197,7 +198,7 @@ class UserController extends Controller
                     $user->plan_type = 'basic';
                     $user->plan_is_active = 1;
                     $user->start_date = $now;
-                    $user->end_date = null;
+                    $user->end_date = $endDate;
                 } else {
                     // در صورتی که کوئری ساخت جداول پایه را اجرا نکرده باشید!
                     $user->plan_type = 'basic';
