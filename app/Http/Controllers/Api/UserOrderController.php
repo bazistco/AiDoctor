@@ -171,7 +171,7 @@ class UserOrderController extends Controller
                 'ulr.total_price as price',
                 'ulr.created_at',
                 'li.name',
-                DB::raw("IF(ulr.visit_type = 0, 'در منزل', 'حضوری') as detail"),
+                DB::raw("IF(ulr.visit_type = 0, 'حضوری', 'در منزل') as detail"),
                 DB::raw("'lab' as type"),
                 DB::raw('o.id as order_id')
             )
