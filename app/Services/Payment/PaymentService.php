@@ -839,7 +839,7 @@ class PaymentService
             Log::warning('[PaymentService] Gateway log failed', ['error' => $e->getMessage()]);
         }
     }
-    private function assignLabQueueNumberOrFail(int $labRequestId): int
+    private function assignLabQueueNumberOrFail(int $labRequestId): ?int
     {
         // ریکوئست را قفل می‌کنیم
         $req = DB::table('users_labs_requests')
@@ -851,6 +851,10 @@ class PaymentService
             throw new RuntimeException('درخواست آزمایشگاه یافت نشد.');
         }
 
+        // 🟢 تغییر جدید: اگر درخواست در منزل (visit_type = 1) است، محدودیت رزرو و شماره صف اعمال نمی‌شود
+        if (isset($req->visit_type) && (int)$req->visit_type === 1) {
+            return null; // بدون خطای ظرفیت، متد با موفقیت خارج می‌شود
+        }
         // اگر قبلا شماره صف گرفته، idempotent
         if (!empty($req->daily_queue_number)) {
             return (int) $req->daily_queue_number;

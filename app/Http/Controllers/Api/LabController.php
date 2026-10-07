@@ -141,7 +141,7 @@ class LabController extends Controller
     /**
      * اعتبارسنجی شیفت، زمان مجاز و ظرفیت و تولید شماره صف
      */
-    private function validateAndGetQueueNumber($labId, $appointmentDate, $shiftType)
+    private function validateAndGetQueueNumber($labId, $appointmentDate, $shiftType, $visitType)
     {
         $redisKey = "lab_rules_config:{$labId}";
         $rulesJson = \Illuminate\Support\Facades\Redis::get($redisKey);
@@ -165,14 +165,13 @@ class LabController extends Controller
             throw new \RuntimeException('شیفت انتخابی در حال حاضر برای این آزمایشگاه غیرفعال است.');
         }
 
-        // ۳. بررسی محدودیت زمانی (اگر تاریخ نوبت برای امروز باشد)
-        if ($appointmentDate === now()->toDateString()) {
-            // محاسبه ساعت پایان شیفت برای امروز
+        // ۳. بررسی محدودیت زمانی (فقط برای مراجعه حضوری)
+        if ($visitType == 0 && $appointmentDate === now()->toDateString()) {
             $shiftEnd = \Carbon\Carbon::parse($appointmentDate . ' ' . $shiftConfig['end']);
 
             // بررسی اینکه حداقل ۱ ساعت تا پایان شیفت زمان باقی مانده باشد
             if (now()->greaterThanOrEqualTo($shiftEnd->copy()->subHour())) {
-                throw new \RuntimeException('زمان مجاز برای ثبت درخواست در این شیفت پایان یافته است (حداقل باید ۱ ساعت به پایان شیفت مانده باشد).');
+                throw new \RuntimeException('زمان مجاز برای ثبت درخواست حضوری در این شیفت پایان یافته است.');
             }
         }
 
@@ -181,15 +180,17 @@ class LabController extends Controller
             ->where('lab_id', $labId)
             ->where('appointment_date', $appointmentDate)
             ->where('shift_type', $shiftType)
-            ->lockForUpdate() // استفاده از قفل برای جلوگیری از تداخل (Race Condition)
+            ->lockForUpdate()
             ->max('daily_queue_number');
 
         $dailyQueueNumber = ($maxQueueNumber ?? 0) + 1;
 
-        // ۵. بررسی ظرفیت باقیمانده شیفت
-        $shiftCapacity = (int) ($shiftConfig['capacity'] ?? 0);
-        if ($dailyQueueNumber > $shiftCapacity) {
-            throw new \RuntimeException('ظرفیت پذیرش این شیفت تکمیل شده است، لطفاً شیفت یا روز دیگری را انتخاب کنید.');
+        // ۵. بررسی ظرفیت باقیمانده شیفت (فقط برای مراجعه حضوری)
+        if ($visitType == 0) {
+            $shiftCapacity = (int) ($shiftConfig['capacity'] ?? 0);
+            if ($dailyQueueNumber > $shiftCapacity) {
+                throw new \RuntimeException('ظرفیت پذیرش حضوری این شیفت تکمیل شده است، لطفاً شیفت یا روز دیگری را انتخاب کنید.');
+            }
         }
 
         return $dailyQueueNumber;
@@ -307,7 +308,7 @@ class LabController extends Controller
                     // ----------------------------------------------------------------------
                     // فراخوانی تابع مجزا جهت اعتبارسنجی شیفت و دریافت شماره صف
                     // ----------------------------------------------------------------------
-                    $dailyQueueNumber = $this->validateAndGetQueueNumber($labId, $appointmentDate, $shiftType);
+                    $dailyQueueNumber = $this->validateAndGetQueueNumber($labId, $appointmentDate, $shiftType, $request->visit_type);
                     $dailyQueueNumber = null;
                 }
 
@@ -345,7 +346,8 @@ class LabController extends Controller
                         userId: $user->id,
                         reasonId: 5,
                         reasonRef: $labRequestId,
-                        amount: $totalPrice,
+                       // amount: $totalPrice,
+                         amount: 15000,
                         description: "پرداخت فاکتور آزمایشگاه - درخواست #{$labRequestId}",
                         providerId: $labId
                     );

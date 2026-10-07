@@ -371,7 +371,7 @@ class LabRequestController extends Controller
             'code' => sprintf('LAB-%06d', $labRequest->id),
             'is_assigned' => !is_null($labRequest->lab_id),
             'status' => (int) $labRequest->status,
-            'type' => $labRequest->visit_type == 0 ? 'home' : 'in-person',
+            'type' => $labRequest->visit_type == 0 ? 'in-person' : 'home' ,
             'appointmentDate' => $labRequest->appointment_date,
             'shiftType' => (int) $labRequest->shift_type,
             'scheduledDate' => $labRequest->created_at,
