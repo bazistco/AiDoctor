@@ -223,13 +223,13 @@ class LabController extends Controller
                 'errors' => $validator->errors(),
             ], 422);
         }
-//        $labRequestId = DB::table('users_labs_requests')->where('user_id', $request->user()->id)->whereIn('status',[0,1])->exists();
-//        if ($labRequestId) {
-//            return response()->json([
-//                'success' => false,
-//                'message' => 'شما یک درخواست در انتظار پرداخت دارید. لطفاً ابتدا آن را تعیین تکلیف یا پرداخت نمایید.',
-//            ], 400);
-//        }
+        $labRequestId = DB::table('users_labs_requests')->where('user_id', $request->user()->id)->whereIn('status',[0,1])->exists();
+        if ($labRequestId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'شما یک درخواست در انتظار پرداخت دارید. لطفاً ابتدا آن را تعیین تکلیف یا پرداخت نمایید.',
+            ], 400);
+        }
         $requestTypeId = (int) $request->request_type_id;
         if ($requestTypeId == 1) {
             if (!$this->isLabActive($request->lab_id)) {
