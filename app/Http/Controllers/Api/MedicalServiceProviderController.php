@@ -80,28 +80,35 @@ class MedicalServiceProviderController extends Controller
 
     public function index(Request $request)
     {
-        // دریافت لیست آزمایشگاه‌ها
+        // دریافت لیست آزمایشگاه‌ها همراه با تصویر و نوع پذیرش
         $labs = DB::table('labs_info as pa')
             ->join('users as u', 'pa.user_id', '=', 'u.id')
-            ->join('cities as c', 'u.city_id', '=', 'c.id')
+            ->leftJoin('cities as c', 'u.city_id', '=', 'c.id')
             ->select(
                 'u.id as provider_id',
                 'pa.name',
                 'pa.address',
                 'pa.status',
                 'pa.avg_score as rating',
+                'pa.image',
+                'pa.home_acceptance',
+                'pa.in_person_acceptance',
                 'c.name as city'
             )
-            // در صورت نیاز می‌توانید شرط فعال بودن را اضافه کنید:
-            // ->where('pa.status', 1)
-            ->orderByDesc('pa.avg_score') // مرتب‌سازی بر اساس بالاترین امتیاز
+            ->orderByDesc('pa.avg_score')
             ->limit(10)
-            ->get();
+            ->get()
+            ->map(function ($lab) {
+                $lab->image_url = !empty($lab->image) ? Storage::disk('public')->url($lab->image) : null;
+                $lab->home_acceptance = (bool) ($lab->home_acceptance ?? false);
+                $lab->in_person_acceptance = (bool) ($lab->in_person_acceptance ?? false);
+                return $lab;
+            });
 
         // دریافت لیست داروخانه‌ها
         $pharmacies = DB::table('pharmacies_info as pa')
             ->join('users as u', 'pa.user_id', '=', 'u.id')
-            ->join('cities as c', 'u.city_id', '=', 'c.id')
+            ->leftJoin('cities as c', 'u.city_id', '=', 'c.id')
             ->select(
                 'u.id as provider_id',
                 'pa.name',
@@ -110,7 +117,6 @@ class MedicalServiceProviderController extends Controller
                 'pa.avg_score as rating',
                 'c.name as city'
             )
-            // ->where('pa.status', 1)
             ->orderByDesc('pa.avg_score')
             ->limit(10)
             ->get();
