@@ -100,7 +100,9 @@ class MedicalServiceProviderController extends Controller
             ->limit(10)
             ->get()
             ->map(function ($lab) {
-                $lab->image_url = !empty($lab->image) ? Storage::disk('public')->url($lab->image) : null;
+                $lab->image_url = !empty($lab->image)
+                    ? 'https://api.mediraai.com/storage/' . ltrim($lab->image, '/')
+                    : null;
                 $lab->home_acceptance = (bool) ($lab->home_acceptance ?? false);
                 $lab->in_person_acceptance = (bool) ($lab->in_person_acceptance ?? false);
                 return $lab;
