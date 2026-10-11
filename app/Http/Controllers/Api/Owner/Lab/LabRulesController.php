@@ -87,6 +87,15 @@ class LabRulesController extends Controller
             return $this->error('حداقل یک شیفت کاری باید فعال باشد', 422);
         }
 
+        // ۱. به‌روزرسانی lat و lng در جدول labs_info بر اساس user_id
+        DB::table('labs_info')
+            ->where('user_id', $labId)
+            ->update([
+                'lat'        => (float) $validated['map_lat'],
+                'lng'        => (float) $validated['map_lng'],
+                'updated_at' => now(),
+            ]);
+
         $redisKey = "lab_rules_config:{$labId}";
 
         // ذخیره اطلاعات تایید شده در Redis
