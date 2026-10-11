@@ -81,7 +81,6 @@ class MedicalServiceProviderController extends Controller
 
     public function index(Request $request)
     {
-        // دریافت لیست آزمایشگاه‌ها همراه با تصویر و نوع پذیرش
         $labs = DB::table('labs_info as pa')
             ->join('users as u', 'pa.user_id', '=', 'u.id')
             ->leftJoin('cities as c', 'u.city_id', '=', 'c.id')
@@ -89,6 +88,8 @@ class MedicalServiceProviderController extends Controller
                 'u.id as provider_id',
                 'pa.name',
                 'pa.address',
+                'pa.lat',
+                'pa.lng',
                 'pa.status',
                 'pa.avg_score as rating',
                 'pa.image',
@@ -103,12 +104,17 @@ class MedicalServiceProviderController extends Controller
                 $lab->image_url = !empty($lab->image)
                     ? 'https://api.mediraai.com/storage/' . ltrim($lab->image, '/')
                     : null;
+
                 $lab->home_acceptance = (bool) ($lab->home_acceptance ?? false);
                 $lab->in_person_acceptance = (bool) ($lab->in_person_acceptance ?? false);
+
+                // کست مختصات برای خروجی JSON تمیز
+                $lab->lat = isset($lab->lat) ? (float) $lab->lat : null;
+                $lab->lng = isset($lab->lng) ? (float) $lab->lng : null;
+
                 return $lab;
             });
 
-        // دریافت لیست داروخانه‌ها
         $pharmacies = DB::table('pharmacies_info as pa')
             ->join('users as u', 'pa.user_id', '=', 'u.id')
             ->leftJoin('cities as c', 'u.city_id', '=', 'c.id')
@@ -132,4 +138,5 @@ class MedicalServiceProviderController extends Controller
             ]
         ], 200);
     }
+
 }
