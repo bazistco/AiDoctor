@@ -9,6 +9,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Storage;
 
 class LabProfileController extends Controller
 {
@@ -60,11 +61,24 @@ class LabProfileController extends Controller
     }
     public function show(Request $request)
     {
-        $labId = $request->lab_id; // میدلور ownership این رو ست کرده
-        $lab = DB::table('labs_info')->where('user_id', $labId)->first();
+        $labId = $request->lab_id;
 
-        return $this->success($lab);
+        $lab = DB::table('labs_info')
+            ->where('user_id', $labId)
+            ->first();
+
+        if (!$lab) {
+            return $this->success(null);
+        }
+
+        $data = (array) $lab;
+        $data['image_url'] = !empty($lab->image)
+            ? Storage::disk('public')->url($lab->image)
+            : null;
+
+        return $this->success($data);
     }
+
     public function toggleStatus(Request $request)
     {
         // دریافت شناسه کاربر احراز‌شده
@@ -100,25 +114,58 @@ class LabProfileController extends Controller
         $labId = $request->lab_id;
 
         $validator = Validator::make($request->all(), [
-            'name'              => 'sometimes|required|string|max:255',
-            'license_number'    => 'nullable|string|max:255',
-            'technical_manager' => 'nullable|string|max:255',
-            'work_hours'        => 'nullable|string|max:255',
-            'address'           => 'nullable|string',
-            'status'            => 'nullable|integer|in:0,1',
-            'min_order_amount'  => 'nullable|integer',
-            'image'             => 'nullable|string|max:255',
-            'lat'               => 'nullable|numeric',
-            'lng'               => 'nullable|numeric',
+            'name'                 => 'sometimes|required|string|max:255',
+            'license_number'       => 'nullable|string|max:255',
+            'technical_manager'    => 'nullable|string|max:255',
+            'work_hours'           => 'nullable|string|max:255',
+            'address'              => 'nullable|string',
+            'status'               => 'nullable|integer|in:0,1',
+            'min_order_amount'     => 'nullable|integer|min:0',
+            'home_acceptance'      => 'sometimes|boolean',
+            'in_person_acceptance' => 'sometimes|boolean',
+            'image'                => 'sometimes|nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
+            'lat'                  => 'nullable|numeric',
+            'lng'                  => 'nullable|numeric',
         ]);
 
         if ($validator->fails()) {
-            return $this->error('داده‌های ورودی نامعتبر است', 422, $validator->errors());
+            return $this->error(
+                'داده‌های ورودی نامعتبر است',
+                422,
+                $validator->errors()
+            );
         }
 
-        DB::table('labs_info')->where('user_id', $labId)->update($validator->validated());
+        $lab = DB::table('labs_info')
+            ->where('user_id', $labId)
+            ->first();
+
+        if (!$lab) {
+            return response()->json([
+                'status' => false,
+                'message' => 'آزمایشگاه یافت نشد',
+            ], 404);
+        }
+
+        $data = $validator->validated();
+
+        // فایل را جداگانه ذخیره می‌کنیم؛ نباید خود UploadedFile را به DB بدهیم.
+        unset($data['image']);
+
+        if ($request->hasFile('image')) {
+            if (!empty($lab->image)) {
+                Storage::disk('public')->delete($lab->image);
+            }
+
+            $data['image'] = $request->file('image')->store('labs', 'public');
+        }
+
+        DB::table('labs_info')
+            ->where('user_id', $labId)
+            ->update($data);
 
         return $this->success(null, 'پروفایل آزمایشگاه بروزرسانی شد');
     }
+
 
 }
