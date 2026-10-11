@@ -32,9 +32,9 @@ class MedicalServiceProviderController extends Controller
         $hoursField = $type === 'lab' ? 'pa.work_hours' : 'pa.working_hours';
 
         // دریافت اطلاعات پایه مرکز
-        $provider = DB::table("$tableName as pa")
+        $provider = DB::table("{$tableName} as pa")
             ->join('users as u', 'pa.user_id', '=', 'u.id')
-            ->leftJoin('cities as c', 'u.city_id', '=', 'c.id') // leftJoin بهتر است چون ممکن است شهر null باشد
+            ->leftJoin('cities as c', 'u.city_id', '=', 'c.id')
             ->where('pa.user_id', $id)
             ->select(
                 'u.id as provider_id',
@@ -43,16 +43,33 @@ class MedicalServiceProviderController extends Controller
                 'pa.avg_score as rating',
                 'c.name as city',
                 'pa.phone',
-                "$hoursField as hours",
+                "{$hoursField} as hours",
                 'pa.detail as description',
                 'pa.lat',
-                'pa.lng'
+                'pa.lng',
+                'pa.image', // ۱. فیلد تصویر افزوده شد
+                'pa.home_acceptance', // ۲. وضعیت پذیرش در منزل
+                'pa.in_person_acceptance' // ۳. وضعیت پذیرش حضوری
             )
             ->first();
 
         if (!$provider) {
             return response()->json(['status' => 'error', 'message' => 'مرکز یافت نشد'], 404);
         }
+
+        // ساخت لینک کامل عکس
+        $provider->image_url = !empty($provider->image)
+            ? (str_starts_with($provider->image, 'http')
+                ? $provider->image
+                : 'https://api.mediraai.com/storage/' . ltrim($provider->image, '/'))
+            : null;
+
+        // کست کردن دقیق فیلدها برای جلوگیری از خطاهای فرانت‌اند
+        $provider->lat = !is_null($provider->lat) ? (float) $provider->lat : null;
+        $provider->lng = !is_null($provider->lng) ? (float) $provider->lng : null;
+        $provider->rating = !is_null($provider->rating) ? (float) $provider->rating : 5.0;
+        $provider->home_acceptance = (bool) ($provider->home_acceptance ?? false);
+        $provider->in_person_acceptance = (bool) ($provider->in_person_acceptance ?? false);
 
         // دریافت نظرات به همراه نام کاربر نظردهنده
         $reviews = DB::table('reviews as r')
@@ -65,7 +82,7 @@ class MedicalServiceProviderController extends Controller
                 'r.rating',
                 'r.comment as text',
                 'r.created_at as date',
-                'u.name as author' // اگر در جدول users فیلد name دارید، u.name بنویسید. در غیر این صورت موبایل یا شناسه.
+                'u.name as author'
             )
             ->get();
 
@@ -78,6 +95,7 @@ class MedicalServiceProviderController extends Controller
             ]
         ]);
     }
+
 
     public function index(Request $request)
     {
