@@ -73,7 +73,9 @@ class LabProfileController extends Controller
 
         $data = (array) $lab;
         $data['image_url'] = !empty($lab->image)
-            ? Storage::disk('public')->url($lab->image)
+            ? (str_starts_with($lab->image, 'http')
+                ? $lab->image
+                : 'https://api.mediraai.com/storage/' . ltrim($lab->image, '/'))
             : null;
 
         return $this->success($data);
