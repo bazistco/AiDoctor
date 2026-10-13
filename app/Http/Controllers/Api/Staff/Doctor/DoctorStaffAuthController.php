@@ -68,7 +68,7 @@ class DoctorStaffAuthController extends Controller
             ], 429);
         }
 
-        $code = rand(100000, 999999);
+        $code = rand(1000, 9999);
 
         DB::table('otp_codes')->insert([
             'code'       => 1111, // TODO: در پروداکشن به $code تغییر دهید
