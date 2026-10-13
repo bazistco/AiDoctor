@@ -14,8 +14,7 @@ class DoctorStaffDashboardController extends Controller
     {
         $secretary = $request->user();
 
-        // استخراج شناسه پزشک متصل به این منشی (doctor_id یا parent_id)
-        $doctorId = $secretary->doctor_id ?? $secretary->parent_id;
+        $doctorId = DB::table('doctor_secretaries')->where('secretary_user_id',$secretary->id)->first()->doctor_user_id;
 
         if (!$doctorId) {
             return response()->json([
