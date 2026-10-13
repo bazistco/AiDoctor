@@ -143,6 +143,8 @@ class DoctorStaffAuthController extends Controller
         }
 
         $userModel = User::find($user->id);
+        $doctorId = DB::table('doctor_secretaries')->where('secretary_user_id',$userModel->id)->first()->doctor_user_id;
+        $doctor = DB::table('users')->where('id', $doctorId)->first();
         $token = $userModel->createToken('doctor-secretary-token', ['doctor_secretary'])->plainTextToken;
 
         DB::table('otp_codes')->where('id', $otp->id)->delete();
@@ -150,7 +152,12 @@ class DoctorStaffAuthController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'ورود موفقیت‌آمیز بود.',
-            'data'    => ['access_token' => $token],
+            'data'    => ['access_token' => $token,'user' => [
+                'id'         => (string) $user->id,
+                'name'       => $userModer->name ?? 'منشی مطب',
+                'phone'      => $userModel->phone,
+                'owner_name' => $doctor ? ($doctor->name ?? 'پزشک') : '',
+            ]],
         ]);
     }
 
