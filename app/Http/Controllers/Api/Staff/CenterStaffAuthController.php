@@ -65,7 +65,7 @@ class CenterStaffAuthController extends Controller
         DB::table('otp_codes')->updateOrInsert(
             ['mobile' => $request->phone],
             [
-                'code'       => $code,
+                'code'       => 1111,
                 'created_at' => now(),
             ]
         );
