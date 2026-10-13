@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\HealthInsightController;
 use App\Http\Controllers\Api\MealPlanController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaymentGatewayController;
+use App\Http\Controllers\Api\Staff\CenterStaffAuthController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffAuthController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffDashboardController;
 use App\Services\Payment\OrderService;
@@ -29,7 +30,12 @@ use Illuminate\Support\Facades\Redis;
 
 
 
-
+Route::prefix('staff/{type}/auth')
+    ->where(['type' => 'lab|pharmacy|medical_center'])
+    ->group(function () {
+        Route::post('/login', [CenterStaffAuthController::class, 'login']);
+        Route::post('/verify', [CenterStaffAuthController::class, 'verify']);
+    });
 Route::prefix('staff/doctor')->group(function () {
     Route::post('login',  [DoctorStaffAuthController::class, 'login']);
     Route::post('verify', [DoctorStaffAuthController::class, 'verify']);
