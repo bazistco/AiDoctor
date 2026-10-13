@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\MealPlanController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaymentGatewayController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffAuthController;
+use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffDashboardController;
 use App\Services\Payment\OrderService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -36,8 +37,7 @@ Route::prefix('staff/doctor')->group(function () {
 Route::prefix('staff/doctor')
     ->middleware(['auth:sanctum', 'doctor_secretary'])
     ->group(function () {
-        // Route::get('dashboard', ...);
-        // Route::get('appointments', ...);
+        Route::get('dashboard', [DoctorStaffDashboardController::class, 'index']);
     });
 Route::get('/test/lab-time-check', function () {
     $labId = 64;
