@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\HealthInsightController;
 use App\Http\Controllers\Api\MealPlanController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaymentGatewayController;
+use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffAuthController;
 use App\Services\Payment\OrderService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -28,7 +29,16 @@ use Illuminate\Support\Facades\Redis;
 
 
 
-
+Route::prefix('staff/doctor')->group(function () {
+    Route::post('login',  [DoctorStaffAuthController::class, 'login']);
+    Route::post('verify', [DoctorStaffAuthController::class, 'verify']);
+});
+Route::prefix('staff/doctor')
+    ->middleware(['auth:sanctum', 'doctor_secretary'])
+    ->group(function () {
+        // Route::get('dashboard', ...);
+        // Route::get('appointments', ...);
+    });
 Route::get('/test/lab-time-check', function () {
     $labId = 64;
     $targetShiftId = 1;
