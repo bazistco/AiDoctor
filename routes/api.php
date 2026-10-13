@@ -29,7 +29,15 @@ use Kavenegar\KavenegarApi;
 use Illuminate\Support\Facades\Redis;
 
 
+Route::middleware(['auth:sanctum', 'center.staff:medical_center'])->prefix('staff/lab')->group(function () {
 
+});
+Route::middleware(['auth:sanctum', 'center.staff:pharmacy'])->prefix('staff/lab')->group(function () {
+
+});
+Route::middleware(['auth:sanctum', 'center.staff:lab'])->prefix('staff/lab')->group(function () {
+
+});
 Route::prefix('staff/{type}/auth')
     ->where(['type' => 'lab|pharmacy|medical_center'])
     ->group(function () {

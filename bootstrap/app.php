@@ -41,6 +41,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'ownership' => \App\Http\Middleware\CheckOwnership::class,
             'user.active' => CheckUserActive::class,
             'doctor_secretary' => \App\Http\Middleware\EnsureDoctorSecretary::class,
+            'center.staff' => \App\Http\Middleware\EnsureCenterStaffAccess::class,
+
         ]);
         $middleware->redirectGuestsTo(function ($request) { // No type hint here, or use fully qualified
             if ($request->expectsJson() || $request->is('api/*') || $request->is('ai/*')) {
