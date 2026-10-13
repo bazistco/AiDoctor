@@ -63,7 +63,7 @@ class CenterStaffAuthController extends Controller
         $code = rand(1000, 9999);
 
         DB::table('otp_codes')->updateOrInsert(
-            ['phone' => $request->phone],
+            ['mobile' => $request->phone],
             [
                 'code'       => $code,
                 'created_at' => now(),
@@ -102,7 +102,7 @@ class CenterStaffAuthController extends Controller
 
         // تطبیق کد با DB::table
         $otp = DB::table('otp_codes')
-            ->where('phone', $request->phone)
+            ->where('mobile', $request->phone)
             ->where('code', $request->code)
             ->first();
 
@@ -144,7 +144,7 @@ class CenterStaffAuthController extends Controller
         }
 
         // حذف کد مصرف‌شده
-        DB::table('otp_codes')->where('phone', $request->phone)->delete();
+        DB::table('otp_codes')->where('mobile', $request->phone)->delete();
 
         // ایجاد توکن Sanctum مخصوص نقش مربوطه
         $tokenName = "{$type}_staff_token";
