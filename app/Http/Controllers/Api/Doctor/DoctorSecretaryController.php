@@ -149,6 +149,12 @@ class DoctorSecretaryController extends Controller
                     ->where('secretary_user_id', $user->id)
                     ->exists();
 
+                if ($user->role !== 'user') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'این شماره موبایل نقشی غیر از کاربر عادی دارد',
+                    ], Response::HTTP_UNPROCESSABLE_ENTITY);
+                }
                 if ($alreadyAssigned) {
                     return response()->json([
                         'success' => false,
