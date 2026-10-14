@@ -8,8 +8,11 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 
 class DoctorStaffAppointmentController extends Controller
@@ -253,7 +256,22 @@ class DoctorStaffAppointmentController extends Controller
         $secretaryIp = $request->ip();
         $userAgent = $request->userAgent();
 
-        return DB::transaction(function () use ($doctorId, $slotId, $redisKey, $request, $infrastructureFee, $now, $secretaryIp, $userAgent) {
+        // برای نگهداری وضعیت کاربر جدید جهت ارسال نوتیفیکیشن نووو بعد از تراکنش
+        $isNewPatient = false;
+        $patientModel = null;
+
+        $result = DB::transaction(function () use (
+            $doctorId,
+            $slotId,
+            $redisKey,
+            $request,
+            $infrastructureFee,
+            $now,
+            $secretaryIp,
+            $userAgent,
+            &$isNewPatient,
+            &$patientModel
+        ) {
             // ۲. بررسی کیف پول پزشک و بررسی موجودی کافی
             $wallet = DB::table('wallets')
                 ->where('user_id', $doctorId)
@@ -287,17 +305,38 @@ class DoctorStaffAppointmentController extends Controller
             // ۴. ایجاد یا پیدا کردن حساب کاربر بیمار
             $patient = DB::table('users')->where('phone', $request->patientPhone)->first();
             if (!$patient) {
+                $isNewPatient = true;
+
                 $patientId = DB::table('users')->insertGetId([
                     'name'       => $request->patientName,
                     'phone'      => $request->patientPhone,
                     'password'   => Hash::make($request->patientPhone),
+                    'status'     => 1,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);
+
+                // ساخت کیف پول برای کاربر جدید بیمار
+                DB::table('wallets')->insert([
+                    'user_id'    => $patientId,
+                    'balance'    => 0,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+
+                // بارگذاری جهت ارسال به Novu
+                $patientModel = (object) [
+                    'id'    => $patientId,
+                    'phone' => $request->patientPhone,
+                    'name'  => $request->patientName
+                ];
             } else {
                 $patientId = $patient->id;
                 if (!empty($request->patientName) && empty($patient->name)) {
-                    DB::table('users')->where('id', $patientId)->update(['name' => $request->patientName]);
+                    DB::table('users')->where('id', $patientId)->update([
+                        'name'       => $request->patientName,
+                        'updated_at' => $now,
+                    ]);
                 }
             }
 
@@ -329,32 +368,74 @@ class DoctorStaffAppointmentController extends Controller
                 'updated_at'    => $now,
             ]);
 
-            // به‌روزرسانی مانده موجودی کیف پول
+            // به‌روزرسانی مانده موجودی کیف پول پزشک
             DB::table('wallets')->where('id', $wallet->id)->update([
                 'balance'    => $newBalance,
                 'updated_at' => $now,
             ]);
 
-            // ۷. پاک کردن کلید احتمالی در ردیس
+            // ۷. پاک کردن کلید قفل موقت از ردیس
             Redis::del($redisKey);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'نوبت با موفقیت ثبت شد و هزینه زیرساخت کسر گردید.',
-                'data'    => [
-                    'id'             => $slot->id,
-                    'patientName'    => $request->patientName,
-                    'patientPhone'   => $request->patientPhone,
-                    'date'           => $this->toShamsiDate($slot->slot_date),
-                    'time'           => substr($slot->start_time, 0, 5),
-                    'type'           => 'in_person',
-                    'status'         => 'booked',
-                    'source'         => 'secretary',
-                    'feeDeducted'    => $infrastructureFee,
-                    'walletBalance'  => $newBalance,
-                ]
-            ], Response::HTTP_CREATED);
+            return [
+                'id'            => $slot->id,
+                'date'          => $this->toShamsiDate($slot->slot_date),
+                'time'          => substr($slot->start_time, 0, 5),
+                'walletBalance' => $newBalance,
+            ];
         });
+
+        // در صورتی که نتیجه از جنس JsonResponse باشد (مثلاً خطای اعتبارسنجی کیف پول یا اسلات)
+        if ($result instanceof JsonResponse) {
+            return $result;
+        }
+
+        // ۸. ایجاد حساب مشترک در Novu در صورتی که بیمار تازه ثبت شده باشد
+        if ($isNewPatient && $patientModel) {
+            $novuSubscriberId = (string) Str::uuid();
+
+            try {
+                $novuUrl = 'http://185.222.163.113:3000/v1/subscribers';
+                $novuApiKey = config('services.novu.api_key');
+
+                $response = Http::timeout(3)->withHeaders([
+                    'Authorization' => 'ApiKey ' . $novuApiKey,
+                    'Content-Type'  => 'application/json',
+                ])->post($novuUrl, [
+                    'subscriberId' => $novuSubscriberId,
+                    'phone'        => $patientModel->phone,
+                    'firstName'    => $patientModel->name,
+                ]);
+
+                if ($response->successful()) {
+                    DB::table('users')->where('id', $patientModel->id)->update([
+                        'novu_subscriber_id' => $novuSubscriberId,
+                        'updated_at'         => now(),
+                    ]);
+                } else {
+                    Log::error('Novu Subscriber Creation for New Patient Failed: ' . $response->body());
+                }
+            } catch (\Exception $e) {
+                Log::error('Novu API Exception on Patient Booking: ' . $e->getMessage());
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'نوبت با موفقیت ثبت شد و هزینه زیرساخت کسر گردید.',
+            'data'    => [
+                'id'            => $result['id'],
+                'patientName'   => $request->patientName,
+                'patientPhone'  => $request->patientPhone,
+                'date'          => $result['date'],
+                'time'          => $result['time'],
+                'type'          => 'in_person',
+                'status'        => 'booked',
+                'source'        => 'secretary',
+                'feeDeducted'   => $infrastructureFee,
+                'walletBalance' => $result['walletBalance'],
+            ]
+        ], Response::HTTP_CREATED);
     }
 
 
