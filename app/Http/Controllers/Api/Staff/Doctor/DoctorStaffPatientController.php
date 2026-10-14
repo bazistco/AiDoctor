@@ -29,22 +29,22 @@ class DoctorStaffPatientController extends Controller
         $search = trim($request->query('search', ''));
 
         // واکشی تمامی نوبت‌های این پزشک که نوبت خام یا خالی نیستند
-        $query = DB::table('doctor_appointments')
-            ->leftJoin('users', 'doctor_appointments.patient_id', '=', 'users.id')
-            ->where('doctor_appointments.doctor_id', $doctorId)
-            ->whereNotIn('doctor_appointments.status', ['available', 'reserved'])
+        $query = DB::table('appointment_slots')
+            ->leftJoin('users', 'appointment_slots.patient_id', '=', 'users.id')
+            ->where('appointment_slots.doctor_id', $doctorId)
+            ->whereNotIn('appointment_slots.status', ['available', 'reserved'])
             ->select([
-                'doctor_appointments.id',
-                'doctor_appointments.status',
-                'doctor_appointments.slot_date',
-                'doctor_appointments.start_time',
-                'doctor_appointments.extra_detail',
-                'doctor_appointments.patient_id',
+                'appointment_slots.id',
+                'appointment_slots.status',
+                'appointment_slots.slot_date',
+                'appointment_slots.start_time',
+                'appointment_slots.extra_detail',
+                'appointment_slots.patient_id',
                 'users.name as user_name',
                 'users.phone as user_phone',
             ]);
 
-        $appointments = $query->orderBy('doctor_appointments.slot_date', 'desc')->get();
+        $appointments = $query->orderBy('appointment_slots.slot_date', 'desc')->get();
 
         $patientMap = [];
 
