@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\MealPlanController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaymentGatewayController;
 use App\Http\Controllers\Api\Staff\CenterStaffAuthController;
+use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffAppointmentController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffAuthController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffDashboardController;
 use App\Services\Payment\OrderService;
