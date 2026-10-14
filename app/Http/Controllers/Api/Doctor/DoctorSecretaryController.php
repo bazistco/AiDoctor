@@ -115,16 +115,16 @@ class DoctorSecretaryController extends Controller
         ]);
 
         // ۱. بررسی اینکه پزشک قبلاً منشی ثبت نکرده باشد
-        $existingSecretary = DB::table('doctor_secretaries')
-            ->where('doctor_user_id', $doctorUserId)
-            ->exists();
-
-        if ($existingSecretary) {
-            return response()->json([
-                'success' => false,
-                'message' => 'شما در حال حاضر یک منشی فعال دارید. برای ثبت منشی جدید، ابتدا منشی فعلی را حذف کنید.',
-            ], Response::HTTP_CONFLICT);
-        }
+//        $existingSecretary = DB::table('doctor_secretaries')
+//            ->where('doctor_user_id', $doctorUserId)
+//            ->exists();
+//
+//        if ($existingSecretary) {
+//            return response()->json([
+//                'success' => false,
+//                'message' => 'شما در حال حاضر یک منشی فعال دارید. برای ثبت منشی جدید، ابتدا منشی فعلی را حذف کنید.',
+//            ], Response::HTTP_CONFLICT);
+//        }
 
         $now = now();
         $isNewSecretary = false;
