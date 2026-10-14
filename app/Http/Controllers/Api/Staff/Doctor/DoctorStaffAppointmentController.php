@@ -7,6 +7,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Validator;
 
 class DoctorStaffAppointmentController extends Controller
@@ -120,7 +121,7 @@ class DoctorStaffAppointmentController extends Controller
     }
 
     /**
-     * وب‌سرویس دریافت اسلات‌های آزاد پزشک بر اساس تاریخ انتخابی
+     * وب‌سرویس دریافت اسلات‌های آزاد با فیلتر قفل‌های موقت ردیس
      */
     public function getAvailableSlots(Request $request): JsonResponse
     {
@@ -135,36 +136,76 @@ class DoctorStaffAppointmentController extends Controller
 
         $miladiDate = $this->toMiladiDate($request->date);
 
-        // واکشی اسلات‌های با وضعیت آزاد (یا اسلات‌هایی که بیمار ندارند و کنسل نیستند)
+        // واکشی اسلات‌های با وضعیت available
         $slots = DB::table('appointment_slots')
             ->where('doctor_id', $doctorId)
             ->whereDate('slot_date', $miladiDate)
             ->where('status', 'available')
-            ->whereNull('patient_id')
             ->orderBy('start_time', 'asc')
-            ->get(['id', 'start_time', 'end_time', 'slot_date']);
+            ->get(['id', 'start_time', 'end_time', 'slot_date', 'patient_id']);
 
-        $availableList = $slots->map(function ($s) {
-            return [
-                'slot_id'    => $s->id,
-                'time'       => substr($s->start_time, 0, 5),
-                'start_time' => $s->start_time,
-                'end_time'   => $s->end_time,
+        if ($slots->isEmpty()) {
+            return response()->json([
+                'success' => true,
+                'data'    => [
+                    'date_shamsi' => $this->toShamsiDate($miladiDate),
+                    'date_miladi' => $miladiDate,
+                    'slots'       => [],
+                ]
+            ]);
+        }
+
+        // بررسی یکجای (MGET) وضعیت قفل موقت در ردیس برای تمام اسلات‌ها
+        $redisKeys = $slots->map(fn($s) => "slot:reservation:{$s->id}")->toArray();
+        $redisValues = Redis::mget($redisKeys);
+
+        $freeSlots = [];
+        $expiredSlotIdsToClean = [];
+
+        foreach ($slots as $index => $slot) {
+            $lockValue = $redisValues[$index] ?? null;
+
+            // اگر اسلات در ردیس قفل فعال دارد (کاربر در حال پرداخت است) -> برای منشی نباید نمایش داده شود
+            if ($lockValue) {
+                continue;
+            }
+
+            // اگر در ردیس قفل ندارد اما patient_id در دیتابیس مانده بوده (منقضی شده قبل از اتمام پرداخت)
+            if (!empty($slot->patient_id)) {
+                $expiredSlotIdsToClean[] = $slot->id;
+            }
+
+            $freeSlots[] = [
+                'slot_id'    => $slot->id,
+                'time'       => substr($slot->start_time, 0, 5),
+                'start_time' => $slot->start_time,
+                'end_time'   => $slot->end_time,
             ];
-        });
+        }
+
+        // پاکسازی نوبت‌های موقتی که در ردیس منقضی شده‌اند و دیتابیس را آزاد می‌کنیم
+        if (!empty($expiredSlotIdsToClean)) {
+            DB::table('appointment_slots')
+                ->whereIn('id', $expiredSlotIdsToClean)
+                ->where('status', 'available')
+                ->update([
+                    'patient_id' => null,
+                    'updated_at' => now(),
+                ]);
+        }
 
         return response()->json([
             'success' => true,
             'data'    => [
                 'date_shamsi' => $this->toShamsiDate($miladiDate),
                 'date_miladi' => $miladiDate,
-                'slots'       => $availableList,
+                'slots'       => $freeSlots,
             ]
         ]);
     }
 
     /**
-     * رزرو نوبت بر روی یک اسلات مشخص آزاد شده توسط منشی
+     * رزرو نوبت همراه با بررسی همزمانی ردیس و دیتابیس
      */
     public function bookSlot(Request $request): JsonResponse
     {
@@ -192,23 +233,35 @@ class DoctorStaffAppointmentController extends Controller
             ], 422);
         }
 
-        return DB::transaction(function () use ($doctorId, $request) {
-            // قفل رکورد اسلات برای جلوگیری از رزرو همزمان
+        $slotId = $request->slot_id;
+        $redisKey = "slot:reservation:{$slotId}";
+
+        // ۱. بررسی قفل موقت ردیس (آیا کاربری در حال حاضر در درگاه پرداخت است؟)
+        $redisLock = Redis::get($redisKey);
+        if ($redisLock) {
+            return response()->json([
+                'success' => false,
+                'message' => 'این نوبت در حال حاضر توسط بیماری در مرحله پرداخت آنلاین است.',
+            ], 409);
+        }
+
+        return DB::transaction(function () use ($doctorId, $slotId, $redisKey, $request) {
+            // ۲. بررسی دیتابیس با قفل ردیف (lockForUpdate)
             $slot = DB::table('appointment_slots')
-                ->where('id', $request->slot_id)
+                ->where('id', $slotId)
                 ->where('doctor_id', $doctorId)
                 ->lockForUpdate()
                 ->first();
 
             if (!$slot) {
-                return response()->json(['success' => false, 'message' => 'اسلات نوبت مورد نظر یافت نشد.'], 404);
+                return response()->json(['success' => false, 'message' => 'اسلات نوبت یافت نشد.'], 404);
             }
 
-            if ($slot->status !== 'available' || !empty($slot->patient_id)) {
-                return response()->json(['success' => false, 'message' => 'این ساعت قبلاً رزرو شده یا آزاد نیست.'], 409);
+            if ($slot->status !== 'available') {
+                return response()->json(['success' => false, 'message' => 'این ساعت قبلاً نهایی شده است.'], 409);
             }
 
-            // پیدا کردن یا ایجاد بیمار
+            // ۳. ایجاد یا پیدا کردن حساب کاربر بیمار
             $patient = DB::table('users')->where('phone', $request->patientPhone)->first();
             if (!$patient) {
                 $patientId = DB::table('users')->insertGetId([
@@ -219,13 +272,12 @@ class DoctorStaffAppointmentController extends Controller
                 ]);
             } else {
                 $patientId = $patient->id;
-                // به‌روزرسانی نام در صورت نیاز
                 if (!empty($request->patientName) && empty($patient->name)) {
                     DB::table('users')->where('id', $patientId)->update(['name' => $request->patientName]);
                 }
             }
 
-            // تخصیص بیمار و تغییر وضعیت به booked
+            // ۴. رزرو قطعی نوبت
             DB::table('appointment_slots')
                 ->where('id', $slot->id)
                 ->update([
@@ -235,9 +287,12 @@ class DoctorStaffAppointmentController extends Controller
                     'updated_at' => now(),
                 ]);
 
+            // ۵. پاک کردن کلید احتمالی در ردیس
+            Redis::del($redisKey);
+
             return response()->json([
                 'success' => true,
-                'message' => 'نوبت با موفقیت رزرو شد.',
+                'message' => 'نوبت با موفقیت ثبت شد.',
                 'data'    => [
                     'id'           => $slot->id,
                     'patientName'  => $request->patientName,
@@ -251,6 +306,7 @@ class DoctorStaffAppointmentController extends Controller
             ], 201);
         });
     }
+
 
     /**
      * ثبت حضور بیمار در مطب
