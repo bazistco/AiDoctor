@@ -7,8 +7,10 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Validator;
+use Symfony\Component\HttpFoundation\Response;
 
 class DoctorStaffAppointmentController extends Controller
 {
@@ -211,7 +213,7 @@ class DoctorStaffAppointmentController extends Controller
     {
         $doctorId = $this->getDoctorId($request->user()->id);
         if (!$doctorId) {
-            return response()->json(['success' => false, 'message' => 'پزشک مرتبط یافت نشد.'], 404);
+            return response()->json(['success' => false, 'message' => 'پزشک مرتبط یافت نشد.'], Response::HTTP_NOT_FOUND);
         }
 
         $validator = Validator::make($request->all(), [
@@ -230,23 +232,44 @@ class DoctorStaffAppointmentController extends Controller
                 'success' => false,
                 'message' => $validator->errors()->first(),
                 'errors'  => $validator->errors(),
-            ], 422);
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
         $slotId = $request->slot_id;
         $redisKey = "slot:reservation:{$slotId}";
 
-        // ۱. بررسی قفل موقت ردیس (آیا کاربری در حال حاضر در درگاه پرداخت است؟)
+        // ۱. بررسی قفل موقت ردیس (آیا کاربری در حال حاضر در درگاه پرداخت آنلاین است؟)
         $redisLock = Redis::get($redisKey);
         if ($redisLock) {
             return response()->json([
                 'success' => false,
                 'message' => 'این نوبت در حال حاضر توسط بیماری در مرحله پرداخت آنلاین است.',
-            ], 409);
+            ], Response::HTTP_CONFLICT);
         }
 
-        return DB::transaction(function () use ($doctorId, $slotId, $redisKey, $request) {
-            // ۲. بررسی دیتابیس با قفل ردیف (lockForUpdate)
+        // تعرفه زیرساخت رزرو نوبت حضوری توسط منشی (به ریال)
+        $infrastructureFee = 200000;
+        $now = now();
+        $secretaryIp = $request->ip();
+        $userAgent = $request->userAgent();
+
+        return DB::transaction(function () use ($doctorId, $slotId, $redisKey, $request, $infrastructureFee, $now, $secretaryIp, $userAgent) {
+            // ۲. بررسی کیف پول پزشک و بررسی موجودی کافی
+            $wallet = DB::table('wallets')
+                ->where('user_id', $doctorId)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$wallet || $wallet->balance < $infrastructureFee) {
+                $currentBalance = $wallet ? number_format($wallet->balance) : '0';
+                return response()->json([
+                    'success' => false,
+                    'message' => "موجودی کیف پول پزشک برای ثبت نوبت کافی نیست. (موجودی فعلی: {$currentBalance} ریال - هزینه مورد نیاز: " . number_format($infrastructureFee) . " ریال)",
+                    'code'    => 'INSUFFICIENT_WALLET_BALANCE'
+                ], Response::HTTP_PAYMENT_REQUIRED); // 402
+            }
+
+            // ۳. بررسی دیتابیس با قفل ردیف نوبت (lockForUpdate)
             $slot = DB::table('appointment_slots')
                 ->where('id', $slotId)
                 ->where('doctor_id', $doctorId)
@@ -254,21 +277,22 @@ class DoctorStaffAppointmentController extends Controller
                 ->first();
 
             if (!$slot) {
-                return response()->json(['success' => false, 'message' => 'اسلات نوبت یافت نشد.'], 404);
+                return response()->json(['success' => false, 'message' => 'اسلات نوبت یافت نشد.'], Response::HTTP_NOT_FOUND);
             }
 
             if ($slot->status !== 'available') {
-                return response()->json(['success' => false, 'message' => 'این ساعت قبلاً نهایی شده است.'], 409);
+                return response()->json(['success' => false, 'message' => 'این ساعت قبلاً نهایی شده است.'], Response::HTTP_CONFLICT);
             }
 
-            // ۳. ایجاد یا پیدا کردن حساب کاربر بیمار
+            // ۴. ایجاد یا پیدا کردن حساب کاربر بیمار
             $patient = DB::table('users')->where('phone', $request->patientPhone)->first();
             if (!$patient) {
                 $patientId = DB::table('users')->insertGetId([
                     'name'       => $request->patientName,
                     'phone'      => $request->patientPhone,
-                    'created_at' => now(),
-                    'updated_at' => now(),
+                    'password'   => Hash::make($request->patientPhone),
+                    'created_at' => $now,
+                    'updated_at' => $now,
                 ]);
             } else {
                 $patientId = $patient->id;
@@ -277,33 +301,59 @@ class DoctorStaffAppointmentController extends Controller
                 }
             }
 
-            // ۴. رزرو قطعی نوبت
+            // ۵. رزرو قطعی نوبت
             DB::table('appointment_slots')
                 ->where('id', $slot->id)
                 ->update([
                     'patient_id' => $patientId,
                     'status'     => 'booked',
                     'source'     => 'secretary',
-                    'updated_at' => now(),
+                    'updated_at' => $now,
                 ]);
 
-            // ۵. پاک کردن کلید احتمالی در ردیس
+            // ۶. کسر هزینه زیرساخت از کیف پول پزشک و ثبت تراکنش
+            $newBalance = $wallet->balance - $infrastructureFee;
+
+            // ثبت سند تراکنش در جدول wallet_transactions
+            DB::table('wallet_transactions')->insert([
+                'wallet_id'     => $wallet->id,
+                'type'          => 2, // 2: Debit (برداشت)
+                'amount'        => $infrastructureFee,
+                'balance_after' => $newBalance,
+                'subject_type'  => 8, // هزینه زیرساخت ثبت نوبت حضوری
+                'subject_id'    => $slot->id,
+                'description'   => "کسر هزینه زیرساخت بابت رزرو نوبت حضوری منشی (شناسه نوبت: {$slot->id})",
+                'ip_address'    => $secretaryIp,
+                'user_agent'    => $userAgent,
+                'created_at'    => $now,
+                'updated_at'    => $now,
+            ]);
+
+            // به‌روزرسانی مانده موجودی کیف پول
+            DB::table('wallets')->where('id', $wallet->id)->update([
+                'balance'    => $newBalance,
+                'updated_at' => $now,
+            ]);
+
+            // ۷. پاک کردن کلید احتمالی در ردیس
             Redis::del($redisKey);
 
             return response()->json([
                 'success' => true,
-                'message' => 'نوبت با موفقیت ثبت شد.',
+                'message' => 'نوبت با موفقیت ثبت شد و هزینه زیرساخت کسر گردید.',
                 'data'    => [
-                    'id'           => $slot->id,
-                    'patientName'  => $request->patientName,
-                    'patientPhone' => $request->patientPhone,
-                    'date'         => $this->toShamsiDate($slot->slot_date),
-                    'time'         => substr($slot->start_time, 0, 5),
-                    'type'         => 'in_person',
-                    'status'       => 'booked',
-                    'source'       => 'secretary',
+                    'id'             => $slot->id,
+                    'patientName'    => $request->patientName,
+                    'patientPhone'   => $request->patientPhone,
+                    'date'           => $this->toShamsiDate($slot->slot_date),
+                    'time'           => substr($slot->start_time, 0, 5),
+                    'type'           => 'in_person',
+                    'status'         => 'booked',
+                    'source'         => 'secretary',
+                    'feeDeducted'    => $infrastructureFee,
+                    'walletBalance'  => $newBalance,
                 ]
-            ], 201);
+            ], Response::HTTP_CREATED);
         });
     }
 
