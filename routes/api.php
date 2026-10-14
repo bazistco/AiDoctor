@@ -52,6 +52,15 @@ Route::prefix('staff/doctor')
     ->middleware(['auth:sanctum', 'doctor_secretary'])
     ->group(function () {
         Route::get('dashboard', [DoctorStaffDashboardController::class, 'index']);
+
+        // مدیریت نوبت‌ها (منشی)
+        Route::prefix('appointments')->group(function () {
+            Route::get('/', [DoctorStaffAppointmentController::class, 'index']);
+            Route::post('/', [DoctorStaffAppointmentController::class, 'store']);
+            Route::patch('{id}/check-in', [DoctorStaffAppointmentController::class, 'checkIn']);
+            Route::patch('{id}/reschedule', [DoctorStaffAppointmentController::class, 'reschedule']);
+            Route::patch('{id}/cancel', [DoctorStaffAppointmentController::class, 'cancel']);
+        });
     });
 Route::get('/test/lab-time-check', function () {
     $labId = 64;
