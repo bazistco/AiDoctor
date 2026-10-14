@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\Staff\CenterStaffAuthController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffAppointmentController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffAuthController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffDashboardController;
+use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffScheduleController;
 use App\Services\Payment\OrderService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -54,7 +55,7 @@ Route::prefix('staff/doctor')
     ->middleware(['auth:sanctum', 'doctor_secretary'])
     ->group(function () {
         Route::get('dashboard', [DoctorStaffDashboardController::class, 'index']);
-
+        Route::get('schedule', [DoctorStaffScheduleController::class, 'index']);
         Route::prefix('appointments')->group(function () {
             Route::get('/', [DoctorStaffAppointmentController::class, 'index']);
             Route::get('available-slots', [DoctorStaffAppointmentController::class, 'getAvailableSlots']);
