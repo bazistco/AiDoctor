@@ -2,6 +2,7 @@
 
 use App\Http\Api\Controllers\Auth\AuthController;
 use App\Http\Controllers\Api\DiagnosisController;
+use App\Http\Controllers\Api\Doctor\DoctorSecretaryController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\HealthInsightController;
 use App\Http\Controllers\Api\MealPlanController;
@@ -204,6 +205,9 @@ Route::group(['prefix' => 'doctor'], function () {
     Route::post('/login', [\App\Http\Controllers\Api\Doctor\DoctorAuthController::class, 'login'])->middleware('throttle:3,1');
 
     Route::middleware(['auth:sanctum', 'user.active', 'role:doctor'])->group(function () {
+        Route::get('secretaries', [DoctorSecretaryController::class, 'index']);
+        Route::patch('secretaries/{id}/toggle-status', [DoctorSecretaryController::class, 'toggleStatus']);
+        Route::delete('secretaries/{id}', [DoctorSecretaryController::class, 'destroy']);
         Route::post('/pay-subscription-fee', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'paySubscriptionFee']);
         Route::post('/toggle-status', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'toggleStatus']);
         Route::put('/profile', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'updateProfile']);
