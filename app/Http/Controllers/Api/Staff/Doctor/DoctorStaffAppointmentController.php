@@ -69,7 +69,7 @@ class DoctorStaffAppointmentController extends Controller
                 userId: $doctorId,
                 reasonId: 2, // شارژ کیف پول
                 reasonRef: $walletId,
-                amount: $amount,
+                amount: $amount*10,
                 description: "شارژ آنلاین کیف پول پزشک توسط منشی ({$secretary->name} - #{$secretary->id})"
             );
 

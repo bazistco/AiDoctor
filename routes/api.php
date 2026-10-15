@@ -207,6 +207,7 @@ Route::group(['prefix' => 'doctor'], function () {
     Route::post('/login', [\App\Http\Controllers\Api\Doctor\DoctorAuthController::class, 'login'])->middleware('throttle:3,1');
 
     Route::middleware(['auth:sanctum', 'user.active', 'role:doctor'])->group(function () {
+        Route::post('secretaries', [DoctorSecretaryController::class, 'store']);
         Route::get('secretaries', [DoctorSecretaryController::class, 'index']);
         Route::patch('secretaries/{id}/toggle-status', [DoctorSecretaryController::class, 'toggleStatus']);
         Route::delete('secretaries/{id}', [DoctorSecretaryController::class, 'destroy']);
