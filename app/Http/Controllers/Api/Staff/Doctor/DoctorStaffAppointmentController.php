@@ -3,7 +3,10 @@
 namespace App\Http\Controllers\Api\Staff\Doctor;
 
 use App\Http\Controllers\Controller;
+use App\Services\Payment\OrderService;
+use App\Services\Payment\PaymentService;
 use Carbon\Carbon;
+use Exception;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +20,88 @@ use Symfony\Component\HttpFoundation\Response;
 
 class DoctorStaffAppointmentController extends Controller
 {
+    public function __construct(
+        private readonly OrderService $orderService,
+        private readonly PaymentService $paymentService
+    ) {}
+    public function chargeDoctorWallet(Request $request): JsonResponse
+    {
+        // ۱. دریافت شناسه پزشک از روی حساب منشی جاری
+        $secretary = $request->user();
+        $doctorId = $this->getDoctorId($secretary->id);
+
+        if (!$doctorId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'پزشک مرتبط با این حساب منشی یافت نشد.',
+            ], Response::HTTP_NOT_FOUND);
+        }
+
+        // ۲. اعتبارسنجی ورودی
+        $validated = $request->validate([
+            'amount'  => 'required|integer|min:10000',
+            'gateway' => 'nullable|string|in:saman,zarinpal',
+        ], [
+            'amount.required' => 'وارد کردن مبلغ شارژ الزامی است.',
+            'amount.min'      => 'حداقل مبلغ شارژ ۱۰,۰۰۰ تومان است.',
+        ]);
+
+        $amount = $validated['amount'];
+
+        DB::beginTransaction();
+        try {
+            // ۳. پیدا کردن یا ساختن کیف پول برای پزشک
+            $wallet = DB::table('wallets')->where('user_id', $doctorId)->first();
+
+            if ($wallet) {
+                $walletId = $wallet->id;
+            } else {
+                $walletId = DB::table('wallets')->insertGetId([
+                    'user_id'    => $doctorId,
+                    'balance'    => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            // ۴. ایجاد سفارش مالی با شناسه پزشک ($doctorId) و درج نام منشی در توضیحات
+            $orderResult = $this->orderService->createOrReuse(
+                userId: $doctorId,
+                reasonId: 2, // شارژ کیف پول
+                reasonRef: $walletId,
+                amount: $amount,
+                description: "شارژ آنلاین کیف پول پزشک توسط منشی ({$secretary->name} - #{$secretary->id})"
+            );
+
+            // ۵. ایجاد درخواست پرداخت در درگاه با شناسه پزشک
+            $callbackUrl = 'https://mediraai.com/api/pg/call_back';
+
+            $paymentResult = $this->paymentService->initiate(
+                orderId:     $orderResult['order_id'],
+                userId:      $doctorId,
+                callbackUrl: $callbackUrl
+            );
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'لینک پرداخت با موفقیت ایجاد شد.',
+                'data' => [
+                    'order_id'    => $orderResult['order_id'],
+                    'payment_id'  => $paymentResult['payment_id'],
+                    'payment_url' => $paymentResult['payment_url'],
+                ]
+            ], Response::HTTP_OK);
+
+        } catch (Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در ایجاد درخواست شارژ: ' . $e->getMessage(),
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
     protected function getDoctorId(int $secretaryUserId): ?int
     {
         return DB::table('doctor_secretaries')

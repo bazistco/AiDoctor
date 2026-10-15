@@ -59,6 +59,8 @@ Route::prefix('staff/doctor')
         Route::get('dashboard', [DoctorStaffDashboardController::class, 'index']);
         Route::get('patients', [DoctorStaffPatientController::class, 'index']);
         Route::get('schedule', [DoctorStaffScheduleController::class, 'index']);
+        Route::post('wallet/charge', [DoctorStaffAppointmentController::class, 'chargeDoctorWallet']);
+
         Route::prefix('appointments')->group(function () {
             Route::get('/', [DoctorStaffAppointmentController::class, 'index']);
             Route::get('available-slots', [DoctorStaffAppointmentController::class, 'getAvailableSlots']);
