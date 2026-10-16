@@ -1484,7 +1484,7 @@ class DiagnosisController extends Controller
                         'system_price'=>25000,
                         'id' => $doctor->id,
                         'name' => $doctor->name,
-                        'visit_price' => $doctor->visit_price, // بهتر است این مقدار هم از دیتابیس خوانده شود
+                        'visit_price' => $doctor->visit_price/10, // بهتر است این مقدار هم از دیتابیس خوانده شود
                         'rating' => $doctor->rating,
                         'image_url' => $doctor->image_url,
                         'specialty_name' => $doctor->specialty_name,
