@@ -49,7 +49,8 @@ class ReservationController extends Controller
             ], 422);
         }
 
-        $amount = 15000;
+        $doctor=DB::table('doctor_infoe')->where('user_id',$doctorId)->first();
+        $amount = $doctor->visit_price ?? 6000000;
         $roomName = "مشاوره متنی با دکتر #{$doctorId} - کاربر #{$userId}";
 
         DB::beginTransaction();
@@ -426,7 +427,7 @@ class ReservationController extends Controller
         DB::beginTransaction();
         try {
             // محاسبه مبلغ
-            $amount =  15000;
+            $amount =  250000;
 
             // ۴. آماده‌سازی اطلاعات اضافی (extra_detail)
             $extraDetail = [
@@ -507,7 +508,7 @@ class ReservationController extends Controller
                 'data'    => [
                     'order_id'          => $orderId,
                     'slot_id'           => $slotId,
-                    'amount'            => $amount,
+                    'amount'            => $amount/10,
                     'reservation_token' => $reservationToken,
                     'expires_at'        => \Carbon\Carbon::now()->addMinutes(15)->toDateTimeString(),
                     'patient_type'      => $isForOther ? 'other' : 'self',
