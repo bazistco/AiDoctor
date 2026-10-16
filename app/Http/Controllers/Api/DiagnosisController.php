@@ -1481,6 +1481,7 @@ class DiagnosisController extends Controller
                 'success' => true,
                 'data' => [
                     'doctor'          => [
+                        'system_price'=>25000,
                         'id' => $doctor->id,
                         'name' => $doctor->name,
                         'visit_price' => $doctor->visit_price, // بهتر است این مقدار هم از دیتابیس خوانده شود
