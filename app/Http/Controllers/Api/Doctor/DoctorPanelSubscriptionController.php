@@ -80,12 +80,14 @@ class DoctorPanelSubscriptionController extends Controller
                 $transactionType = 'purchase'; // از نوع خرید جدید
             }
 
+            $amount=$plan->price;
+            dd($amount);
             // ۳. ایجاد سفارش مالی (reason_id = 7) و رفرنس (شناسه اشتراک)
             $orderResult = $orderService->createOrReuse(
                 userId: $doctorId,
                 reasonId: 7,
                 reasonRef: $subId,
-                amount: $plan->price,
+                amount: $amount,
 //                amount: 15000,
                 description: "خرید/ارتقای پلن VIP - {$plan->name}"
             );
