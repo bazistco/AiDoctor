@@ -14,7 +14,11 @@ class DoctorPanelSubscriptionController extends Controller
 {
     public function getPlans()
     {
-        $plans = DB::table('doctor_plans')->where('status', 1)->orderBy('tier_level', 'asc')->get();
+        $plans = DB::table('doctor_plans')->where('status', 1)->orderBy('tier_level', 'asc')->get()
+            ->map(function ($plan) {
+                $plan->price = $plan->price / 10;
+                return $plan;
+            });
         return response()->json(['data' => $plans]);
     }
 
