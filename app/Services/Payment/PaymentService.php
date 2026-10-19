@@ -69,6 +69,10 @@ class PaymentService
             ->where('token_expires_at', '>', now())
             ->first();
 
+        if ($existing && (int) $existing->amount !== (int) $order->amount) {
+            $this->markFailed((int) $existing->id, 'مبلغ سفارش تغییر کرد؛ پرداخت قبلی باطل شد.');
+            $existing = null;
+        }
         if ($existing) {
             return [
                 'token' => $existing->token,
@@ -340,7 +344,7 @@ class PaymentService
                 $chatRoomId = (int) $order->reason_ref;
             }
             if ((int) $order->reason_id === 7 && !empty($order->reason_ref)) {
-                $subscriptionId = (int) $order->reason_ref;
+                $historyId = (int) $order->reason_ref;
             }
 
             // (5) آزمایشگاه: باید شماره صف را همینجا (قبل verify) به صورت اتمیک رزرو کنیم
@@ -528,53 +532,65 @@ class PaymentService
                     'action'  => $participantExists ? 'updated' : 'inserted'
                 ]);
             }
-            if ( $subscriptionId !== null) {
-                // الف: پیدا کردن تاریخچه معلقی که در مرحله قبل ساختیم
+            if ((int) $order->reason_id === 7 && !empty($order->reason_ref)) {
+                $historyId = (int) $order->reason_ref;
+
                 $history = DB::table('doctor_plan_purchase_histories')
-                    ->where('transaction_id', (string) $order->id)
-                    ->where('payment_status', 0) // فقط اگر در انتظار پرداخت است
+                    ->where('id', $historyId)
+                    ->lockForUpdate()
                     ->first();
 
-                if ($history) {
-                    $expiresAt = now()->addDays($history->duration_days);
+                // گارد ۱: history باید وجود داشته باشد
+                // گارد ۲: history باید متعلق به همین پزشک باشد
+                // گارد ۳: history باید payment_status = 0 باشد (یعنی معلق/پرداخت‌نشده)
+                $isValid = $history
+                    && (int) $history->doctor_id === (int) $order->user_id
+                    && (int) $history->payment_status === 0
+                    && (string) $history->transaction_id === (string) $order->id;
 
-                    // ب: آپدیت و فعال کردن (status = 1) اشتراک در جدول اصلی
+                if ($isValid) {
+                    $subscriptionId = (int) $history->subscription_id; // ← از خود history
+                    $expiresAt = now()->addDays((int) $history->duration_days);
+
                     DB::table('doctor_subscriptions')
                         ->where('id', $subscriptionId)
                         ->update([
                             'plan_id'       => $history->plan_id,
                             'paid_price'    => $history->paid_price,
                             'duration_days' => $history->duration_days,
-                            'status'        => 1, // تغییر به وضعیت فعال
+                            'status'        => 1,
                             'starts_at'     => now(),
                             'expires_at'    => $expiresAt,
                             'updated_at'    => now(),
                         ]);
 
-                    // ج: آپدیت رکورد تاریخچه به پرداخت موفق (1)
                     DB::table('doctor_plan_purchase_histories')
                         ->where('id', $history->id)
                         ->update([
-                            'payment_status'  => 1, // موفقیت‌آمیز
+                            'payment_status'  => 1,
                             'payment_gateway' => 'saman',
-                            'authority'       => $verified['ref_id'], // مرجع بانک
+                            'authority'       => $verified['ref_id'],
                             'starts_at'       => now(),
                             'expires_at'      => $expiresAt,
                             'updated_at'      => now(),
                         ]);
 
-                    Log::info('[PaymentService] VIP Plan activated successfully', [
+                    \Log::info('[PaymentService] VIP Plan activated successfully', [
                         'doctor_id'       => $order->user_id,
                         'subscription_id' => $subscriptionId,
                         'plan_id'         => $history->plan_id,
                         'order_id'        => $order->id,
+                        'history_id'      => $historyId,
                     ]);
                 } else {
-                    Log::warning('[PaymentService] Pending history not found for VIP purchase', [
-                        'order_id' => $order->id
+                    \Log::warning('[PaymentService] VIP history invalid/superseded — skipping activation', [
+                        'order_id'   => $order->id,
+                        'history_id' => $historyId,
+                        'status'     => $history->payment_status ?? 'not_found',
                     ]);
                 }
             }
+
             if ((int) $order->reason_id === 4 && !empty($order->reason_ref)) {
                 $medicalRequestId = (int) $order->reason_ref;
 

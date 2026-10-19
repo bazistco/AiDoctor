@@ -55,51 +55,48 @@ class DoctorPanelSubscriptionController extends Controller
         if (!$plan) {
             return response()->json(['success' => false, 'message' => 'پلن نامعتبر است.'], 404);
         }
-        $amount=$plan->price;
+
+        $amount = (int) $plan->price;
+        $duration = (int) ($plan->duration_days ?? 30);
+
+        // گارد ضد کلیک دوباره (۱ درخواست در هر ۳ ثانیه)
+        $lock = \Illuminate\Support\Facades\Cache::add("sub:lock:{$doctorId}", 1, 5);
+        if (! $lock) {
+            return response()->json(['success' => false, 'message' => 'درخواست شما در حال پردازش است.'], 429);
+        }
+
         DB::beginTransaction();
         try {
-            // ۲. بررسی وجود اشتراک قبلی و مدیریت آن
+            // ═══════════════════════════════════════════════════════
+            // ۲. کنسل کردن همه سفارش‌ها و پرداخت‌های معلق قبلی برای reason_id=7
+            // ═══════════════════════════════════════════════════════
+            $this->cancelPendingPlanAttempts($doctorId, $orderService);
+
+            // ═══════════════════════════════════════════════════════
+            // ۳. ایجاد/بروزرسانی اشتراک (اگر نبود ساخته می‌شود، اگر بود دست نمی‌زند)
+            // ═══════════════════════════════════════════════════════
             $existingSub = DB::table('doctor_subscriptions')->where('doctor_id', $doctorId)->first();
 
             if ($existingSub) {
-                $subId = $existingSub->id;
-                $transactionType = 'renewal'; // از نوع تمدید یا ارتقا
+                $subId = (int) $existingSub->id;
+                $transactionType = 'renewal';
             } else {
-                // اگر اشتراکی ندارد، یک اشتراک جدید ولی "غیرفعال (0)" می‌سازیم
-                $duration = $plan->duration_days ?? 30; // خواندن مدت زمان از پلن یا پیش‌فرض ۳۰ روز
-
                 $subId = DB::table('doctor_subscriptions')->insertGetId([
                     'doctor_id'     => $doctorId,
-                    'plan_id'       => $plan->id,
-                    'duration_days' => $duration, // ثبت مدت زمان
-                    'status'        => 0, // در انتظار پرداخت
-                    'expires_at'    => now()->addDays($duration), // تاریخ انقضا برای ۳۰ روز (یا مدت پلن) بعد
+                    'plan_id'       => $plan->id,      // هرچند بعداً در کالبک بازنویسی می‌شود
+                    'duration_days' => $duration,
+                    'status'        => 0,
+                    'expires_at'    => now()->addDays($duration),
                     'created_at'    => now(),
                     'updated_at'    => now(),
                 ]);
-                $transactionType = 'purchase'; // از نوع خرید جدید
+                $transactionType = 'purchase';
             }
 
-
-
-            // ۳. ایجاد سفارش مالی (reason_id = 7) و رفرنس (شناسه اشتراک)
-            $orderResult = $orderService->createOrReuse(
-                userId: $doctorId,
-                reasonId: 7,
-                reasonRef: $subId,
-                amount: 15000,
-                description: "خرید/ارتقای پلن VIP - {$plan->name}"
-            );
-
-            $orderId = $orderResult['order_id'];
-
-            // ۴. ثبت تاریخچه خرید با وضعیت در انتظار (0)
-            // برای جلوگیری از رکورد تکراری، اگر سفارشی از قبل مانده پاک می‌کنیم
-            DB::table('doctor_plan_purchase_histories')
-                ->where('transaction_id', (string)$orderId)
-                ->delete();
-
-            DB::table('doctor_plan_purchase_histories')->insert([
+            // ═══════════════════════════════════════════════════════
+            // ۴. ساخت history قبل از ساخت Order (کلید یکتا = history_id)
+            // ═══════════════════════════════════════════════════════
+            $historyId = DB::table('doctor_plan_purchase_histories')->insertGetId([
                 'doctor_id'        => $doctorId,
                 'plan_id'          => $plan->id,
                 'subscription_id'  => $subId,
@@ -107,21 +104,41 @@ class DoctorPanelSubscriptionController extends Controller
                 'plan_slug'        => $plan->slug ?? null,
                 'original_price'   => $plan->price,
                 'paid_price'       => $plan->price,
-                'duration_days'    => $plan->duration_days ?? 30,
-                'payment_status'   => 0, // وضعیت: در انتظار پرداخت
+                'duration_days'    => $duration,
+                'payment_status'   => 0, // در انتظار پرداخت
                 'transaction_type' => $transactionType,
-                'transaction_id'   => (string)$orderId, // اتصال تاریخچه به سفارش
+                'transaction_id'   => null, // بعد از ساخت order پر می‌شود
                 'created_at'       => now(),
                 'updated_at'       => now(),
             ]);
 
-            // ۵. دریافت لینک از درگاه پرداخت
-            $callbackUrl = 'https://mediraai.com/api/pg/call_back';
+            // ═══════════════════════════════════════════════════════
+            // ۵. ساخت سفارش با reason_ref = history_id (نه subscription_id)
+            // ═══════════════════════════════════════════════════════
+            $orderResult = $orderService->createOrReuse(
+                userId:    $doctorId,
+                reasonId:  7,
+                reasonRef: $historyId,      // ← مهم‌ترین تغییر
+                amount:    $amount,
+                description: "خرید/ارتقای پلن VIP - {$plan->name}"
+            );
 
+            $orderId = (int) $orderResult['order_id'];
+
+            DB::table('doctor_plan_purchase_histories')
+                ->where('id', $historyId)
+                ->update([
+                    'transaction_id' => (string) $orderId,
+                    'updated_at'     => now(),
+                ]);
+
+            // ═══════════════════════════════════════════════════════
+            // ۶. دریافت لینک پرداخت
+            // ═══════════════════════════════════════════════════════
             $paymentResult = $paymentService->initiate(
                 orderId:     $orderId,
                 userId:      $doctorId,
-                callbackUrl: $callbackUrl
+                callbackUrl: 'https://mediraai.com/api/pg/call_back'
             );
 
             DB::commit();
@@ -134,10 +151,11 @@ class DoctorPanelSubscriptionController extends Controller
                     'payment_id'  => $paymentResult['payment_id'],
                     'payment_url' => $paymentResult['payment_url'],
                 ]
-            ], 200);
+            ]);
 
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
+            \Illuminate\Support\Facades\Cache::forget("sub:lock:{$doctorId}");
             return response()->json([
                 'success' => false,
                 'message' => 'خطا در ایجاد سفارش پلن: ' . $e->getMessage()
@@ -145,5 +163,57 @@ class DoctorPanelSubscriptionController extends Controller
         }
     }
 
+    private function cancelPendingPlanAttempts(int $doctorId, OrderService $orderService): void
+    {
+        // ۱. همه سفارش‌های معلق reason_id=7 این پزشک را پیدا می‌کنیم
+        $pendingOrders = DB::table('orders')
+            ->where('user_id', $doctorId)
+            ->where('reason_id', 7)
+            ->where('status', OrderService::STATUS_PENDING)
+            ->get(['id', 'reason_ref']);
+
+        if ($pendingOrders->isEmpty()) {
+            return; // چیزی برای کنسل کردن نیست
+        }
+
+        foreach ($pendingOrders as $order) {
+            // ۲. پرداخت‌های معلق مربوط به این سفارش را FAIL می‌کنیم
+            DB::table('payments')
+                ->where('order_id', $order->id)
+                ->where('status', PaymentService::PAY_PENDING)
+                ->update([
+                    'status'     => PaymentService::PAY_FAILED,
+                    'last_error' => 'سفارش قبلی توسط درخواست جدید لغو شد.',
+                    'updated_at' => now(),
+                ]);
+
+            // ۳. تاریخچه‌ی معلق متصل به این سفارش راکنسل می‌کنیم تا در کالبک دوباره فعال نشود
+            DB::table('doctor_plan_purchase_histories')
+                ->where('transaction_id', (string) $order->id)
+                ->where('payment_status', 0)
+                ->update([
+                    'payment_status' => 3, // 3 = لغو شده
+                    'updated_at'     => now(),
+                ]);
+
+            // ۴. خود سفارش را از طریق State Machine به CANCELLED می‌بریم
+            // (transition خودش تراکنش لازم ندارد، اما اینجا داخل تراکنش subscribe هستیم)
+            try {
+                $orderService->transition(
+                    (int) $order->id,
+                    OrderService::STATUS_CANCELLED
+                );
+            } catch (\Throwable $e) {
+                // اگر State Machine اجازه نداد، حداقل مستقیم ست کنیم
+                DB::table('orders')
+                    ->where('id', $order->id)
+                    ->where('status', OrderService::STATUS_PENDING)
+                    ->update([
+                        'status'      => OrderService::STATUS_CANCELLED,
+                        'updated_at'  => now(),
+                    ]);
+            }
+        }
+    }
 
 }
