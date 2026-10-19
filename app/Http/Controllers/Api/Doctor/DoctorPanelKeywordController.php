@@ -35,9 +35,9 @@ class DoctorPanelKeywordController extends Controller
         // درج کلمه کلیدی جدید با مقادیر پیش‌فرضی که درخواست دادید
         $insertData = [
             'word' => $word,
-            'base_click_tariff' => 100.00,
-            'base_impression_tariff' => 1000.00,
-            'base_price' => 50000.00,
+            'base_click_tariff' => 200000.00,
+            'base_impression_tariff' => 20000.00,
+            'base_price' => 500000.00,
             'specialty_id' => $specialtyId,
             'search_volume' => 0,
             'created_at' => now(),
@@ -93,6 +93,12 @@ class DoctorPanelKeywordController extends Controller
         });
 
         $keywords = $query->orderBy('word', 'asc')->paginate(20);
+        $keywords->getCollection()->transform(function ($item) {
+            $item->base_price             = $item->base_price / 10;
+            $item->base_impression_tariff = $item->base_impression_tariff / 10;
+            $item->base_click_tariff      = $item->base_click_tariff / 10;
+            return $item;
+        });
 
         return response()->json([
             'status' => 'success',
@@ -122,8 +128,8 @@ class DoctorPanelKeywordController extends Controller
                 'dks.id',
                 'dks.keyword_id',
                 'k.word as keyword_name',
-                'k.base_click_tariff',       // برای محاسبه نیاز داریم
-                'k.base_impression_tariff',  // برای محاسبه نیاز داریم
+                DB::raw('k.base_click_tariff / 10 as base_click_tariff'),
+                DB::raw('k.base_impression_tariff / 10 as base_impression_tariff'),
                 DB::raw("IF(dks.is_active = 1, 'active', 'paused') as status"),
                 'dks.tier_level',
                 'dks.expires_at',
