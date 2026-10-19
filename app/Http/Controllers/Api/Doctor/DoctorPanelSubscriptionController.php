@@ -87,7 +87,7 @@ class DoctorPanelSubscriptionController extends Controller
                 userId: $doctorId,
                 reasonId: 7,
                 reasonRef: $subId,
-                amount: $amount,
+                amount: 15000,
                 description: "خرید/ارتقای پلن VIP - {$plan->name}"
             );
 
