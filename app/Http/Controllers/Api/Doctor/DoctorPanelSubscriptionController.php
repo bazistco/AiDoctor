@@ -56,7 +56,6 @@ class DoctorPanelSubscriptionController extends Controller
             return response()->json(['success' => false, 'message' => 'پلن نامعتبر است.'], 404);
         }
         $amount=$plan->price;
-        return response()->json(['success' => true, 'amount' => $amount, 'plan' => $plan]);
         DB::beginTransaction();
         try {
             // ۲. بررسی وجود اشتراک قبلی و مدیریت آن
@@ -89,7 +88,6 @@ class DoctorPanelSubscriptionController extends Controller
                 reasonId: 7,
                 reasonRef: $subId,
                 amount: $amount,
-//                amount: 15000,
                 description: "خرید/ارتقای پلن VIP - {$plan->name}"
             );
 
