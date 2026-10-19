@@ -145,7 +145,7 @@ class UserOrderController extends Controller
             ->select(
                 'sa.id',
                 'sa.status',
-                'sa.price',
+                DB::raw('sa.price / 10 as price'),
                 'sa.slot_date as created_at',
                 'di.name',
                 's.name as detail',
