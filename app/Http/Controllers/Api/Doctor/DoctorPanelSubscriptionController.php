@@ -55,7 +55,8 @@ class DoctorPanelSubscriptionController extends Controller
         if (!$plan) {
             return response()->json(['success' => false, 'message' => 'پلن نامعتبر است.'], 404);
         }
-
+        $amount=$plan->price;
+        return response()->json(['success' => true, 'amount' => $amount, 'plan' => $plan]);
         DB::beginTransaction();
         try {
             // ۲. بررسی وجود اشتراک قبلی و مدیریت آن
@@ -80,8 +81,8 @@ class DoctorPanelSubscriptionController extends Controller
                 $transactionType = 'purchase'; // از نوع خرید جدید
             }
 
-            $amount=$plan->price;
-            dd($amount);
+
+
             // ۳. ایجاد سفارش مالی (reason_id = 7) و رفرنس (شناسه اشتراک)
             $orderResult = $orderService->createOrReuse(
                 userId: $doctorId,
