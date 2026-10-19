@@ -310,7 +310,7 @@ class DoctorProfileController extends Controller
             return response()->json(['success' => false, 'message' => 'شما قبلاً حق اشتراک را پرداخت کرده‌اید.'], 400);
         }
 
-        $feeAmount = 15000; // مبلغ حق اشتراک ورود به سیستم (مثلاً ۲۵۰ هزار تومان)
+        $feeAmount = 8990000; // مبلغ حق اشتراک ورود به سیستم (مثلاً ۲۵۰ هزار تومان)
 
         DB::beginTransaction();
         try {
