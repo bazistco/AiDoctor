@@ -30,7 +30,7 @@ use App\Http\Controllers\Api\MedicalServiceProviderController;
 use App\Http\Controllers\Api\Admin\AdminServiceController;
 use Kavenegar\KavenegarApi;
 use Illuminate\Support\Facades\Redis;
-Route::post('/cron/cancel-expired-orders', [UserOrderController::class, 'cancelExpiredPendingOrders']);
+Route::get('/cron/cancel-expired-orders', [UserOrderController::class, 'cancelExpiredPendingOrders']);
 
 
 Route::middleware(['auth:sanctum', 'center.staff:medical_center'])->prefix('staff/lab')->group(function () {
