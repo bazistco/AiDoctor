@@ -173,7 +173,7 @@ class LabRequestController extends Controller
                 'ulr.id as request_id',
                 'ulr.visit_type',
                 'ulr.status as request_status',
-                'ulr.total_price',
+                DB::raw('ulr.total_price / 10 as total_price'),
                 'ulr.created_at as request_date',
                 'u.id as user_id',
                 'u.name as user_name',
@@ -215,7 +215,7 @@ class LabRequestController extends Controller
                     'lrtp.lab_request_id',
                     'tp.id as test_pack_id',
                     'tp.name as test_name',
-                    'lt.price as test_price'
+                    DB::raw('lt.price / 10 as test_price')
                 )
                 ->get()
                 ->groupBy('lab_request_id');
@@ -325,7 +325,7 @@ class LabRequestController extends Controller
             return [
                 'test_pack_id' => $test->test_pack_id,
                 'name'         => $test->name,
-                'price'        => $test->price,
+                'price'        => $test->price/10,
                 'result_file'  => $resultFileUrl,
             ];
         });
@@ -381,7 +381,10 @@ class LabRequestController extends Controller
             'prescriptionCode' => $prescriptionCode,
             'prescriptionFiles' => $files,
             'tests' => $processedTests,
-            'totalPrice' => $labRequest->total_price ?? $tests->sum('price'),
+            'totalPrice' => isset($labRequest->total_price)
+                ? $labRequest->total_price / 10
+                : $tests->sum('price') / 10,
+
         ];
 
         return $this->success($data);
@@ -686,7 +689,7 @@ class LabRequestController extends Controller
         $tests = DB::table('labs_tests as lt')
             ->join('test_packs as tp', 'tp.id', '=', 'lt.test_pack_id')
             ->where('lt.lab_id', $labId)
-            ->select('lt.id as lab_test_id', 'tp.name', 'lt.price')
+            ->select('lt.id as lab_test_id', 'tp.name',  DB::raw('lt.price / 10 as price'))
             ->get();
 
         return $this->success($tests);
@@ -755,7 +758,7 @@ class LabRequestController extends Controller
                 userId: $labRequest->user_id, // شناسه کاربری که درخواست را داده است (بیمار)
                 reasonId: 5,
                 reasonRef: $id, // شناسه درخواست آزمایشگاه
-                amount: 15000,
+                amount: $totalPrice,
                 description: "پرداخت فاکتور آزمایشگاه - درخواست #{$id}",
                 providerId: $labId,
             );
@@ -763,7 +766,7 @@ class LabRequestController extends Controller
             DB::commit();
 
             return $this->success([
-                'total_price' => $totalPrice
+                'total_price' => $totalPrice/10
             ], 'آزمایش‌ها با موفقیت ثبت و هزینه جهت پرداخت برای کاربر ارسال شد.');
 
         } catch (\Exception $e) {
