@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -271,6 +272,105 @@ class UserOrderController extends Controller
                 'count_nurse'    => $countNurse,
                 'count_chat'     => $count_chat,
             ]
+        ]);
+    }
+    public function cancelExpiredPendingOrders()
+    {
+        $thresholdTime = Carbon::now()->subMinutes(30);
+
+        $results = [
+            'pharmacy' => 0,
+            'lab'      => 0,
+            'nurse'    => 0,
+            'orders'   => 0,
+        ];
+
+        DB::transaction(function () use ($thresholdTime, &$results) {
+            // ۱. آزمایشگاه: وضعیت ۱ (در انتظار پرداخت) -> تغییر به ۶ (لغو شده)
+            $expiredLabIds = DB::table('users_labs_requests')
+                ->where('status', 1)
+                ->where('created_at', '<=', $thresholdTime)
+                ->pluck('id')
+                ->toArray();
+
+            if (!empty($expiredLabIds)) {
+                $results['lab'] = DB::table('users_labs_requests')
+                    ->whereIn('id', $expiredLabIds)
+                    ->update([
+                        'status'     => 6,
+                        'updated_at' => Carbon::now(),
+                    ]);
+
+                // لغو سفارش‌های متناظر در جدول orders (reason_id = 5)
+                $results['orders'] += DB::table('doctor.orders')
+                    ->where('reason_id', 5)
+                    ->whereIn('reason_ref', array_map('strval', $expiredLabIds))
+                    ->where('status', 1)
+                    ->update([
+                        'status'     => 3, // وضعیت لغو/منقضی سفارش (بر اساس استانداردهای سیستم معمولاً 3)
+                        'updated_at' => Carbon::now(),
+                    ]);
+            }
+
+            // ۲. داروخانه: وضعیت ۱ (در انتظار پرداخت) -> تغییر به ۷ (لغو شده)
+            $expiredPharmacyIds = DB::table('users_pharmacy_requests')
+                ->where('status', 1)
+                ->where('created_at', '<=', $thresholdTime)
+                ->pluck('id')
+                ->toArray();
+
+            if (!empty($expiredPharmacyIds)) {
+                $results['pharmacy'] = DB::table('users_pharmacy_requests')
+                    ->whereIn('id', $expiredPharmacyIds)
+                    ->update([
+                        'status'     => 7,
+                        'updated_at' => Carbon::now(),
+                    ]);
+
+                // لغو سفارش‌های متناظر در جدول orders (reason_id = 6)
+                $results['orders'] += DB::table('doctor.orders')
+                    ->where('reason_id', 6)
+                    ->whereIn('reason_ref', array_map('strval', $expiredPharmacyIds))
+                    ->where('status', 1)
+                    ->update([
+                        'status'     => 3,
+                        'updated_at' => Carbon::now(),
+                    ]);
+            }
+
+            // ۳. مراکز درمانی / پرستاری: وضعیت ۰ (در انتظار پرداخت) -> تغییر به ۵ (لغو شده)
+            $expiredNurseIds = DB::table('user_medical_center_requests')
+                ->where('status', 0)
+                ->where('created_at', '<=', $thresholdTime)
+                ->pluck('id')
+                ->toArray();
+
+            if (!empty($expiredNurseIds)) {
+                $results['nurse'] = DB::table('user_medical_center_requests')
+                    ->whereIn('id', $expiredNurseIds)
+                    ->update([
+                        'status'     => 5,
+                        'updated_at' => Carbon::now(),
+                    ]);
+
+                // لغو سفارش‌های متناظر در جدول orders (reason_id = 4)
+                $results['orders'] += DB::table('doctor.orders')
+                    ->where('reason_id', 4)
+                    ->whereIn('reason_ref', array_map('strval', $expiredNurseIds))
+                    ->where('status', 1)
+                    ->update([
+                        'status'     => 3,
+                        'updated_at' => Carbon::now(),
+                    ]);
+            }
+        });
+
+        Log::info('Expired requests cleanup executed', $results);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'درخواست‌های منقضی شده با موفقیت بررسی و لغو شدند.',
+            'data'    => $results,
         ]);
     }
 
