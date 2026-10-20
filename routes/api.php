@@ -4,8 +4,6 @@ use App\Http\Api\Controllers\Auth\AuthController;
 use App\Http\Controllers\Api\DiagnosisController;
 use App\Http\Controllers\Api\Doctor\DoctorSecretaryController;
 use App\Http\Controllers\Api\HealthController;
-use App\Http\Controllers\Api\HealthInsightController;
-use App\Http\Controllers\Api\MealPlanController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaymentGatewayController;
 use App\Http\Controllers\Api\Staff\CenterStaffAuthController;
@@ -14,6 +12,7 @@ use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffAuthController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffDashboardController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffPatientController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffScheduleController;
+use App\Http\Controllers\Api\UserOrderController;
 use App\Services\Payment\OrderService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -31,6 +30,7 @@ use App\Http\Controllers\Api\MedicalServiceProviderController;
 use App\Http\Controllers\Api\Admin\AdminServiceController;
 use Kavenegar\KavenegarApi;
 use Illuminate\Support\Facades\Redis;
+Route::post('/cron/orders/cancel-expired', [UserOrderController::class, 'cancelExpiredPendingOrders']);
 
 
 Route::middleware(['auth:sanctum', 'center.staff:medical_center'])->prefix('staff/lab')->group(function () {
