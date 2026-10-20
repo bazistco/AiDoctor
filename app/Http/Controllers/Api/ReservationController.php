@@ -49,7 +49,7 @@ class ReservationController extends Controller
             ], 422);
         }
 
-        $doctor=DB::table('doctor_infoe')->where('user_id',$doctorId)->first();
+        $doctor=DB::table('doctor_info')->where('user_id',$doctorId)->first();
         $amount = $doctor->visit_price ?? 6000000;
         $roomName = "مشاوره متنی با دکتر #{$doctorId} - کاربر #{$userId}";
 
