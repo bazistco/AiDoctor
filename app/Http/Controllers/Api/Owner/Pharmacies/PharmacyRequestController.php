@@ -38,7 +38,13 @@ class PharmacyRequestController extends Controller
             $query->where('users_pharmacy_requests.status', $request->input('status'));
         }
 
-        $requests = $query->get();
+        $requests = $query->get()->map(function ($item) {
+
+            if (isset($item->total_price)) {
+                $item->total_price = $item->total_price / 10;
+            }
+            return $item;
+        });
 
         return response()->json(['status' => 'success', 'data' => $requests]);
     }
@@ -75,7 +81,9 @@ class PharmacyRequestController extends Controller
         if (!$pharmacyRequest) {
             return response()->json(['status' => 'error', 'message' => 'درخواست یافت نشد.'], 404);
         }
-
+        if (isset($pharmacyRequest->total_price)) {
+            $pharmacyRequest->total_price = $pharmacyRequest->total_price / 10;
+        }
         // اقلام درخواست با join روی pharmacy_medicines و medicines
         $items = DB::table('user_pharmacy_request_medicines as uprm')
             ->join('pharmacy_medicines as pm', 'uprm.pharmacy_medicine_id', '=', 'pm.id')
@@ -86,8 +94,8 @@ class PharmacyRequestController extends Controller
                 'uprm.id',
                 'pm.medicine_id',
                 'uprm.quantity',
-                'uprm.price',
-                DB::raw('(uprm.quantity * uprm.price) as total_price'),
+                DB::raw('uprm.price / 10 as price'),
+                DB::raw('(uprm.quantity * uprm.price * 10) as total_price'),
                 'medicines.name as medicine_name',
                 DB::raw("COALESCE(medicine_types.name, '-') as medicine_type_name"),
                 DB::raw("COALESCE(pm.unit, 'عدد') as unit")
@@ -234,7 +242,7 @@ class PharmacyRequestController extends Controller
                 'medicine_id'      => $medicineId,
                 'medicine_type_id' => 1,             // نوع پیش‌فرض (مثلاً قرص)
                 'unit'             => $unit,
-                'price_per_unit'   => $price,
+                'price_per_unit'   => $price*10,
                 'status'           => 1,
                 'created_at'       => now(),
                 'updated_at'       => now(),
@@ -245,7 +253,7 @@ class PharmacyRequestController extends Controller
             DB::table('pharmacy_medicines')
                 ->where('id', $pharmacyMedicineId)
                 ->update([
-                    'price_per_unit' => $price,
+                    'price_per_unit' => $price*10,
                     'unit'           => $unit,
                     'updated_at'     => now()
                 ]);
@@ -256,7 +264,7 @@ class PharmacyRequestController extends Controller
             'user_pharmacy_request_id' => $id,
             'pharmacy_medicine_id'     => $pharmacyMedicineId,
             'quantity'                 => $qty,
-            'price'                    => $price,
+            'price'                    => $price*10,
             'created_at'               => now(),
             'updated_at'               => now(),
         ]);
@@ -310,7 +318,7 @@ class PharmacyRequestController extends Controller
                 'medicines.name',
                 'medicines.generic_name',
                 'medicines.slug',
-                'medicines.base_price',
+                DB::raw('medicines.base_price / 10 as base_price'),
                 'pharmacy_medicines.id as pharmacy_medicine_id',
                 'pharmacy_medicines.price_per_unit as pharmacy_price',
                 'pharmacy_medicines.unit as pharmacy_unit'
@@ -380,7 +388,7 @@ class PharmacyRequestController extends Controller
                 userId: $pharmacyRequest->user_id, // شناسه بیماری که درخواست را ثبت کرده
                 reasonId: 6,                       // دلیل 6: پرداخت فاکتور داروخانه
                 reasonRef: $id,                    // متصل به شناسه درخواست داروخانه
-                amount: 15000,
+                amount: $pharmacyRequest->total_price,
                 description: "پرداخت فاکتور داروخانه - درخواست #{$id}",
                 providerId: $pharmacyId
             );
