@@ -30,7 +30,7 @@ class LabTestController extends Controller
         $query = DB::table('labs_tests as lt')
             ->join('test_packs as tp', 'tp.id', '=', 'lt.test_pack_id')
             ->where('lt.lab_id', $labId)
-            ->select('lt.id', 'lt.test_pack_id', 'lt.price', 'lt.status', 'lt.description', 'tp.name as test_pack_name');
+            ->select('lt.id', 'lt.test_pack_id', DB::raw('lt.price / 10 as price'), 'lt.status', 'lt.description', 'tp.name as test_pack_name');
 
         if (!is_null($request->query('status'))) {
             $query->where('lt.status', $request->query('status'));
@@ -49,7 +49,7 @@ class LabTestController extends Controller
             ->join('test_packs as tp', 'tp.id', '=', 'lt.test_pack_id')
             ->where('lt.lab_id', $labId)
             ->where('lt.id', $id)
-            ->select('lt.id', 'lt.test_pack_id', 'lt.price', 'lt.status', 'lt.description', 'tp.name as test_pack_name')
+            ->select('lt.id', 'lt.test_pack_id', DB::raw('lt.price / 10 as price'), 'lt.status', 'lt.description', 'tp.name as test_pack_name')
             ->first();
 
         if (!$test) {
@@ -87,7 +87,7 @@ class LabTestController extends Controller
         }
 
         $data['lab_id'] = $labId;
-
+        $data['price'] = $data['price'] * 10;
         $id = DB::table('labs_tests')->insertGetId($data);
 
         return $this->success(['id' => $id], 'آزمایش اضافه شد', 201);
@@ -113,6 +113,7 @@ class LabTestController extends Controller
         if ($validator->fails()) {
             return $this->error('داده‌های ورودی نامعتبر است', 422, $validator->errors());
         }
+        $data = $validator->validated();
         if (isset($data['test_pack_id'])) {
             $duplicate = DB::table('labs_tests')
                 ->where('lab_id', $labId)
@@ -124,9 +125,11 @@ class LabTestController extends Controller
                 return $this->error('این آزمایش قبلاً ثبت شده است', 409);
             }
         }
-
+        if (isset($data['price'])) {
+            $data['price'] = $data['price'] * 10;
+        }
         DB::table('labs_tests')->where('id', $id)->where('lab_id', $labId)
-            ->update($validator->validated());
+            ->update($data);
 
         return $this->success(null, 'بروزرسانی شد');
     }
