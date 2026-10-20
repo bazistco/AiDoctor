@@ -168,7 +168,7 @@ class UserOrderController extends Controller
             ->select(
                 'ulr.id',
                 'ulr.status',
-                'ulr.total_price as price',
+                DB::raw('ulr.total_price / 10 as price'),
                 'ulr.created_at',
                 'li.name',
                 DB::raw("IF(ulr.visit_type = 0, 'حضوری', 'در منزل') as detail"),
@@ -189,7 +189,7 @@ class UserOrderController extends Controller
             ->select(
                 'upr.id',
                 'upr.status',
-                'upr.total_price as price',
+                DB::raw('upr.total_price/ 10 as price'),
                 'upr.created_at',
                 'pi.name',
                 DB::raw("'-' as detail"),
