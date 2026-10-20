@@ -134,8 +134,8 @@ class UserPharmacyRequestController extends Controller
                 'uprm.id',
                 'm.name as medicine_name',
                 'uprm.quantity',
-                'uprm.price as unit_price',
-                DB::raw('(uprm.quantity * uprm.price) as total_price'),
+                DB::raw('uprm.price / 10 as unit_price'),
+                DB::raw('(uprm.quantity * uprm.price) / 10 as total_price'),
                 'pm.unit'
             )
             ->get();
@@ -146,7 +146,7 @@ class UserPharmacyRequestController extends Controller
                 'id' => $request->id,
                 'status' => $request->status,
                 'status_label' => $this->statusLabel($request->status),
-                'total_price' => $request->total_price,
+                'total_price' => $request->total_price/10,
                 'created_at' => $request->created_at,
                 'pharmacy_name' => DB::table('pharmacies_info')->where('user_id', $request->pharmacy_id)->value('name'),
                 'medicines' => $items,
