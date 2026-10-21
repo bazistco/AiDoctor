@@ -164,7 +164,7 @@ class MedicalRequestController extends Controller
                     )
                     ->get();
 
-                $center->recentReviews = DB::table('reviews as r')
+                $center->recent_reviews = DB::table('reviews as r')
                     ->leftJoin('users as ru', 'ru.id', '=', 'r.user_id')
                     ->where('r.provider_id', $center->id)
                      ->where('r.order_type', 'nurse')
@@ -173,7 +173,7 @@ class MedicalRequestController extends Controller
                     ->select([
                         DB::raw('COALESCE(ru.name , "کاربر") as author'),
                         'r.rating',
-                        'r.text',
+                        'r.comment as text',
                         'r.created_at as date',
                     ])
                     ->get();
