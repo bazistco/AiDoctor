@@ -135,8 +135,19 @@ class MedicalCenterServiceController extends Controller
                 'status' => $request->active,
                 'updated_at' => now(),
             ], fn($v) => $v !== null));
+        $service = DB::table('medical_center_services')
+            ->join('medical_services', 'medical_center_services.medical_service_id', '=', 'medical_services.id')
+            ->where('medical_center_services.medical_center_id', auth()->user()->id)
+            ->where('medical_center_services.id', $id)
+            ->select(
+                'medical_center_services.*',
+                'medical_services.name as service_name',
+                'medical_services.slug as service_slug'
+            )
+            ->first();
 
-        return $this->success(null, 'خدمت بروزرسانی شد');
+        $service->price = (int) ($service->price / 10);
+        return $this->success($service, 'خدمت بروزرسانی شد');
     }
 
     public function destroy(Request $request, int $id)
