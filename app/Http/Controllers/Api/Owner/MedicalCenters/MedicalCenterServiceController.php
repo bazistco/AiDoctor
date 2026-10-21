@@ -129,7 +129,6 @@ class MedicalCenterServiceController extends Controller
             ->where('id', $id)
             ->where('medical_center_id', auth()->user()->id)
             ->update(array_filter([
-                'medical_service_id' => $request->medical_service_id,
                 'description' => $request->description,
                 'price' => $request->price*10,
                 'date' => $request->date,
