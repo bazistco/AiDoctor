@@ -171,7 +171,7 @@ class MedicalRequestController extends Controller
                     ->orderByDesc('r.id')
                     ->limit(5)
                     ->select([
-                        DB::raw('COALESCE(ru.name "کاربر") as name'),
+                        DB::raw('COALESCE(ru.name , "کاربر") as name'),
                         'r.rating',
                         'r.comment',
                         'r.created_at as date',
