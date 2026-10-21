@@ -164,16 +164,16 @@ class MedicalRequestController extends Controller
                     )
                     ->get();
 
-                $center->recent_reviews = DB::table('reviews as r')
+                $center->recentReviews = DB::table('reviews as r')
                     ->leftJoin('users as ru', 'ru.id', '=', 'r.user_id')
                     ->where('r.provider_id', $center->id)
                      ->where('r.order_type', 'nurse')
                     ->orderByDesc('r.id')
                     ->limit(5)
                     ->select([
-                        DB::raw('COALESCE(ru.name , "کاربر") as name'),
+                        DB::raw('COALESCE(ru.name , "کاربر") as author'),
                         'r.rating',
-                        'r.comment',
+                        'r.text',
                         'r.created_at as date',
                     ])
                     ->get();
@@ -181,7 +181,7 @@ class MedicalRequestController extends Controller
                 $center->hours = $center->work_hours ?? '-';
 
                 $center->rating = $center->rating !== null ? (float) $center->rating : null;
-                $center->reviews_count = (int) $center->reviews_count;
+                $center->reviews= (int) $center->reviews_count;
                 $center->total_estimated_price = (int) $center->total_estimated_price;
 
                 return $center;
