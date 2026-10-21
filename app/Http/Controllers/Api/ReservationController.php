@@ -25,9 +25,125 @@ class ReservationController extends Controller
         private readonly PaymentService $paymentService,
         private readonly OrderService $orderService
     ) {}
+//    public function reserveChat(Request $request)
+//    {
+//        $active_chat=false;
+//        $validator = Validator::make($request->all(), [
+//            'doctor_id' => 'required|integer|exists:users,id',
+//        ]);
+//
+//        if ($validator->fails()) {
+//            return response()->json([
+//                'success' => false,
+//                'errors' => $validator->errors()
+//            ], 422);
+//        }
+//
+//        $userId = $request->user()->id;
+//        $doctorId = $request->doctor_id;
+//        if (!$active_chat) {
+//            return response()->json([
+//                'success' => false,
+//                'message' => 'امکان مشاوره متنی این پزشک  غیر فعال است'
+//            ], 422);
+//        }
+//        // بررسی فعال بودن پزشک
+//        if (method_exists($this, 'isDoctorActive') && !$this->isDoctorActive($doctorId)) {
+//            return response()->json([
+//                'success' => false,
+//                'message' => 'پزشک مورد نظر در حال حاضر غیرفعال است و امکان رزرو چت وجود ندارد'
+//            ], 422);
+//        }
+//
+//        $doctor=DB::table('doctor_info')->where('user_id',$doctorId)->first();
+//        $amount = $doctor->visit_price ?? 6000000;
+//        $roomName = "مشاوره متنی با دکتر #{$doctorId} - کاربر #{$userId}";
+//
+//        DB::beginTransaction();
+//        try {
+//
+//            // ۱. پیدا کردن اتاق چت بر اساس نام یکتا
+//            $existingRoom = DB::table('chat_rooms')
+//                ->where('name', $roomName)
+//                ->first();
+//
+//            if ($existingRoom) {
+//                $roomId = $existingRoom->id;
+//
+//                // بررسی حضور بیمار در اتاق و وضعیت چت او
+//                $userParticipant = DB::table('room_participants')
+//                    ->where('room_id', $roomId)
+//                    ->where('user_id', $userId)
+//                    ->first();
+//
+//                // اگر بیمار در اتاق وجود داشت و وضعیت او 0 نبود، یعنی چت فعال است و نیازی به پرداخت نیست
+//                if ($userParticipant && $userParticipant->status != 0) {
+//                    DB::rollBack(); // تراکنش را می‌بندیم چون نیازی به تغییر دیتابیس نبود
+//
+//                    return response()->json([
+//                        'success' => true,
+//                        'message' => 'شما یک مشاوره متنی فعال با این پزشک دارید.',
+//                        'data' => [
+//                            'room_id' => $roomId,
+//                            'is_active' => true // فلگ برای فرانت‌اند که بداند نباید به درگاه برود
+//                        ]
+//                    ], 200);
+//                }
+//
+//            } else {
+//                // ساخت اتاق جدید
+//                $roomId = DB::table('chat_rooms')->insertGetId([
+//                    'name' => $roomName,
+//                    'created_at' => now(),
+//                    'updated_at' => now()
+//                ]);
+//
+//                // فقط پزشک را در این مرحله به اتاق اضافه می‌کنیم
+//                DB::table('room_participants')->insert([
+//                    [
+//                        'room_id' => $roomId,
+//                        'user_id' => $doctorId,
+//                        'joined_at' => now(),
+//                        'created_at' => now(),
+//                        'updated_at' => now()
+//                    ]
+//                ]);
+//            }
+//
+//            // ۲. ایجاد یا بازیابی سفارش مالی (چون چت فعال نیست یا بیمار هنوز اضافه نشده)
+//            $orderResult = $this->orderService->createOrReuse(
+//                userId: $userId,
+//                reasonId: 3, // 3 = مشاوره متنی (Chat)
+//                reasonRef: $roomId,
+//                amount: $amount,
+//                description: "هزینه مشاوره متنی با دکتر #{$doctorId}",
+//                providerId: $doctorId
+//            );
+//
+//            DB::commit();
+//
+//            return response()->json([
+//                'success' => true,
+//                'message' => 'اتاق چت و سفارش با موفقیت ایجاد شد.',
+//                'data' => [
+//                    'room_id' => $roomId,
+//                    'order_id' => $orderResult['order_id'],
+//                    'amount' => $orderResult['amount'],
+//                    'is_active' => false // یعنی نیاز به پرداخت دارد
+//                ]
+//            ], 201);
+//
+//        } catch (\Exception $e) {
+//            DB::rollBack();
+//            return response()->json([
+//                'success' => false,
+//                'message' => 'خطا در بررسی/ایجاد اتاق و سفارش چت: ' . $e->getMessage()
+//            ], 500);
+//        }
+//    }
     public function reserveChat(Request $request)
     {
-        $active_chat=false;
+        $active_chat = false;
         $validator = Validator::make($request->all(), [
             'doctor_id' => 'required|integer|exists:users,id',
         ]);
@@ -40,11 +156,12 @@ class ReservationController extends Controller
         }
 
         $userId = $request->user()->id;
-        $doctorId = $request->doctor_id;
+        $doctorId = (int) $request->doctor_id;
+
         if (!$active_chat) {
             return response()->json([
                 'success' => false,
-                'message' => 'امکان مشاوره متنی این پزشک  غیر فعال است'
+                'message' => 'امکان مشاوره متنی این پزشک غیر فعال است'
             ], 422);
         }
         // بررسی فعال بودن پزشک
@@ -55,13 +172,41 @@ class ReservationController extends Controller
             ], 422);
         }
 
-        $doctor=DB::table('doctor_info')->where('user_id',$doctorId)->first();
+        /*
+        |--------------------------------------------------------------------------
+        | بررسی وجود سفارش معلق/باز (Status = 1) قبل از هرگونه ساخت اتاق یا سفارش جدید
+        |--------------------------------------------------------------------------
+        */
+        $pendingOrder = DB::table('orders')
+            ->where('user_id', $userId)
+            ->where('provider_id', $doctorId) // در صورتی که ملاک فقط همین پزشک است
+            ->where('reason_id', 3)            // 3 = مشاوره متنی (Chat)
+            ->where('status', 1)               // 1 = در انتظار پرداخت / تعیین‌تکلیف
+            ->first();
+
+        if ($pendingOrder) {
+            return response()->json([
+                'success' => false,
+                'message' => 'شما یک سفارش در انتظار پرداخت برای مشاوره متنی با این پزشک دارید. لطفاً ابتدا از صفحه سفارشات وضعیت آن را تعیین تکلیف فرمایید.',
+                'data' => [
+                    'order_id' => $pendingOrder->id,
+                    'amount'   => $pendingOrder->amount ?? null
+                ]
+            ], 400);
+        }
+
+        $doctor = DB::table('doctor_info')->where('user_id', $doctorId)->first();
         $amount = $doctor->visit_price ?? 6000000;
         $roomName = "مشاوره متنی با دکتر #{$doctorId} - کاربر #{$userId}";
 
         DB::beginTransaction();
         try {
 
+            /*
+            |--------------------------------------------------------------------------
+            | بخش بررسی وجود اتاق چت و وضعیت فعال بودن آن (موقت کامنت شده است)
+            |--------------------------------------------------------------------------
+            |
             // ۱. پیدا کردن اتاق چت بر اساس نام یکتا
             $existingRoom = DB::table('chat_rooms')
                 ->where('name', $roomName)
@@ -84,7 +229,7 @@ class ReservationController extends Controller
                         'success' => true,
                         'message' => 'شما یک مشاوره متنی فعال با این پزشک دارید.',
                         'data' => [
-                            'room_id' => $roomId,
+                            'room_id'   => $roomId,
                             'is_active' => true // فلگ برای فرانت‌اند که بداند نباید به درگاه برود
                         ]
                     ], 200);
@@ -101,16 +246,35 @@ class ReservationController extends Controller
                 // فقط پزشک را در این مرحله به اتاق اضافه می‌کنیم
                 DB::table('room_participants')->insert([
                     [
-                        'room_id' => $roomId,
-                        'user_id' => $doctorId,
-                        'joined_at' => now(),
+                        'room_id'    => $roomId,
+                        'user_id'    => $doctorId,
+                        'joined_at'  => now(),
                         'created_at' => now(),
                         'updated_at' => now()
                     ]
                 ]);
             }
+            */
 
-            // ۲. ایجاد یا بازیابی سفارش مالی (چون چت فعال نیست یا بیمار هنوز اضافه نشده)
+            // ساخت مستقیم اتاق جدید بدون بررسی وجود اتاق قبلی
+            $roomId = DB::table('chat_rooms')->insertGetId([
+                'name'       => $roomName,
+                'created_at' => now(),
+                'updated_at' => now()
+            ]);
+
+            // افزودن پزشک به عنوان شرکت‌کننده اولیه
+            DB::table('room_participants')->insert([
+                [
+                    'room_id'    => $roomId,
+                    'user_id'    => $doctorId,
+                    'joined_at'  => now(),
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]
+            ]);
+
+            // ۲. ایجاد یا بازیابی سفارش مالی
             $orderResult = $this->orderService->createOrReuse(
                 userId: $userId,
                 reasonId: 3, // 3 = مشاوره متنی (Chat)
@@ -126,9 +290,9 @@ class ReservationController extends Controller
                 'success' => true,
                 'message' => 'اتاق چت و سفارش با موفقیت ایجاد شد.',
                 'data' => [
-                    'room_id' => $roomId,
-                    'order_id' => $orderResult['order_id'],
-                    'amount' => $orderResult['amount'],
+                    'room_id'   => $roomId,
+                    'order_id'  => $orderResult['order_id'],
+                    'amount'    => $orderResult['amount'],
                     'is_active' => false // یعنی نیاز به پرداخت دارد
                 ]
             ], 201);
