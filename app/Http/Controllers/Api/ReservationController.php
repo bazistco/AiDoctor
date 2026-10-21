@@ -27,6 +27,7 @@ class ReservationController extends Controller
     ) {}
     public function reserveChat(Request $request)
     {
+        $active_chat=false;
         $validator = Validator::make($request->all(), [
             'doctor_id' => 'required|integer|exists:users,id',
         ]);
@@ -40,7 +41,12 @@ class ReservationController extends Controller
 
         $userId = $request->user()->id;
         $doctorId = $request->doctor_id;
-
+        if (!$active_chat) {
+            return response()->json([
+                'success' => false,
+                'message' => 'امکان مشاوره متنی این پزشک  غیر فعال است'
+            ], 422);
+        }
         // بررسی فعال بودن پزشک
         if (method_exists($this, 'isDoctorActive') && !$this->isDoctorActive($doctorId)) {
             return response()->json([
