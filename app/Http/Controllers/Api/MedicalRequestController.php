@@ -135,7 +135,7 @@ class MedicalRequestController extends Controller
                     'mc.address',
                     'mc.lat',
                     'mc.lng',
-                    DB::raw('SUM(mcs.price) as total_estimated_price')
+                    DB::raw('SUM(mcs.price)/10 as total_estimated_price')
                 )
                 ->groupBy('mc.user_id', 'mc.name', 'mc.address', 'mc.lat', 'mc.lng')
                 ->get();
@@ -311,13 +311,14 @@ class MedicalRequestController extends Controller
                     ];
                 }
                 DB::table('user_medical_center_request_services')->insert($serviceRows);
+//                    amount: 15000, // مبلغ فعلی هاردکد است، در صورت نیاز به $totalPrice تغییر دهید
 
                 // ۳. ایجاد سفارش مالی با reason_id = 4
                 $orderResult = $orderService->createOrReuse(
                     userId: $userId,
                     reasonId: 4,
                     reasonRef: $requestId,
-                    amount: 15000, // مبلغ فعلی هاردکد است، در صورت نیاز به $totalPrice تغییر دهید
+                    amount: $totalPrice,
                     description: "پرداخت خدمات پرستاری/درمانی - درخواست #{$requestId}",
                     providerId: $centerId,
                 );
