@@ -1121,7 +1121,7 @@ class DiagnosisController extends Controller
                 DB::raw('COUNT(DISTINCT appointment_slots.id) as availability'),
                 'wallets.id as wallet_id',
                 'wallets.balance as wallet_balance',
-                DB::raw('COALESCE(dp.tier_level, 0) as main_plan_tier')
+                DB::raw('COALESCE(MAX(dp.tier_level), 0) as main_plan_tier'),
             )
             ->where('users.status', 1)
             ->where('doctor_info.status', 1);
@@ -1131,8 +1131,8 @@ class DiagnosisController extends Controller
                 ->leftJoin('doctor_keyword_subscriptions as dks', function ($join) use ($detectedKeywordIds, $now) {
                     $join->on('users.id', '=', 'dks.doctor_id')
                         ->where('dks.is_active', 1)
-                        ->whereNotNull('dks.expires_at')
-                        ->where('dks.expires_at', '>', $now)
+//                        ->whereNotNull('dks.expires_at')
+//                        ->where('dks.expires_at', '>', $now)
                         ->whereIn('dks.keyword_id', $detectedKeywordIds);
                 })
                 ->leftJoin('keywords as matched_keywords', 'dks.keyword_id', '=', 'matched_keywords.id')
@@ -1181,7 +1181,8 @@ class DiagnosisController extends Controller
                 'doctor_info.phone', 'doctor_info.visit_count', 'doctor_info.appointments',
                 'doctor_info.medical_code', 'doctor_info.rank', 'doctor_info.reviews',
                 'doctor_info.recommendation', 'doctor_info.city', 'doctor_info.province',
-                'wallets.id', 'wallets.balance'
+                'wallets.id', 'wallets.balance','dp.tier_level',
+                'dp.multiplier'
             );
 
         if ($searchTerm !== '') {
