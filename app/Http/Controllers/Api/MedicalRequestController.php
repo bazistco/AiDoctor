@@ -116,13 +116,12 @@ class MedicalRequestController extends Controller
     {
         try {
             $request->validate([
-                'service_ids'=> 'required|array',
+                'service_ids'   => 'required|array',
                 'service_ids.*' => 'integer|exists:medical_services,id',
             ]);
 
             $serviceIds = array_unique($request->input('service_ids'));
 
-            // ۱. دریافت لیست مراکز درمانی و جمع قیمت
             $centers = DB::table('medical_centers_info as mc')
                 ->join('users as u', 'mc.user_id', '=', 'u.id')
                 ->join('medical_center_services as mcs', 'mc.user_id', '=', 'mcs.medical_center_id')
@@ -134,25 +133,56 @@ class MedicalRequestController extends Controller
                     'mc.user_id as id',
                     'mc.name',
                     'mc.address',
+                    'mc.description',
+                    'mc.phone',
                     'mc.lat',
                     'mc.lng',
-                    DB::raw('CAST(SUM(mcs.price) / 10 AS UNSIGNED) as total_estimated_price')
+                    'mc.work_hours',
+                    DB::raw('CAST(SUM(mcs.price) / 10 AS UNSIGNED) as total_estimated_price'),
+
+                    // محاسبه میانگین امتیاز بدون جوین مخرب (سریع و دقیق)
+                    DB::raw('(SELECT ROUND(AVG(rating), 1) FROM reviews WHERE provider_id = mc.user_id AND order_type = "nurse") as rating'),
+
+                    // محاسبه تعداد نظرات بدون تکرار دکارتی
+                    DB::raw('(SELECT COUNT(id) FROM reviews WHERE provider_id = mc.user_id AND order_type = "nurse") as reviews_count')
                 )
-                ->groupBy('mc.user_id', 'mc.name', 'mc.address', 'mc.lat', 'mc.lng')
+                ->groupBy('mc.user_id', 'mc.name', 'mc.address', 'mc.description', 'mc.phone', 'mc.lat', 'mc.lng', 'mc.work_hours')
                 ->get();
 
-
+            // ۲) برای هر مرکز: سرویس‌ها + آخرین ریویوها
             $centers->transform(function ($center) use ($serviceIds) {
-                $center->services = DB::table('medical_center_services')
-                    ->join('medical_services', 'medical_center_services.medical_service_id', '=', 'medical_services.id')
-                    ->where('medical_center_services.medical_center_id', $center->id)
-                    ->whereIn('medical_center_services.medical_service_id', $serviceIds)
-                    ->where('medical_center_services.status', 1)
+
+                // services: فقط نام و قیمت تومان
+                $center->services = DB::table('medical_center_services as mcs')
+                    ->join('medical_services as ms', 'mcs.medical_service_id', '=', 'ms.id')
+                    ->where('mcs.medical_center_id', $center->id)
+                    ->whereIn('mcs.medical_service_id', $serviceIds)
+                    ->where('mcs.status', 1)
                     ->select(
-                        'medical_services.name as name',
-                        DB::raw('CAST(medical_center_services.price / 10 AS UNSIGNED) as price')
+                        'ms.name as name',
+                        DB::raw('CAST(mcs.price / 10 AS UNSIGNED) as price')
                     )
                     ->get();
+
+                $center->recent_reviews = DB::table('reviews as r')
+                    ->leftJoin('users as ru', 'ru.id', '=', 'r.user_id')
+                    ->where('r.provider_id', $center->id)
+                     ->where('r.order_type', 'nurse')
+                    ->orderByDesc('r.id')
+                    ->limit(5)
+                    ->select([
+                        DB::raw('COALESCE(ru.name "کاربر") as name'),
+                        'r.rating',
+                        'r.comment',
+                        'r.created_at as date',
+                    ])
+                    ->get();
+
+                $center->hours = $center->work_hours ?? '-';
+
+                $center->rating = $center->rating !== null ? (float) $center->rating : null;
+                $center->reviews_count = (int) $center->reviews_count;
+                $center->total_estimated_price = (int) $center->total_estimated_price;
 
                 return $center;
             });
@@ -163,9 +193,16 @@ class MedicalRequestController extends Controller
             ]);
 
         } catch (ValidationException $e) {
-            return response()->json(['success' => false, 'message' => 'خطای اعتبارسنجی', 'errors' => $e->errors()], 422);
+            return response()->json([
+                'success' => false,
+                'message' => 'خطای اعتبارسنجی',
+                'errors'  => $e->errors()
+            ], 422);
         } catch (Exception $e) {
-            return response()->json(['success' => false, 'message' => 'خطا در دریافت مراکز درمانی: ' . $e->getMessage()], 500);
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در دریافت مراکز درمانی: ' . $e->getMessage()
+            ], 500);
         }
     }
 
