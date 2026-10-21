@@ -164,7 +164,7 @@ class MedicalRequestController extends Controller
                     )
                     ->get();
 
-                $center->recent_reviews = DB::table('reviews as r')
+                $center->recentReviews = DB::table('reviews as r')
                     ->leftJoin('users as ru', 'ru.id', '=', 'r.user_id')
                     ->where('r.provider_id', $center->id)
                      ->where('r.order_type', 'nurse')
