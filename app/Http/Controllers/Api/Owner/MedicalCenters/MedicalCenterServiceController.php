@@ -120,18 +120,6 @@ class MedicalCenterServiceController extends Controller
             return $this->error('داده‌های ورودی نامعتبر است', 422, $validator->errors());
         }
 
-        // بررسی تکراری نبودن
-        if ($request->has('medical_service_id') && $request->medical_service_id != $service->medical_service_id) {
-            $exists = DB::table('medical_center_services')
-                ->where('medical_center_id', auth()->user()->id)
-                ->where('medical_service_id', $request->medical_service_id)
-                ->where('id', '!=', $id)
-                ->exists();
-
-            if ($exists) {
-                return $this->error('این سرویس قبلاً اضافه شده است', 422);
-            }
-        }
 
         DB::table('medical_center_services')
             ->where('id', $id)
