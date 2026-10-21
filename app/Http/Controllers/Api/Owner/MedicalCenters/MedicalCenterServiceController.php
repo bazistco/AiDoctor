@@ -46,7 +46,7 @@ class MedicalCenterServiceController extends Controller
             'description' => 'nullable|string',
             'price' => 'required|numeric|min:0',
             'date' => 'nullable|date',
-            'status' => 'sometimes|in:0,1',
+            'active' => 'sometimes|in:0,1',
         ]);
 
         if ($validator->fails()) {
@@ -69,7 +69,7 @@ class MedicalCenterServiceController extends Controller
             'description' => $request->description,
             'price' => $request->price,
             'date' => $request->date,
-            'status' => $request->status ?? 1,
+            'status' => $request->active ?? 1,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -113,7 +113,7 @@ class MedicalCenterServiceController extends Controller
             'description' => 'nullable|string',
             'price' => 'sometimes|numeric|min:0',
             'date' => 'nullable|date',
-            'status' => 'sometimes|in:0,1',
+            'active' => 'sometimes|in:0,1',
         ]);
 
         if ($validator->fails()) {
@@ -141,7 +141,7 @@ class MedicalCenterServiceController extends Controller
                 'description' => $request->description,
                 'price' => $request->price,
                 'date' => $request->date,
-                'status' => $request->status,
+                'status' => $request->active,
                 'updated_at' => now(),
             ], fn($v) => $v !== null));
 
