@@ -179,7 +179,7 @@ class MedicalRequestController extends Controller
                     ->get();
 
                 $center->hours = $center->work_hours ?? '-';
-
+                $center->description = $center->description ?? '-';
                 $center->rating = $center->rating !== null ? (float) $center->rating : null;
                 $center->reviews= (int) $center->reviews_count;
                 $center->total_estimated_price = (int) $center->total_estimated_price;
