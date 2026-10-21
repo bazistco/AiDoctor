@@ -120,8 +120,9 @@ class MedicalRequestController extends Controller
                 'service_ids.*' => 'integer|exists:medical_services,id',
             ]);
 
-            $serviceIds = $request->input('service_ids');
+            $serviceIds = array_unique($request->input('service_ids'));
 
+            // ۱. دریافت لیست مراکز درمانی و جمع قیمت
             $centers = DB::table('medical_centers_info as mc')
                 ->join('users as u', 'mc.user_id', '=', 'u.id')
                 ->join('medical_center_services as mcs', 'mc.user_id', '=', 'mcs.medical_center_id')
@@ -135,10 +136,26 @@ class MedicalRequestController extends Controller
                     'mc.address',
                     'mc.lat',
                     'mc.lng',
-                    DB::raw('SUM(mcs.price)/10 as total_estimated_price')
+                    DB::raw('CAST(SUM(mcs.price) / 10 AS UNSIGNED) as total_estimated_price')
                 )
                 ->groupBy('mc.user_id', 'mc.name', 'mc.address', 'mc.lat', 'mc.lng')
                 ->get();
+
+
+            $centers->transform(function ($center) use ($serviceIds) {
+                $center->services = DB::table('medical_center_services')
+                    ->join('medical_services', 'medical_center_services.medical_service_id', '=', 'medical_services.id')
+                    ->where('medical_center_services.medical_center_id', $center->id)
+                    ->whereIn('medical_center_services.medical_service_id', $serviceIds)
+                    ->where('medical_center_services.status', 1)
+                    ->select(
+                        'medical_services.name as name',
+                        DB::raw('CAST(medical_center_services.price / 10 AS UNSIGNED) as price')
+                    )
+                    ->get();
+
+                return $center;
+            });
 
             return response()->json([
                 'success' => true,
@@ -146,11 +163,12 @@ class MedicalRequestController extends Controller
             ]);
 
         } catch (ValidationException $e) {
-            return response()->json(['success' => false, 'message' => 'خطای اعتبارسنجی', 'errors'  => $e->errors()], 422);
+            return response()->json(['success' => false, 'message' => 'خطای اعتبارسنجی', 'errors' => $e->errors()], 422);
         } catch (Exception $e) {
             return response()->json(['success' => false, 'message' => 'خطا در دریافت مراکز درمانی: ' . $e->getMessage()], 500);
         }
     }
+
 
 
     /**
