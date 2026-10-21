@@ -35,7 +35,10 @@ class MedicalCenterServiceController extends Controller
             )
             ->orderByDesc('medical_center_services.id')
             ->paginate($request->query('per_page', 15));
-
+        $services->getCollection()->transform(function ($item) {
+            $item->price = (int) ($item->price / 10);
+            return $item;
+        });
         return $this->paginated($services);
     }
 
@@ -67,7 +70,7 @@ class MedicalCenterServiceController extends Controller
             'medical_center_id' => auth()->user()->id,
             'medical_service_id' => $request->medical_service_id,
             'description' => $request->description,
-            'price' => $request->price,
+            'price' => $request->price*10,
             'date' => $request->date,
             'status' => $request->active ?? 1,
             'created_at' => now(),
@@ -93,6 +96,7 @@ class MedicalCenterServiceController extends Controller
         if (!$service) {
             return $this->error('خدمت یافت نشد', 404);
         }
+        $service->price = (int) ($service->price / 10);
 
         return $this->success($service);
     }
@@ -127,7 +131,7 @@ class MedicalCenterServiceController extends Controller
             ->update(array_filter([
                 'medical_service_id' => $request->medical_service_id,
                 'description' => $request->description,
-                'price' => $request->price,
+                'price' => $request->price*10,
                 'date' => $request->date,
                 'status' => $request->active,
                 'updated_at' => now(),
