@@ -900,7 +900,7 @@ class LabRequestController extends Controller
         $staffs = DB::table('medical_centers_staffs as mcs')
             ->join('users as u', 'u.id', '=', 'mcs.staff_id')
             ->where('mcs.center_id', $labId)
-            ->where('mcs.type', 'lab')
+            ->where('mcs.center_type', 'lab')
             ->where('mcs.is_active', 1)
             ->select('u.id as staff_id', 'u.name', 'u.phone')
             ->get();
@@ -923,7 +923,7 @@ class LabRequestController extends Controller
         $isValidStaff = DB::table('medical_centers_staffs')
             ->where('center_id', $labId)
             ->where('staff_id', $request->staff_id)
-            ->where('type', 'lab')
+            ->where('center_type', 'lab')
             ->where('is_active', 1)
             ->exists();
 
