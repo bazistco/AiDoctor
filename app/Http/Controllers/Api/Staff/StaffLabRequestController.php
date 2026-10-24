@@ -109,6 +109,8 @@ class StaffLabRequestController extends Controller
         if ($item->address_id) {
             $addressRow = DB::table('addresses')->where('id', $item->address_id)->first();
             $item->address = $addressRow ? $addressRow->address : null;
+            $item->lat= $addressRow ? $addressRow->lat : null;
+            $item->lng= $addressRow ? $addressRow->lng : null;
         }
 
         // پردازش نسخه
