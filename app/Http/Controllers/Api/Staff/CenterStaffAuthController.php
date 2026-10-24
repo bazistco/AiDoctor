@@ -4,12 +4,63 @@ namespace App\Http\Controllers\Api\Staff;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\Response;
 
 class CenterStaffAuthController extends Controller
 {
+    public function check(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        // ۱. بررسی وضعیت کلی حساب کاربر
+        if (!$user || (int) $user->status !== 1) {
+            return response()->json([
+                'success' => false,
+                'message' => 'حساب کاربری شما غیرفعال شده است.',
+                'code'    => 'USER_INACTIVE'
+            ], Response::HTTP_UNAUTHORIZED);
+        }
+
+        // ۲. بررسی انتساب و فعال بودن در مرکز مربوطه
+        $staffRelation = DB::table('medical_centers_staffs')
+            ->where('staff_id', $user->id)
+            ->first();
+
+        // برای کارمندان آزمایشگاه یا مراکز، رکورد medical_centers_staffs الزامی است
+        if (in_array($user->role, ['lab_staff', 'pharmacy_staff']) && !$staffRelation) {
+            return response()->json([
+                'success' => false,
+                'message' => 'شما به هیچ مرکزی انتساب داده نشده‌اید.',
+                'code'    => 'NO_CENTER_ASSIGNED'
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        if ($staffRelation && (int) $staffRelation->is_active !== 1) {
+            return response()->json([
+                'success' => false,
+                'message' => 'دسترسی شما توسط مدیریت مرکز غیرفعال گردیده است.',
+                'code'    => 'STAFF_DISABLED'
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'id'         => (string) $user->id,
+                'name'       => $user->name,
+                'phone'      => $user->phone,
+                'role'       => $user->role,
+                'centerId'   => $staffRelation ? (string) $staffRelation->center_id : null,
+                'centerType' => $staffRelation ? $staffRelation->center_type : null,
+                'jobTitle'   => $staffRelation ? $staffRelation->job_title : null,
+                'isActive'   => true,
+            ]
+        ]);
+    }
     // انواع مجاز مراکز درمانی/آزمایشگاهی/داروخانه‌ای
     private array $allowedTypes = ['lab', 'pharmacy', 'medical_center'];
 
