@@ -1404,6 +1404,11 @@ class DiagnosisController extends Controller
             }
 
             // ۱. دریافت وقت‌های آزاد از دیتابیس
+            // تاریخ و ساعت فعلی سیستم
+            $today = now()->format('Y-m-d');
+            $currentTime = now()->format('H:i:s');
+
+            // ۱. دریافت وقت‌های آزاد از دیتابیس (با فیلتر نوبت‌های گذشته برای امروز)
             $availableSlots = DB::table('appointment_slots')
                 ->select(
                     'id', 'slot_date', 'start_time', 'end_time', 'status',
@@ -1416,9 +1421,18 @@ class DiagnosisController extends Controller
                 ->where('slot_date', '>=', $startDate)
                 ->where('slot_date', '<=', $endDate)
                 ->where('status', 'available')
+                // شرط فیلتر کردن ساعت‌های گذشته برای امروز
+                ->where(function ($query) use ($today, $currentTime) {
+                    $query->where('slot_date', '>', $today)
+                        ->orWhere(function ($subQuery) use ($today, $currentTime) {
+                            $subQuery->where('slot_date', '=', $today)
+                                ->where('start_time', '>', $currentTime);
+                        });
+                })
                 ->orderBy('slot_date')
                 ->orderBy('start_time')
                 ->get();
+
 
             // ۲. پردازش وضعیت نوبت‌ها بر اساس ردیس
             if ($availableSlots->isNotEmpty()) {
