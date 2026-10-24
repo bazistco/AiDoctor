@@ -308,7 +308,7 @@ class StaffLabRequestController extends Controller
         // واکشی درخواست‌های ارجاع‌شده به این کارمند از تاریخ امروز به بعد (وضعیت ۲ = پرداخت شده/تایید شده)
         $requests = DB::table('users_labs_requests as ulr')
             ->join('users as u', 'ulr.user_id', '=', 'u.id')
-            ->leftJoin('user_addresses as ua', 'ulr.address_id', '=', 'ua.id')
+            ->leftJoin('addresses as ua', 'ulr.address_id', '=', 'ua.id')
             ->where('ulr.staff_id', $staffId)
             ->whereDate('ulr.appointment_date', '>=', now()->toDateString())
             ->whereIn('ulr.status', [1, 2, 3]) // 1: جدید، 2: تایید شده، 3: در حال انجام
