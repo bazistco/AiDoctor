@@ -366,9 +366,9 @@ class StaffLabRequestController extends Controller
 
             // نگاشت وضعیت عددی دیتابیس به رشته‌های فرانت‌اند
             $statusMap = [
-                1 => 'new',
-                2 => 'confirmed',
-                3 => 'sampling'
+                1 => 'جدید',          // new / ثبت شده
+                2 => 'تایید شده',     // confirmed / تایید شده توسط آزمایشگاه
+                3 => 'در حال نمونه‌گیری' // sampling / در حال انجام / نمونه‌گیری
             ];
 
             return [
