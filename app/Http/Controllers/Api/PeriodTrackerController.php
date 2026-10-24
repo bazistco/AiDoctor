@@ -38,6 +38,22 @@ class PeriodTrackerController extends Controller
             ], 404);
         }
 
+        // محاسبه تاریخ پریود بعدی بر اساس سیکل
+        $lastStart = Carbon::parse($tracker->last_period_start_date)->startOfDay();
+        $cycleLength = (int) ($tracker->cycle_length ?? 28);
+        $today = now()->startOfDay();
+
+        // انتقال به نزدیک‌ترین سیکل آتی اگر تاریخ ثبت‌شده قدیمی باشد
+        $nextPeriod = $lastStart->copy()->addDays($cycleLength);
+        while ($nextPeriod->lt($today)) {
+            $nextPeriod->addDays($cycleLength);
+        }
+
+        $daysRemaining = (int) $today->diffInDays($nextPeriod, false);
+
+        $tracker->next_period_start_date = $nextPeriod->toDateString();
+        $tracker->days_remaining = max(0, $daysRemaining);
+
         return response()->json([
             'status' => true,
             'message' => 'اطلاعات با موفقیت دریافت شد.',
