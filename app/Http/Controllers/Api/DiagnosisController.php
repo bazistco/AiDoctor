@@ -1050,6 +1050,15 @@ class DiagnosisController extends Controller
         ]);
     }
 
+
+    public function getSpecialties()
+    {
+        return response()->json([
+            'success' => true,
+            'data' => DB::table('specialties')->select('id', 'name')->get()
+        ]);
+    }
+
     public function getDoctorsList(Request $request)
     {
         $now = now();
