@@ -22,18 +22,17 @@ class LabStaffController extends Controller
         $user = $request->user();
 
         // در صورتی که مرکز مستقیماً به کاربر آزمایشگاه متصل باشد
-        $lab = DB::table('medical_centers')
+        $lab = DB::table('labs_info')
             ->where('user_id', $user->id)
-            ->where('type', 'lab')
             ->first();
 
         if ($lab) {
-            return (int) $lab->id;
+            return (int) $lab->user_id;
         }
 
-        // بررسی اینکه اگر جدول آزمایشگاه‌ها labs باشد
-        $legacyLab = DB::table('labs')->where('user_id', $user->id)->first();
-        return $legacyLab ? (int) $legacyLab->id : null;
+//        // بررسی اینکه اگر جدول آزمایشگاه‌ها labs باشد
+//        $legacyLab = DB::table('labs')->where('user_id', $user->id)->first();
+//        return $legacyLab ? (int) $legacyLab->id : null;
     }
 
     /**
