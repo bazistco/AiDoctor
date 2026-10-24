@@ -66,8 +66,8 @@ class LabController extends Controller
                 'test_packs.id',
                 'test_packs.name',
                 'test_packs.status',
-                DB::raw('MIN(labs_tests.price) as min_price'),
-                DB::raw('MAX(labs_tests.price) as max_price')
+                DB::raw('MIN(labs_tests.price)/10 as min_price'),
+                DB::raw('MAX(labs_tests.price)/10 as max_price')
             )
             ->orderBy('test_packs.name')
             ->get();
@@ -117,7 +117,7 @@ class LabController extends Controller
                 'labs_info.lat',
                 'labs_info.lng',
                 'labs_info.image',
-                DB::raw('SUM(labs_tests.price) as total_price')
+                DB::raw('SUM(labs_tests.price)/10 as total_price')
             )
             ->orderBy('total_price')
             ->get();
