@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Lab\LabStaffController;
 use App\Http\Controllers\Api\Owner\Lab\LabRulesController;
 use App\Http\Controllers\Api\Owner\Labs\LabAuthController;
 use App\Http\Controllers\Api\Owner\Labs\LabProfileController;
@@ -102,6 +103,12 @@ Route::prefix('lab')->name('lab.')->group(function () {
         Route::get('/requests/stats', [LabRequestController::class, 'stats'])->name('requests.stats');
         Route::get('/requests/{id}', [LabRequestController::class, 'show'])->name('requests.show');
         Route::put('/requests/{id}/status', [LabRequestController::class, 'updateStatus'])->name('requests.updateStatus');
+
+        Route::get('/staffs', [LabStaffController::class, 'index']);
+        Route::post('/staffs', [LabStaffController::class, 'store']);
+        Route::put('/staffs/{id}', [LabStaffController::class, 'update']);
+        Route::patch('/staffs/{id}/toggle-status', [LabStaffController::class, 'toggleStatus']);
+        Route::delete('/staffs/{id}', [LabStaffController::class, 'destroy']);
     });
 });
 
