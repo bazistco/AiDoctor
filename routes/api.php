@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffAuthController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffDashboardController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffPatientController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffScheduleController;
+use App\Http\Controllers\Api\Staff\StaffLabRequestController;
 use App\Http\Controllers\Api\UserOrderController;
 use App\Services\Payment\OrderService;
 use Carbon\Carbon;
@@ -40,7 +41,14 @@ Route::middleware(['auth:sanctum', 'center.staff:pharmacy'])->prefix('staff/lab'
 
 });
 Route::middleware(['auth:sanctum', 'center.staff:lab'])->prefix('staff/lab')->group(function () {
+    // دریافت لیست درخواست‌های آزمایشگاه (با فیلتر، صفحه‌بندی و پکیج‌ها)
+    Route::get('requests', [StaffLabRequestController::class, 'index']);
 
+    // مشاهده جزئیات کامل یک درخواست به همراه نسخه
+    Route::get('requests/{id}', [StaffLabRequestController::class, 'show']);
+
+    // تغییر وضعیت درخواست (تأیید، نمونه‌گیری، آماده‌سازی جواب، لغو و ...)
+    Route::put('requests/{id}/status', [StaffLabRequestController::class, 'updateStatus']);
 });
 Route::prefix('staff/{type}/auth')
     ->where(['type' => 'lab|pharmacy|medical_center'])

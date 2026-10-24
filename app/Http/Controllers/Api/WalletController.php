@@ -27,8 +27,8 @@ class WalletController extends Controller
         ]);
 
         $userId = $request->user()->id;
-//        $amount = $validated['amount'];
-        $amount = 15000;
+        $amount = $validated['amount']*10;
+//        $amount = 15000;
 
         DB::beginTransaction();
         try {

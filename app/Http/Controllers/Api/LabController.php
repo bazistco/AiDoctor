@@ -346,8 +346,8 @@ class LabController extends Controller
                         userId: $user->id,
                         reasonId: 5,
                         reasonRef: $labRequestId,
-                       // amount: $totalPrice,
-                         amount: 15000,
+                        amount: $totalPrice,
+//                         amount: 15000,
                         description: "پرداخت فاکتور آزمایشگاه - درخواست #{$labRequestId}",
                         providerId: $labId
                     );

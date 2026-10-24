@@ -149,7 +149,7 @@ class DoctorSecretaryController extends Controller
                     ->where('secretary_user_id', $user->id)
                     ->exists();
 
-                if ($user->role !== 'user') {
+                if ($user->role !== 'user' or $user->role !== 'doctor_secretary') {
                     return response()->json([
                         'success' => false,
                         'message' => 'این شماره موبایل نقشی غیر از کاربر عادی دارد',
