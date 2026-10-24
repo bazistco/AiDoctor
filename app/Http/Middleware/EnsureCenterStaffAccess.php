@@ -67,7 +67,7 @@ class EnsureCenterStaffAccess
         // ۵. بررسی وضعیت انتساب و فعال بودن در مرکز درمانی (جدول واسط)
         $staffRecord = DB::table('medical_centers_staffs')
             ->where('staff_id', $user->id)
-            ->where('type', $centerType)
+            ->where('center_type', $centerType)
             ->where('is_active', 1)
             ->first();
 
