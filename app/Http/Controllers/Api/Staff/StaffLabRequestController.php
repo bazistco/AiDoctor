@@ -6,93 +6,55 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
 
 class StaffLabRequestController extends Controller
 {
     /**
-     * لیست درخواست‌های آزمایشگاه با فیلتر و صفحه‌بندی
+     * لیست درخواست‌های ارجاع داده شده به این کارمند
      */
     public function index(Request $request): JsonResponse
     {
-        // دریافت شناسه آزمایشگاه از ویژگی‌های تزریق‌شده توسط میدل‌ویر EnsureCenterStaffAccess
         $labId = (int) $request->attributes->get('center_id');
+        $staffUserId = $request->user()->id; // شناسه کاربر (کارمند) جاری
 
         $query = DB::table('users_labs_requests as ulr')
             ->join('users as u', 'u.id', '=', 'ulr.user_id')
             ->leftJoin('users_prescriptions as up', 'up.id', '=', 'ulr.user_prescription_id')
-            ->where(function ($q) use ($labId) {
-                $q->where('ulr.lab_id', $labId)
-                    ->orWhereNull('ulr.lab_id');
-            })
+            ->where('ulr.lab_id', $labId)
+            ->where('ulr.staff_id', $staffUserId) // 👈 فقط درخواست‌های خودش
             ->select(
                 'ulr.id as request_id',
                 'ulr.visit_type',
                 'ulr.status as request_status',
-                DB::raw('ulr.total_price / 10 as total_price'), // تبدیل ریال به تومان
+                DB::raw('ulr.total_price / 10 as total_price'),
                 'ulr.created_at as request_date',
-                'u.id as user_id',
                 'u.name as user_name',
-                'u.phone as user_phone',
-                'up.prescription_type_id',
-                'up.details as prescription_details'
+                'u.phone as user_phone'
             );
 
-        // اعمال فیلتر نوع مراجعه (حضوری / در منزل)
         if ($request->filled('visit_type')) {
             $query->where('ulr.visit_type', $request->query('visit_type'));
         }
-
-        // اعمال فیلتر وضعیت درخواست (۰ تا ۶)
         if ($request->filled('status')) {
             $query->where('ulr.status', (int) $request->query('status'));
-        }
-
-        // فیلتر جستجوی متنی (نام، شماره تماس یا شماره درخواست)
-        if ($request->filled('search')) {
-            $search = trim($request->query('search'));
-            $query->where(function ($q) use ($search) {
-                $q->where('u.name', 'LIKE', "%{$search}%")
-                    ->orWhere('u.phone', 'LIKE', "%{$search}%")
-                    ->orWhere('ulr.id', $search);
-            });
-        }
-
-        // فیلتر بازه زمانی
-        if ($request->filled('from_date')) {
-            $query->where('ulr.created_at', '>=', $request->query('from_date'));
-        }
-        if ($request->filled('to_date')) {
-            $query->where('ulr.created_at', '<=', $request->query('to_date'));
         }
 
         $perPage = (int) $request->query('per_page', 15);
         $paginator = $query->orderByDesc('ulr.id')->paginate($perPage);
 
-        // لود بهینه لیست آزمایش‌های هر درخواست به صورت گروهی (Eager-like Batching)
+        // واکشی پکیج‌های آزمایش
         $requestIds = collect($paginator->items())->pluck('request_id')->toArray();
-
         if (!empty($requestIds)) {
             $tests = DB::table('lab_request_test_packs as lrtp')
                 ->leftJoin('test_packs as tp', 'tp.id', '=', 'lrtp.lab_test_id')
-                ->leftJoin('labs_tests as lt', function ($join) use ($labId) {
-                    $join->on('lt.test_pack_id', '=', 'tp.id')
-                        ->where('lt.lab_id', '=', $labId);
-                })
                 ->whereIn('lrtp.lab_request_id', $requestIds)
-                ->select(
-                    'lrtp.lab_request_id',
-                    'tp.id as test_pack_id',
-                    'tp.name as test_name',
-                    DB::raw('COALESCE(lt.price, 0) / 10 as test_price')
-                )
+                ->select('lrtp.lab_request_id', 'tp.id as test_pack_id', 'tp.name as test_name')
                 ->get()
                 ->groupBy('lab_request_id');
 
             foreach ($paginator->items() as $item) {
-                if (is_string($item->prescription_details)) {
-                    $item->prescription_details = json_decode($item->prescription_details);
-                }
                 $item->tests = $tests->get($item->request_id, collect())->values()->all();
             }
         }
@@ -103,123 +65,236 @@ class StaffLabRequestController extends Controller
             'meta'    => [
                 'current_page' => $paginator->currentPage(),
                 'last_page'    => $paginator->lastPage(),
-                'per_page'     => $paginator->perPage(),
                 'total'        => $paginator->total(),
             ],
         ], Response::HTTP_OK);
     }
 
     /**
-     * مشاهده جزئیات یک درخواست خاص
+     * جزئیات درخواست همراه با آدرس، فایل نسخه و آزمایش‌ها
      */
     public function show(Request $request, int $id): JsonResponse
     {
         $labId = (int) $request->attributes->get('center_id');
+        $staffUserId = $request->user()->id;
 
         $item = DB::table('users_labs_requests as ulr')
             ->join('users as u', 'u.id', '=', 'ulr.user_id')
             ->leftJoin('users_prescriptions as up', 'up.id', '=', 'ulr.user_prescription_id')
             ->where('ulr.id', $id)
-            ->where(function ($q) use ($labId) {
-                $q->where('ulr.lab_id', $labId)
-                    ->orWhereNull('ulr.lab_id');
-            })
+            ->where('ulr.lab_id', $labId)
+            ->where('ulr.staff_id', $staffUserId) // 👈 امنیت: فقط درخواست خودش
             ->select(
                 'ulr.id as request_id',
                 'ulr.visit_type',
+                'ulr.address_id',
                 'ulr.status as request_status',
                 DB::raw('ulr.total_price / 10 as total_price'),
                 'ulr.created_at as request_date',
-                'u.id as user_id',
                 'u.name as user_name',
                 'u.phone as user_phone',
+                'up.id as prescription_id',
                 'up.prescription_type_id',
                 'up.details as prescription_details'
             )
             ->first();
 
         if (!$item) {
-            return response()->json([
-                'success' => false,
-                'message' => 'درخواست مورد نظر یافت نشد یا دسترسی به آن ندارید.',
-            ], Response::HTTP_NOT_FOUND);
+            return response()->json(['success' => false, 'message' => 'درخواست یافت نشد یا ارجاع داده نشده است.'], 404);
         }
 
+        // استخراج آدرس
+        $item->address = null;
+        if ($item->address_id) {
+            $addressRow = DB::table('addresses')->where('id', $item->address_id)->first();
+            $item->address = $addressRow ? $addressRow->address : null;
+        }
+
+        // پردازش نسخه
         if (is_string($item->prescription_details)) {
             $item->prescription_details = json_decode($item->prescription_details);
         }
 
-        // واکشی آزمایش‌های انتخاب شده برای این درخواست
-        $item->tests = DB::table('lab_request_test_packs as lrtp')
+        $prescriptionFiles = [];
+        if ($item->prescription_type_id == 3 && isset($item->prescription_details->files)) {
+            foreach ($item->prescription_details->files as $path) {
+                if (str_starts_with($path, 'http')) {
+                    $prescriptionFiles[] = $path;
+                } else {
+                    $fileName = basename($path);
+                    // تولید لینک اختصاصی کارمند
+                    $prescriptionFiles[] = "https://api.mediraai.com/api/staff/lab/prescription-file/{$item->prescription_id}/{$fileName}";
+                }
+            }
+        }
+        $item->prescription_files = $prescriptionFiles;
+
+        // واکشی آزمایش‌ها و نتایج آنها
+        $baseUrl = rtrim(config('app.url', url('/')), '/') . '/';
+        $tests = DB::table('lab_request_test_packs as lrtp')
             ->leftJoin('test_packs as tp', 'tp.id', '=', 'lrtp.lab_test_id')
-            ->leftJoin('labs_tests as lt', function ($join) use ($labId) {
-                $join->on('lt.test_pack_id', '=', 'tp.id')
-                    ->where('lt.lab_id', '=', $labId);
-            })
+            ->leftJoin('lab_request_results as lrr', 'lrr.lab_request_test_pack_id', '=', 'lrtp.id')
             ->where('lrtp.lab_request_id', $id)
             ->select(
+                'lrtp.id as lab_request_test_pack_id',
                 'tp.id as test_pack_id',
                 'tp.name as test_name',
-                DB::raw('COALESCE(lt.price, 0) / 10 as test_price')
+                'lrr.id as result_id',
+                'lrr.file_path as result_file'
             )
             ->get();
 
-        return response()->json([
-            'success' => true,
-            'data'    => $item,
-        ], Response::HTTP_OK);
+        $item->tests = $tests->map(function ($test) use ($baseUrl) {
+            $resultUrl = null;
+            if ($test->result_file && $test->result_id) {
+                $resultUrl = "https://api.mediraai.com/api/staff/lab/results/{$test->result_id}/download";
+            }
+            return [
+                'lab_request_test_pack_id' => $test->lab_request_test_pack_id, // برای آپلود نتیجه نیاز است
+                'test_pack_id' => $test->test_pack_id,
+                'name'         => $test->test_name,
+                'result_url'   => $resultUrl,
+            ];
+        });
+
+        return response()->json(['success' => true, 'data' => $item], 200);
     }
 
     /**
-     * تغییر وضعیت درخواست آزمایشگاه
+     * تغییر وضعیت درخواست توسط کارمند
      */
     public function updateStatus(Request $request, int $id): JsonResponse
     {
         $labId = (int) $request->attributes->get('center_id');
+        $staffUserId = $request->user()->id;
 
-        $validated = $request->validate([
-            'status' => 'required|integer|in:0,1,2,3,4,5,6',
-        ], [
-            'status.required' => 'ارسال فیلد وضعیت الزامی است.',
-            'status.in'       => 'کد وضعیت ارسالی نامعتبر است.',
+        $validated = $request->validate(['status' => 'required|integer|in:2,3,4,5,6']);
+
+        $exists = DB::table('users_labs_requests')
+            ->where('id', $id)->where('lab_id', $labId)->where('staff_id', $staffUserId)->exists();
+
+        if (!$exists) {
+            return response()->json(['success' => false, 'message' => 'درخواست یافت نشد.'], 404);
+        }
+
+        DB::table('users_labs_requests')->where('id', $id)->update([
+            'status' => $validated['status'],
+            'updated_at' => now(),
         ]);
 
-        $labRequest = DB::table('users_labs_requests')
-            ->where('id', $id)
-            ->where(function ($q) use ($labId) {
-                $q->where('lab_id', $labId)
-                    ->orWhereNull('lab_id');
-            })
+        return response()->json(['success' => true, 'message' => 'وضعیت بروزرسانی شد.'], 200);
+    }
+
+    /**
+     * آپلود نتیجه آزمایش توسط کارمند
+     */
+    public function uploadResult(Request $request, $id)
+    {
+        $labId = (int) $request->attributes->get('center_id');
+        $staffUserId = $request->user()->id;
+
+        $request->validate([
+            'lab_request_test_pack_id' => 'required|integer', // شناسه کلید اصلی جدول واسط
+            'file' => 'required|file|max:5120',
+            'note' => 'nullable|string',
+        ]);
+
+        // اطمینان از دسترسی کارمند به این درخواست
+        $hasAccess = DB::table('users_labs_requests')
+            ->where('id', $id)->where('lab_id', $labId)->where('staff_id', $staffUserId)->exists();
+
+        if (!$hasAccess) {
+            return response()->json(['success' => false, 'message' => 'دسترسی مجاز نیست.'], 403);
+        }
+
+        $file = $request->file('file');
+        $path = $file->store('lab_results', 'local');
+
+        $existingResult = DB::table('lab_request_results')
+            ->where('lab_request_id', $id)
+            ->where('lab_request_test_pack_id', $request->lab_request_test_pack_id)
             ->first();
 
-        if (!$labRequest) {
-            return response()->json([
-                'success' => false,
-                'message' => 'درخواست آزمایشگاه یافت نشد یا مجاز به تغییر آن نیستید.',
-            ], Response::HTTP_NOT_FOUND);
+        if ($existingResult) {
+            if (Storage::disk('local')->exists($existingResult->file_path)) {
+                Storage::disk('local')->delete($existingResult->file_path);
+            }
+            DB::table('lab_request_results')->where('id', $existingResult->id)->update([
+                'file_path' => $path,
+                'file_name' => $file->getClientOriginalName(),
+                'mime_type' => $file->getClientMimeType(),
+                'note'      => $request->note,
+                'updated_at'=> now(),
+            ]);
+        } else {
+            DB::table('lab_request_results')->insert([
+                'lab_request_id' => $id,
+                'lab_request_test_pack_id' => $request->lab_request_test_pack_id,
+                'file_path' => $path,
+                'file_name' => $file->getClientOriginalName(),
+                'mime_type' => $file->getClientMimeType(),
+                'status'    => 1,
+                'note'      => $request->note,
+                'created_at'=> now(),
+                'updated_at'=> now(),
+            ]);
         }
 
-        $updateData = [
-            'status'     => (int) $validated['status'],
-            'updated_at' => now(),
-        ];
+        // آپدیت وضعیت درخواست به 4 (تکمیل شده / آماده تحویل)
+        DB::table('users_labs_requests')->where('id', $id)->update(['status' => 4, 'updated_at' => now()]);
 
-        // چنانچه درخواست عمومی بوده (lab_id نال باشد)، با اولین تغییر وضعیت به همین آزمایشگاه اختصاص می‌یابد
-        if (is_null($labRequest->lab_id) && $labId) {
-            $updateData['lab_id'] = $labId;
+        return response()->json(['success' => true, 'message' => 'نتیجه با موفقیت آپلود شد.'], 200);
+    }
+
+    /**
+     * دانلود فایل نتیجه توسط کارمند
+     */
+    public function downloadResultFile(Request $request, $resultId)
+    {
+        $labId = (int) $request->attributes->get('center_id');
+        $staffUserId = $request->user()->id;
+
+        $result = DB::table('lab_request_results as lrr')
+            ->join('users_labs_requests as ulr', 'lrr.lab_request_id', '=', 'ulr.id')
+            ->where('lrr.id', $resultId)
+            ->where('ulr.lab_id', $labId)
+            ->where('ulr.staff_id', $staffUserId) // دسترسی محدود
+            ->select('lrr.file_path', 'lrr.file_name', 'lrr.mime_type')
+            ->first();
+
+        if (!$result || !Storage::disk('local')->exists($result->file_path)) {
+            return response()->json(['success' => false, 'message' => 'فایل یافت نشد.'], 404);
         }
 
-        DB::table('users_labs_requests')
-            ->where('id', $id)
-            ->update($updateData);
+        return Storage::disk('local')->response($result->file_path, $result->file_name);
+    }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'وضعیت درخواست با موفقیت به‌روزرسانی شد.',
-            'data'    => [
-                'request_id' => $id,
-                'new_status' => (int) $validated['status'],
-            ],
-        ], Response::HTTP_OK);
+    /**
+     * دانلود امن فایل نسخه بیمار برای کارمند
+     */
+    public function downloadPatientPrescription(Request $request, $prescriptionId, $fileName)
+    {
+        $labId = (int) $request->attributes->get('center_id');
+        $staffUserId = $request->user()->id;
+
+        $hasAccess = DB::table('users_labs_requests')
+            ->where('user_prescription_id', $prescriptionId)
+            ->where('lab_id', $labId)
+            ->where('staff_id', $staffUserId)
+            ->exists();
+
+        if (!$hasAccess) {
+            return response()->json(['success' => false, 'message' => 'شما دسترسی به این نسخه را ندارید.'], 403);
+        }
+
+        $pureFileName = basename($fileName);
+        $targetPath = 'prescriptions/' . $pureFileName;
+
+        if (!Storage::disk('local')->exists($targetPath)) {
+            return response()->json(['success' => false, 'message' => 'فایل نسخه در سرور موجود نیست.'], 404);
+        }
+
+        $mimeType = Storage::disk('local')->mimeType($targetPath);
+        return Storage::disk('local')->response($targetPath, $pureFileName, ['Content-Type' => $mimeType]);
     }
 }

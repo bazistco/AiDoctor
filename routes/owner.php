@@ -87,6 +87,8 @@ Route::prefix('lab')->name('lab.')->group(function () {
         Route::put('/tests/{id}', [LabTestController::class, 'update'])->name('tests.update');
         Route::delete('/tests/{id}', [LabTestController::class, 'destroy'])->name('tests.destroy');
         // Requests
+        Route::get('staff-list', [LabRequestController::class, 'getStaffList']);
+        Route::post('lab-requests/{id}/assign', [LabRequestController::class, 'assignToStaff']);
         Route::post('requests/{id}/accept', [LabRequestController::class, 'acceptRequest']);
         Route::put('requests/{id}/schedule', [LabRequestController::class, 'updateSchedule']);
         Route::delete('/requests/{id}/assign-tests', [LabRequestController::class, 'unassignTestPacks']);

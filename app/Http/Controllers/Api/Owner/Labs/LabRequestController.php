@@ -890,6 +890,68 @@ class LabRequestController extends Controller
         ]);
 
     }
+    /**
+     * دریافت لیست کارمندان همین آزمایشگاه برای دراپ‌داون ارجاع
+     */
+    public function getStaffList(Request $request)
+    {
+        $labId = $request->lab_id;
+
+        $staffs = DB::table('medical_centers_staffs as mcs')
+            ->join('users as u', 'u.id', '=', 'mcs.staff_id')
+            ->where('mcs.center_id', $labId)
+            ->where('mcs.type', 'lab')
+            ->where('mcs.is_active', 1)
+            ->select('u.id as staff_id', 'u.name', 'u.phone')
+            ->get();
+
+        return $this->success($staffs);
+    }
+
+    /**
+     * ارجاع درخواست به یک کارمند خاص توسط ادمین
+     */
+    public function assignToStaff(Request $request, $id)
+    {
+        $labId = $request->lab_id;
+
+        $request->validate([
+            'staff_id' => 'required|integer'
+        ]);
+
+        // بررسی اینکه کارمند متعلق به همین آزمایشگاه باشد
+        $isValidStaff = DB::table('medical_centers_staffs')
+            ->where('center_id', $labId)
+            ->where('staff_id', $request->staff_id)
+            ->where('type', 'lab')
+            ->where('is_active', 1)
+            ->exists();
+
+        if (!$isValidStaff) {
+            return $this->error('کارمند انتخاب شده معتبر نیست یا در این آزمایشگاه فعال نمی‌باشد.', 422);
+        }
+
+        $labRequest = DB::table('users_labs_requests')
+            ->where('id', $id)
+            ->where('lab_id', $labId)
+            ->first();
+
+        if (!$labRequest) {
+            return $this->error('درخواست یافت نشد.', 404);
+        }
+
+        // بررسی اینکه پرداخت انجام شده باشد (مثلا وضعیت بالاتر از 1 باشد)
+        if ($labRequest->status < 2) {
+            return $this->error('ابتدا باید هزینه درخواست توسط بیمار پرداخت شود.', 403);
+        }
+
+        DB::table('users_labs_requests')->where('id', $id)->update([
+            'staff_id' => $request->staff_id,
+            'updated_at' => now(),
+        ]);
+
+        return $this->success(null, 'درخواست با موفقیت به کارمند ارجاع داده شد.');
+    }
 
 
 

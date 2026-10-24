@@ -41,15 +41,25 @@ Route::middleware(['auth:sanctum', 'center.staff:pharmacy'])->prefix('staff/lab'
 
 });
 Route::middleware(['auth:sanctum', 'center.staff:lab'])->prefix('staff/lab')->group(function () {
-    // دریافت لیست درخواست‌های آزمایشگاه (با فیلتر، صفحه‌بندی و پکیج‌ها)
+    // ۱. دریافت لیست درخواست‌های ارجاع‌شده به همین کارمند
     Route::get('requests', [StaffLabRequestController::class, 'index']);
 
-    // مشاهده جزئیات کامل یک درخواست به همراه نسخه
+    // ۲. مشاهده جزئیات کامل یک درخواست (شامل آدرس، اطلاعات نسخه و لیست آزمایش‌ها)
     Route::get('requests/{id}', [StaffLabRequestController::class, 'show']);
 
-    // تغییر وضعیت درخواست (تأیید، نمونه‌گیری، آماده‌سازی جواب، لغو و ...)
+    // ۳. تغییر وضعیت درخواست (در حال نمونه‌گیری، تکمیل شده و...)
     Route::put('requests/{id}/status', [StaffLabRequestController::class, 'updateStatus']);
+
+    // ۴. آپلود فایل نتیجه آزمایش توسط کارمند
+    Route::post('requests/{id}/results', [StaffLabRequestController::class, 'uploadResult']);
+
+    // ۵. دانلود فایل نتیجه آزمایش ثبت‌شده
+    Route::get('results/{resultId}/download', [StaffLabRequestController::class, 'downloadResultFile']);
+
+    // ۶. مشاهده/دانلود امن فایل نسخه بیمار توسط کارمند
+    Route::get('prescription-file/{id}/{fileName}', [StaffLabRequestController::class, 'downloadPatientPrescription']);
 });
+
 Route::prefix('staff/{type}/auth')
     ->where(['type' => 'lab|pharmacy|medical_center'])
     ->group(function () {
