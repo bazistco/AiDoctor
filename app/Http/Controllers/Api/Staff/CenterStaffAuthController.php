@@ -16,7 +16,7 @@ class CenterStaffAuthController extends Controller
     {
         $user = $request->user();
 
-        // ۱. بررسی وضعیت کلی حساب کاربر
+        // ۱. بررسی وضعیت کلی حساب خود کاربر
         if (!$user || (int) $user->status !== 1) {
             return response()->json([
                 'success' => false,
@@ -25,40 +25,88 @@ class CenterStaffAuthController extends Controller
             ], Response::HTTP_UNAUTHORIZED);
         }
 
-        // ۲. بررسی انتساب و فعال بودن در مرکز مربوطه
-        $staffRelation = DB::table('medical_centers_staffs')
-            ->where('staff_id', $user->id)
-            ->first();
+        $extraData = [
+            'centerId'   => null,
+            'centerType' => null,
+            'doctorUserId' => null,
+            'jobTitle'   => null,
+        ];
 
-        // برای کارمندان آزمایشگاه یا مراکز، رکورد medical_centers_staffs الزامی است
-        if (in_array($user->role, ['lab_staff', 'pharmacy_staff']) && !$staffRelation) {
-            return response()->json([
-                'success' => false,
-                'message' => 'شما به هیچ مرکزی انتساب داده نشده‌اید.',
-                'code'    => 'NO_CENTER_ASSIGNED'
-            ], Response::HTTP_FORBIDDEN);
+        // ۲. حالت اول: اگر نقش کاربر منشی پزشک باشد (doctor_secretary)
+        if ($user->role === 'doctor_secretary') {
+            $secretaryRelation = DB::table('doctor_secretaries')
+                ->where('secretary_user_id', $user->id)
+                ->first();
+
+            if (!$secretaryRelation) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'شما به عنوان منشی به هیچ پزشکی متصل نیستید.',
+                    'code'    => 'NO_DOCTOR_ASSIGNED'
+                ], Response::HTTP_FORBIDDEN);
+            }
+
+            // در صورتی که ستون is_active در جدول doctor_secretaries وجود داشته باشد
+            if (isset($secretaryRelation->is_active) && (int) $secretaryRelation->is_active !== 1) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'دسترسی شما توسط پزشک غیرفعال شده است.',
+                    'code'    => 'SECRETARY_DISABLED'
+                ], Response::HTTP_FORBIDDEN);
+            }
+
+            // بررسی فعال بودن وضعیت خود پزشک متصل‌شده
+            $doctorUser = DB::table('users')
+                ->where('id', $secretaryRelation->doctor_user_id)
+                ->first();
+
+            if (!$doctorUser || (int) $doctorUser->status !== 1) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'حساب کاربری پزشک مرتبط با شما غیرفعال است.',
+                    'code'    => 'DOCTOR_INACTIVE'
+                ], Response::HTTP_FORBIDDEN);
+            }
+
+            $extraData['doctorUserId'] = (string) $secretaryRelation->doctor_user_id;
+            $extraData['jobTitle']     = 'منشی پزشک';
         }
+        // ۳. حالت دوم: کارمندان آزمایشگاه یا داروخانه یا مراکز درمانی
+        else if (in_array($user->role, ['lab_staff', 'pharmacy_staff'])) {
+            $staffRelation = DB::table('medical_centers_staffs')
+                ->where('staff_id', $user->id)
+                ->first();
 
-        if ($staffRelation && (int) $staffRelation->is_active !== 1) {
-            return response()->json([
-                'success' => false,
-                'message' => 'دسترسی شما توسط مدیریت مرکز غیرفعال گردیده است.',
-                'code'    => 'STAFF_DISABLED'
-            ], Response::HTTP_FORBIDDEN);
+            if (!$staffRelation) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'شما به هیچ مرکزی انتساب داده نشده‌اید.',
+                    'code'    => 'NO_CENTER_ASSIGNED'
+                ], Response::HTTP_FORBIDDEN);
+            }
+
+            if ((int) $staffRelation->is_active !== 1) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'دسترسی شما توسط مدیریت مرکز غیرفعال گردیده است.',
+                    'code'    => 'STAFF_DISABLED'
+                ], Response::HTTP_FORBIDDEN);
+            }
+
+            $extraData['centerId']   = (string) $staffRelation->center_id;
+            $extraData['centerType'] = $staffRelation->center_type;
+            $extraData['jobTitle']   = $staffRelation->job_title ?? null;
         }
 
         return response()->json([
             'success' => true,
-            'data'    => [
-                'id'         => (string) $user->id,
-                'name'       => $user->name,
-                'phone'      => $user->phone,
-                'role'       => $user->role,
-                'centerId'   => $staffRelation ? (string) $staffRelation->center_id : null,
-                'centerType' => $staffRelation ? $staffRelation->center_type : null,
-                'jobTitle'   => $staffRelation ? $staffRelation->job_title : null,
-                'isActive'   => true,
-            ]
+            'data'    => array_merge([
+                'id'       => (string) $user->id,
+                'name'     => $user->name,
+                'phone'    => $user->phone,
+                'role'     => $user->role,
+                'isActive' => true,
+            ], $extraData)
         ]);
     }
     // انواع مجاز مراکز درمانی/آزمایشگاهی/داروخانه‌ای
