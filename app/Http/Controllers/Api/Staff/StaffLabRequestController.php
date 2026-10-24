@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -297,4 +298,94 @@ class StaffLabRequestController extends Controller
         $mimeType = Storage::disk('local')->mimeType($targetPath);
         return Storage::disk('local')->response($targetPath, $pureFileName, ['Content-Type' => $mimeType]);
     }
+
+
+    public function schedule(Request $request)
+    {
+        // دریافت شناسه کارمند از توکن احراز هویت
+        $staffId = $request->user()->id;
+
+        // واکشی درخواست‌های ارجاع‌شده به این کارمند از تاریخ امروز به بعد (وضعیت ۲ = پرداخت شده/تایید شده)
+        $requests = DB::table('users_labs_requests as ulr')
+            ->join('users as u', 'ulr.user_id', '=', 'u.id')
+            ->leftJoin('user_addresses as ua', 'ulr.address_id', '=', 'ua.id')
+            ->where('ulr.staff_id', $staffId)
+            ->whereDate('ulr.appointment_date', '>=', now()->toDateString())
+            ->whereIn('ulr.status', [1, 2, 3]) // 1: جدید، 2: تایید شده، 3: در حال انجام
+            ->select(
+                'ulr.id',
+                'ulr.lab_id',
+                'ulr.visit_type',
+                'ulr.appointment_date',
+                'ulr.shift_type',
+                'ulr.daily_queue_number',
+                'ulr.status',
+                'u.name as patient_name',
+                'ua.address'
+            )
+            ->orderBy('ulr.appointment_date', 'asc')
+            ->orderBy('ulr.shift_type', 'asc')
+            ->get();
+
+        // کش موقت تنظیمات آزمایشگاه‌ها در حلقه برای جلوگیری از کوئری تکراری به Redis
+        $labRulesCache = [];
+
+        $mappedRequests = $requests->map(function ($req) use (&$labRulesCache) {
+            $labId = $req->lab_id;
+
+            // خواندن قوانین شیفت آزمایشگاه از ردیس (بر اساس متد saveRules ادمین)
+            if (!isset($labRulesCache[$labId])) {
+                $redisData = Redis::get("lab_rules_config:{$labId}");
+                $labRulesCache[$labId] = $redisData ? json_decode($redisData, true) : null;
+            }
+
+            $rules = $labRulesCache[$labId];
+            $shiftType = $req->shift_type; // 1, 2, or 3
+
+            // تعیین زمان شیفت
+            $timeString = 'نامشخص';
+            if ($rules && isset($rules['shifts'][$shiftType])) {
+                $shiftInfo = $rules['shifts'][$shiftType];
+                if (isset($shiftInfo['start']) && isset($shiftInfo['end'])) {
+                    $timeString = $shiftInfo['start'] . ' الی ' . $shiftInfo['end'];
+                }
+            } else {
+                // مقادیر جایگزین در صورتی که تنظیمات در ردیس موجود نباشد
+                $fallbacks = [
+                    1 => 'شیفت صبح',
+                    2 => 'شیفت ظهر/عصر',
+                    3 => 'شیفت شب'
+                ];
+                $timeString = $fallbacks[$shiftType] ?? 'نامشخص';
+            }
+
+            // اضافه کردن شماره نوبت صف (daily_queue_number) به رشته زمانی در صورت وجود
+            if (!is_null($req->daily_queue_number)) {
+                $timeString .= " (نوبت: {$req->daily_queue_number})";
+            }
+
+            // نگاشت وضعیت عددی دیتابیس به رشته‌های فرانت‌اند
+            $statusMap = [
+                1 => 'new',
+                2 => 'confirmed',
+                3 => 'sampling'
+            ];
+
+            return [
+                'id' => $req->id,
+                'patientName' => $req->patient_name,
+                'date' => verta($req->appointment_date)->format('Y/m/d'),
+                'time' => $timeString,
+                'type' => $req->visit_type == 1 ? 'home' : 'lab', // 1: منزل, 0: حضوری
+                'address' => $req->address,
+                'status' => $statusMap[$req->status] ?? 'new',
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $mappedRequests
+        ]);
+    }
+
 }

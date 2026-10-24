@@ -58,6 +58,9 @@ Route::middleware(['auth:sanctum', 'center.staff:lab'])->prefix('staff/lab')->gr
 
     // ۶. مشاهده/دانلود امن فایل نسخه بیمار توسط کارمند
     Route::get('prescription-file/{id}/{fileName}', [StaffLabRequestController::class, 'downloadPatientPrescription']);
+
+    Route::get('/schedule', [StaffLabRequestController::class, 'schedule']);
+
 });
 
 Route::prefix('staff/{type}/auth')
