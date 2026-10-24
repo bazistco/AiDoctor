@@ -1,10 +1,10 @@
 <?php
 
-use App\Http\Controllers\Api\Lab\LabStaffController;
 use App\Http\Controllers\Api\Owner\Lab\LabRulesController;
 use App\Http\Controllers\Api\Owner\Labs\LabAuthController;
 use App\Http\Controllers\Api\Owner\Labs\LabProfileController;
 use App\Http\Controllers\Api\Owner\Labs\LabRequestController;
+use App\Http\Controllers\Api\Owner\Labs\LabStaffController;
 use App\Http\Controllers\Api\Owner\Labs\LabTestController;
 use App\Http\Controllers\Api\Owner\MedicalCenters\CoverageController;
 use App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterProfileController;
