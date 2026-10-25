@@ -271,48 +271,71 @@ class AuthController extends Controller
 
         try {
             $baseUrl = 'http://185.222.163.113:3000/v1';
+            $subscriberUrl = "{$baseUrl}/subscribers/{$user->novu_subscriber_id}";
             $novuApiKey = config('services.novu.api_key');
+
             $headers = [
                 'Authorization' => 'ApiKey ' . $novuApiKey,
                 'Content-Type'  => 'application/json',
             ];
 
-            // ۱. ثبت توکن FCM برای کاربر در Novu
-            $credsResponse = Http::withHeaders($headers)->put(
-                "{$baseUrl}/subscribers/{$user->novu_subscriber_id}/credentials",
-                [
-                    'providerId'  => 'fcm',
-                    'credentials' => [
-                        'deviceTokens' => [$request->fcm_token]
-                    ]
-                ]
-            );
+            // ۱. دریافت اطلاعات فعلی کاربر از Novu برای خواندن توکن‌های قبلی
+            $existingTokens = [];
+            $subResponse = Http::withHeaders($headers)->get($subscriberUrl);
 
-            User::query()->where('id', $user->id)->update(['fcm_token' => $request->fcm_token]);
+            if ($subResponse->successful()) {
+                $channels = $subResponse->json('data.channels') ?? [];
+
+                foreach ($channels as $channel) {
+                    if (($channel['providerId'] ?? '') === 'fcm') {
+                        $existingTokens = $channel['credentials']['deviceTokens'] ?? [];
+                        break;
+                    }
+                }
+            }
+
+            // ۲. ترکیب توکن جدید با توکن‌های قبلی و حذف موارد تکراری
+            $mergedTokens = array_values(array_unique(array_merge($existingTokens, [$request->fcm_token])));
+
+            // نگه‌داشتن حداکثر ۵ توکن آخر (برای جلوگیری از انباشته شدن توکن‌های منقضی شده قدیمی)
+            if (count($mergedTokens) > 5) {
+                $mergedTokens = array_slice($mergedTokens, -5);
+            }
+
+            // ۳. ارسال لیست کامل توکن‌ها (موبایل + وب) به Novu
+            $credsResponse = Http::withHeaders($headers)->put("{$subscriberUrl}/credentials", [
+                'providerId'  => 'fcm',
+                'credentials' => [
+                    'deviceTokens' => $mergedTokens
+                ]
+            ]);
+
             if ($credsResponse->failed()) {
                 Log::error('Novu Credentials Error: ' . $credsResponse->body());
                 return response()->json(['success' => false, 'message' => 'خطا در ثبت توکن در سرور نوتیفیکیشن.'], 500);
             }
 
-            // ۲. ارسال نوتیفیکیشن بلافاصله بعد از ثبت توکن
-            // اگر نام فیلد نام کاربر در جدول users شما چیز دیگری است (مثلا full_name)، آن را جایگزین کنید
-            $fullName =  ($user->name ?? 'کاربر');
+            // ۴. ارسال نوتیفیکیشن خوش‌آمدگویی / تایید فعال‌سازی (فقط اگر توکن واقعاً جدید بود)
+            if (!in_array($request->fcm_token, $existingTokens)) {
+                $fullName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')) ?: ($user->name ?? 'کاربر');
 
-            Http::withHeaders($headers)->post("{$baseUrl}/events/trigger", [
-                'name' => 'welcome-msg',
-                'to' => [
-                    'subscriberId' => $user->novu_subscriber_id
-                ],
-                'payload' => [
-                    'title' => 'فعالسازی اعلان‌ها',
-                    'msg'   => "کاربر گرامی {$fullName} عزیز، دریافت اعلانات برای دستگاه شما با موفقیت فعال شد.",
-                    'link'  => 'https://mediraai.com/home'
-                ]
-            ]);
+                Http::withHeaders($headers)->post("{$baseUrl}/events/trigger", [
+                    'name' => 'welcome-msg',
+                    'to' => [
+                        'subscriberId' => $user->novu_subscriber_id
+                    ],
+                    'payload' => [
+                        'title' => 'فعالسازی اعلان‌ها',
+                        'msg'   => "کاربر گرامی {$fullName} عزیز، دریافت اعلانات در این دستگاه با موفقیت فعال شد.",
+                        'link'  => 'https://mediraai.com/home'
+                    ]
+                ]);
+            }
 
             return response()->json([
                 'success' => true,
-                'message' => 'توکن نوتیفیکیشن با موفقیت ثبت شد و پیام خوش‌آمدگویی ارسال گردید.'
+                'message' => 'توکن نوتیفیکیشن با موفقیت ثبت شد.',
+                'tokens_count' => count($mergedTokens)
             ]);
 
         } catch (\Exception $e) {
