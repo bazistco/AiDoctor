@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
@@ -78,7 +80,8 @@ class PeriodTrackerController extends Controller
             ], 422);
         }
 
-        $userId = auth()->id();
+        $user = auth()->user();
+        $userId = $user->id;
 
         $payload = [
             'last_period_start_date' => $request->last_period_start_date,
@@ -106,6 +109,9 @@ class PeriodTrackerController extends Controller
                 ->where('user_id', $userId)
                 ->first();
 
+            // ارسال نوتیفیکیشن بروزرسانی از طریق Novu (متصل به فایربیس)
+            $this->sendPeriodNotification($user, true);
+
             return response()->json([
                 'status' => true,
                 'message' => 'اطلاعات پریود بروزرسانی شد.',
@@ -120,11 +126,49 @@ class PeriodTrackerController extends Controller
         $id = DB::table('period_trackers')->insertGetId($payload);
         $created = DB::table('period_trackers')->where('id', $id)->first();
 
+        // ارسال نوتیفیکیشن ثبت اولیه از طریق Novu (متصل به فایربیس)
+        $this->sendPeriodNotification($user, false);
+
         return response()->json([
             'status' => true,
             'message' => 'اطلاعات پریود ثبت شد.',
             'data' => $created,
         ], 201);
+    }
+
+    /**
+     * متد کمکی برای ارسال نوتیفیکیشن ثبت/بروزرسانی اطلاعات قاعدگی به کاربر
+     */
+    private function sendPeriodNotification($user, bool $isUpdate = false): void
+    {
+        if (empty($user->novu_subscriber_id)) {
+            return;
+        }
+
+        try {
+            $novuUrl = 'http://185.222.163.113:3000/v1/events/trigger';
+            $novuApiKey = config('services.novu.api_key');
+
+            $fullName =  ($user->name ?? 'کاربر');
+            $actionText = $isUpdate ? 'بروزرسانی' : 'ثبت';
+
+            Http::withHeaders([
+                'Authorization' => 'ApiKey ' . $novuApiKey,
+                'Content-Type'  => 'application/json',
+            ])->post($novuUrl, [
+                'name' => 'welcome-msg',
+                'to' => [
+                    'subscriberId' => $user->novu_subscriber_id
+                ],
+                'payload' => [
+                    'title' => 'تقویم قاعدگی',
+                    'msg'   => "{$fullName} عزیز، اطلاعات چرخه قاعدگی شما با موفقیت {$actionText} شد.",
+                    'link'  => 'https://app.mediraai.com/period-tracker'
+                ]
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Period Notification Error: ' . $e->getMessage());
+        }
     }
 
     public function storePeriodLog(Request $request)
