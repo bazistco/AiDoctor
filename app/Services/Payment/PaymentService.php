@@ -549,7 +549,7 @@ class PaymentService
                     && (string) $history->transaction_id === (string) $order->id;
 
                 if ($isValid) {
-                    $subscriptionId = (int) $history->subscription_id; // ← از خود history
+                    $subscriptionId = (int) $history->subscription_id;
                     $expiresAt = now()->addDays((int) $history->duration_days);
 
                     DB::table('doctor_subscriptions')
@@ -575,12 +575,73 @@ class PaymentService
                             'updated_at'      => now(),
                         ]);
 
-                    \Log::info('[PaymentService] VIP Plan activated successfully', [
-                        'doctor_id'       => $order->user_id,
+                    // ═════════════════════════════════════════════════════════
+                    // 🟢 بخش جدید: شارژ کیف پول مجازی جستجو + ۲۰٪ هدیه سیستم
+                    // ═════════════════════════════════════════════════════════
+                    $doctorId   = (int) $order->user_id;
+                    $baseAmount = (float) $locked->amount;
+                    $giftBonus  = (float) ($baseAmount * 0.20); // ۲۰ درصد هدیه
+                    $totalCharge = $baseAmount + $giftBonus;
+
+                    // ایجاد کیف پول در صورت عدم وجود
+                    DB::table('doctor_ad_wallets')->insertOrIgnore([
+                        'doctor_id'  => $doctorId,
+                        'balance'    => 0,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+
+                    // قفل ردیف برای جلوگیری از تداخل موجودی
+                    $adWallet = DB::table('doctor_ad_wallets')
+                        ->where('doctor_id', $doctorId)
+                        ->lockForUpdate()
+                        ->first();
+
+                    $newBalance = (float) $adWallet->balance + $totalCharge;
+
+                    // آپدیت موجودی کیف پول مجازی
+                    DB::table('doctor_ad_wallets')
+                        ->where('doctor_id', $doctorId)
+                        ->update([
+                            'balance'    => $newBalance,
+                            'updated_at' => now(),
+                        ]);
+
+                    // ثبت لاگ تراکنش مالی کیف پول مجازی
+                    DB::table('doctor_ad_wallet_transactions')->insert([
+                        [
+                            'doctor_id'     => $doctorId,
+                            'amount'        => $baseAmount,
+                            'balance_after' => (float) $adWallet->balance + $baseAmount,
+                            'type'          => 1, // ۱ = شارژ از خرید پلن
+                            'subject_type'  => 'order',
+                            'subject_id'    => $order->id,
+                            'description'   => "شارژ کیف پول نمایش بابت خرید پلن #{$history->plan_id}",
+                            'created_at'    => now(),
+                            'updated_at'    => now(),
+                        ],
+                        [
+                            'doctor_id'     => $doctorId,
+                            'amount'        => $giftBonus,
+                            'balance_after' => $newBalance,
+                            'type'          => 2, // ۲ = شارژ هدیه/تشویقی سیستم
+                            'subject_type'  => 'order',
+                            'subject_id'    => $order->id,
+                            'description'   => "بونس و شارژ هدیه سیستم (۲۰٪) بابت خرید پلن #{$history->plan_id}",
+                            'created_at'    => now(),
+                            'updated_at'    => now(),
+                        ]
+                    ]);
+
+                    \Log::info('[PaymentService] VIP Plan activated & Ad Wallet credited', [
+                        'doctor_id'       => $doctorId,
                         'subscription_id' => $subscriptionId,
                         'plan_id'         => $history->plan_id,
                         'order_id'        => $order->id,
                         'history_id'      => $historyId,
+                        'base_amount'     => $baseAmount,
+                        'gift_bonus'      => $giftBonus,
+                        'total_credited'  => $totalCharge,
                     ]);
                 } else {
                     \Log::warning('[PaymentService] VIP history invalid/superseded — skipping activation', [
