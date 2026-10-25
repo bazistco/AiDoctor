@@ -65,11 +65,15 @@ class DiagnosisController extends Controller
 
         if ($cost > 0) {
             DB::transaction(function () use ($doctorId, $keyword, $cost, $searcherIp, $userAgent, $searcherId, $now) {
-                // قفل کردن ردیف کیف پول برای جلوگیری از تداخل تراکنش‌ها
-                $wallet = DB::table('wallets')->where('user_id', $doctorId)->lockForUpdate()->first();
+                // 🟢 استفاده از جدول کیف پول مجازی تبلیغات پزشک با قفل برای جلوگیری از Race Condition
+                $adWallet = DB::table('doctor_ad_wallets')
+                    ->where('doctor_id', $doctorId)
+                    ->lockForUpdate()
+                    ->first();
 
-                if ($wallet && $wallet->balance >= $cost) {
-                    $newBalance = $wallet->balance - $cost;
+                // بررسی وجود کیف پول و داشتن موجودی کافی
+                if ($adWallet && (float) $adWallet->balance >= $cost) {
+                    $newBalance = (float) $adWallet->balance - $cost;
 
                     // ثبت لاگ کلیک
                     $logId = DB::table('keyword_consumption_logs')->insertGetId([
@@ -82,32 +86,33 @@ class DiagnosisController extends Controller
                         'created_at'  => $now,
                     ]);
 
-                    // ثبت تراکنش کسر از کیف پول
-                    DB::table('wallet_transactions')->insert([
-                        'wallet_id'     => $wallet->id,
-                        'type'          => 2, // Debit (برداشت)
-                        'amount'        => $cost,
+                    // 🟢 ثبت تراکنش در جدول تراکنش‌های کیف پول مجازی
+                    DB::table('doctor_ad_wallet_transactions')->insert([
+                        'doctor_id'     => $doctorId,
+                        'amount'        => -$cost, // مقدار منفی برای کسر هزینه
                         'balance_after' => $newBalance,
-                        'subject_type'  => 7, // تایپ اختصاصی برای کلیک (به دلخواه سیستم شما)
+                        'type'          => 3, // ۳ = کسر هزینه سرچ/کلیک
+                        'subject_type'  => 'keyword_consumption_log',
                         'subject_id'    => $logId,
                         'description'   => "کسر هزینه کلیک برای کلمه کلیدی {$keyword->word}",
                         'created_at'    => $now,
-                        'ip_address'    => $searcherIp,
-                        'user_agent'    => $userAgent,
+                        'updated_at'    => $now,
                     ]);
 
-                    // آپدیت موجودی نهایی
-                    DB::table('wallets')->where('id', $wallet->id)->update([
-                        'balance' => $newBalance,
-                        'updated_at' => $now,
-                    ]);
+                    // آپدیت موجودی نهایی کیف پول مجازی
+                    DB::table('doctor_ad_wallets')
+                        ->where('doctor_id', $doctorId)
+                        ->update([
+                            'balance'    => $newBalance,
+                            'updated_at' => $now,
+                        ]);
                 } else {
-                    // موجودی کافی نیست -> غیرفعال‌سازی موقت اشتراک کلمه کلیدی
+                    // موجودی کیف پول مجازی کافی نیست -> غیرفعال‌سازی موقت اشتراک کلمه کلیدی
                     DB::table('doctor_keyword_subscriptions')
                         ->where('doctor_id', $doctorId)
                         ->where('keyword_id', $keyword->id)
                         ->update([
-                            'is_active' => 0,
+                            'is_active'  => 0,
                             'updated_at' => $now
                         ]);
                 }
@@ -116,6 +121,7 @@ class DiagnosisController extends Controller
 
         return response()->json(['success' => true]);
     }
+
     public function getRecommendations($id)
     {
         $recommenders = DB::table('doctor_recommendations')
@@ -1216,17 +1222,23 @@ class DiagnosisController extends Controller
         $doctors = $doctorsPaginator->getCollection(); // Collection از آیتم‌های صفحه جاری
 
         /*
-         * محاسبه هزینه، کسر از کیف پول و ثبت لاگ (Real-time Billing)
-         */
+  * محاسبه هزینه، کسر از کیف پول مجازی و ثبت لاگ (Real-time Billing)
+  */
         DB::transaction(function () use ($doctors, $keywordPrices, $keywordWords, $searcherIp, $userAgent, $searcherId) {
             $currentTime = now();
 
             foreach ($doctors as $doctor) {
                 if ($doctor->search_rank > 0 && !empty($doctor->matched_keyword_ids)) {
                     $keywordIds = array_unique(explode(',', $doctor->matched_keyword_ids));
-                    $multiplier = (float) ($doctor->plan_multiplier ?? 1);
-                    $walletId = $doctor->wallet_id;
-                    $currentBalance = (float) ($doctor->wallet_balance ?? 0);
+                    $multiplier = (float) ($doctor->plan_multiplier ?? 1.0);
+
+                    // 🟢 دریافت و قفل کیف پول مجازی اختصاصی تبلیغات پزشک برای جلوگیری از Race Condition
+                    $adWallet = DB::table('doctor_ad_wallets')
+                        ->where('doctor_id', $doctor->id)
+                        ->lockForUpdate()
+                        ->first();
+
+                    $currentBalance = $adWallet ? (float) $adWallet->balance : 0.0;
 
                     foreach ($keywordIds as $kId) {
                         $keywordWord = $keywordWords[$kId] ?? 'نامشخص';
@@ -1234,11 +1246,11 @@ class DiagnosisController extends Controller
                         $cost = $basePrice * $multiplier;
 
                         if ($cost > 0) {
-                            if ($walletId && $currentBalance >= $cost) {
-                                // کسر از موجودی لوکال
+                            if ($adWallet && $currentBalance >= $cost) {
+                                // کسر از مانده لحظه‌ای
                                 $currentBalance -= $cost;
 
-                                // ثبت لاگ نمایش
+                                // ۱. ثبت لاگ مصرف (Impression)
                                 $logId = DB::table('keyword_consumption_logs')->insertGetId([
                                     'doctor_id'   => $doctor->id,
                                     'keyword_id'  => $kId,
@@ -1249,35 +1261,34 @@ class DiagnosisController extends Controller
                                     'created_at'  => $currentTime,
                                 ]);
 
-                                // ثبت تراکنش کیف پول
-                                DB::table('wallet_transactions')->insert([
-                                    'wallet_id'     => $walletId,
-                                    'type'          => 2, // Debit
-                                    'amount'        => $cost,
+                                // ۲. ثبت تراکنش در جدول اختصاصی کیف پول مجازی تبلیغات
+                                DB::table('doctor_ad_wallet_transactions')->insert([
+                                    'doctor_id'     => $doctor->id,
+                                    'amount'        => -$cost, // ثبت منفی به عنوان کسر هزینه
                                     'balance_after' => $currentBalance,
-                                    'subject_type'  => 7,
+                                    'type'          => 3, // ۳ = کسر بابت سرچ / ایمپرشن
+                                    'subject_type'  => 'keyword_consumption_log',
                                     'subject_id'    => $logId,
                                     'description'   => "کسر هزینه نمایش برای کلمه کلیدی {$keywordWord} (شناسه: {$kId})",
                                     'created_at'    => $currentTime,
-                                    'ip_address'    => $searcherIp,
-                                    'user_agent'    => $userAgent,
+                                    'updated_at'    => $currentTime,
                                 ]);
 
-                                // به‌روزرسانی موجودی کیف پول
-                                DB::table('wallets')
-                                    ->where('id', $walletId)
+                                // ۳. به‌روزرسانی موجودی کیف پول مجازی پزشک
+                                DB::table('doctor_ad_wallets')
+                                    ->where('doctor_id', $doctor->id)
                                     ->update([
                                         'balance'    => $currentBalance,
-                                        'updated_at' => $currentTime
+                                        'updated_at' => $currentTime,
                                     ]);
                             } else {
-                                // غیرفعال‌سازی اشتراک در صورت ناکافی بودن موجودی
+                                // در صورت نبود موجودی کافی در کیف پول مجازی -> غیرفعال‌سازی این کلمه کلیدی
                                 DB::table('doctor_keyword_subscriptions')
                                     ->where('doctor_id', $doctor->id)
                                     ->where('keyword_id', $kId)
                                     ->update([
                                         'is_active'  => 0,
-                                        'updated_at' => $currentTime
+                                        'updated_at' => $currentTime,
                                     ]);
                             }
                         }
