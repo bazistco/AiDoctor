@@ -270,20 +270,50 @@ class AuthController extends Controller
         }
 
         try {
-            $novuCredsUrl = 'http://185.222.163.113:3000/v1/subscribers/' . $user->novu_subscriber_id . '/credentials';
+            $baseUrl = 'http://185.222.163.113:3000/v1';
             $novuApiKey = config('services.novu.api_key');
-
-            Http::withHeaders([
+            $headers = [
                 'Authorization' => 'ApiKey ' . $novuApiKey,
                 'Content-Type'  => 'application/json',
-            ])->put($novuCredsUrl, [
-                'providerId'  => 'fcm',
-                'credentials' => [
-                    'deviceTokens' => [$request->fcm_token]
+            ];
+
+            // ۱. ثبت توکن FCM برای کاربر در Novu
+            $credsResponse = Http::withHeaders($headers)->put(
+                "{$baseUrl}/subscribers/{$user->novu_subscriber_id}/credentials",
+                [
+                    'providerId'  => 'fcm',
+                    'credentials' => [
+                        'deviceTokens' => [$request->fcm_token]
+                    ]
+                ]
+            );
+
+            if ($credsResponse->failed()) {
+                Log::error('Novu Credentials Error: ' . $credsResponse->body());
+                return response()->json(['success' => false, 'message' => 'خطا در ثبت توکن در سرور نوتیفیکیشن.'], 500);
+            }
+
+            // ۲. ارسال نوتیفیکیشن بلافاصله بعد از ثبت توکن
+            // اگر نام فیلد نام کاربر در جدول users شما چیز دیگری است (مثلا full_name)، آن را جایگزین کنید
+            $fullName =  ($user->name ?? 'کاربر');
+
+            Http::withHeaders($headers)->post("{$baseUrl}/events/trigger", [
+                'name' => 'welcome-msg',
+                'to' => [
+                    'subscriberId' => $user->novu_subscriber_id
+                ],
+                'payload' => [
+                    'title' => 'فعالسازی اعلان‌ها',
+                    'msg'   => "کاربر گرامی {$fullName} عزیز، دریافت اعلانات برای دستگاه شما با موفقیت فعال شد.",
+                    'link'  => 'https://mediraai.com/home'
                 ]
             ]);
 
-            return response()->json(['success' => true, 'message' => 'توکن نوتیفیکیشن با موفقیت ثبت شد.']);
+            return response()->json([
+                'success' => true,
+                'message' => 'توکن نوتیفیکیشن با موفقیت ثبت شد و پیام خوش‌آمدگویی ارسال گردید.'
+            ]);
+
         } catch (\Exception $e) {
             Log::error('FCM Update Error: ' . $e->getMessage());
             return response()->json(['success' => false, 'message' => 'خطای سرور.'], 500);

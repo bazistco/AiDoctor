@@ -339,7 +339,7 @@ Route::group(['prefix' => 'user'],function (){
      Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
          Route::get('/diagnosis/specialties',[DiagnosisController::class,'getSpecialties']);
          Route::get('/health-insights', [HealthController::class, 'getInsights']);
-         Route::post('/fcm-token/update', [AuthController::class, 'updateFcmToken']);
+         Route::post('/fcm-token', [AuthController::class, 'updateFcmToken']);
          // سینک کردن برنامه غذایی و وعده‌های یک روز (افزودن و حذف)
          Route::post('/health-insights', [HealthController::class, 'syncMealPlan']);
 
