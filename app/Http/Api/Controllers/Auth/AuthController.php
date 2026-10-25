@@ -288,6 +288,7 @@ class AuthController extends Controller
                 ]
             );
 
+            User::query()->where('id', $user->id)->update(['fcm_token' => $request->fcm_token]);
             if ($credsResponse->failed()) {
                 Log::error('Novu Credentials Error: ' . $credsResponse->body());
                 return response()->json(['success' => false, 'message' => 'خطا در ثبت توکن در سرور نوتیفیکیشن.'], 500);
