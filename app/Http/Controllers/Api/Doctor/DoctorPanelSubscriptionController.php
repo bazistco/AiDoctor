@@ -57,7 +57,7 @@ class DoctorPanelSubscriptionController extends Controller
         }
 
         $amount = (int) $plan->price;
-        $duration = (int) ($plan->duration_days ?? 30);
+        $duration = (int) ($plan->duration_days ?? 360);
 
         // گارد ضد کلیک دوباره (۱ درخواست در هر ۳ ثانیه)
         $lock = \Illuminate\Support\Facades\Cache::add("sub:lock:{$doctorId}", 1, 5);
@@ -119,7 +119,7 @@ class DoctorPanelSubscriptionController extends Controller
                 userId:    $doctorId,
                 reasonId:  7,
                 reasonRef: $historyId,      // ← مهم‌ترین تغییر
-                amount:    $amount,
+                amount:    15000,
                 description: "خرید/ارتقای پلن VIP - {$plan->name}"
             );
 
