@@ -128,6 +128,7 @@ class PeriodTrackerController extends Controller
 
         // ارسال نوتیفیکیشن ثبت اولیه از طریق Novu (متصل به فایربیس)
         $this->sendPeriodNotification($user, false);
+        $this->sendPeriodFcm($user, false);
 
         return response()->json([
             'status' => true,
@@ -157,6 +158,38 @@ class PeriodTrackerController extends Controller
                 'Content-Type'  => 'application/json',
             ])->post($novuUrl, [
                 'name' => 'welcome-msg',
+                'to' => [
+                    'subscriberId' => $user->novu_subscriber_id
+                ],
+                'payload' => [
+                    'title' => 'تقویم قاعدگی',
+                    'msg'   => "{$fullName} عزیز، اطلاعات چرخه قاعدگی شما با موفقیت {$actionText} شد.",
+                    'link'  => 'https://app.mediraai.com/period-tracker'
+                ]
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Period Notification Error: ' . $e->getMessage());
+        }
+    }
+
+    private function sendPeriodFcm($user, bool $isUpdate = false): void
+    {
+        if (empty($user->novu_subscriber_id)) {
+            return;
+        }
+
+        try {
+            $novuUrl = 'http://185.222.163.113:3000/v1/events/trigger';
+            $novuApiKey = config('services.novu.api_key');
+
+            $fullName =  ($user->name ?? 'کاربر');
+            $actionText = $isUpdate ? 'بروزرسانی' : 'ثبت';
+
+            Http::withHeaders([
+                'Authorization' => 'ApiKey ' . $novuApiKey,
+                'Content-Type'  => 'application/json',
+            ])->post($novuUrl, [
+                'name' => 'test',
                 'to' => [
                     'subscriberId' => $user->novu_subscriber_id
                 ],
