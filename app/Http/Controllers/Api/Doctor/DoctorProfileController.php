@@ -201,10 +201,15 @@ class DoctorProfileController extends Controller
                 'patientPhone' => $trx->phone,
             ];
         })->values();
+        $adWallet = DB::table('doctor_ad_wallets')
+            ->where('doctor_id', $userId)
+            ->first();
 
+        $currentBalance = $adWallet ? (float) $adWallet->balance : 0.0;
         return response()->json([
             'status' => 200,
             'data'   => [
+                'ad_wallet_balance'=> $currentBalance,
                 'wallet_balance'=> $wallet->balance,
                 'balance'     => $wallet->balance,
                 'totalIncome' => $totalIncome,
