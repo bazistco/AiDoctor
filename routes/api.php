@@ -40,7 +40,7 @@ Route::get('/v1/check-version', function (Illuminate\Http\Request $request) {
         'success' => true,
         'latestVersionCode' => 11,       // آخرین کد نسخه روی سرور
         'versionName' => '0.0.11',          // نام نسخه نمایشی
-        'apkUrl' => 'https://api.mediraai.com/medira.apk',
+        'apkUrl' => 'https://api.mediraai.com/medira-0.0.11.apk',
         'isMandatory' => true,             // آیا آپدیت اجباری است؟ (true / false)
         'releaseNotes' => 'رفع اشکالات و بهبود پایداری برنامه'
     ]);
