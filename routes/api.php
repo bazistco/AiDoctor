@@ -35,7 +35,16 @@ Route::get('/cron/cancel-expired-orders', [UserOrderController::class, 'cancelEx
 Route::middleware('auth:sanctum')->prefix('staff')->group(function () {
     Route::get('/auth/check', [CenterStaffAuthController::class, 'check']);
 });
-
+Route::get('/v1/check-version', function (Illuminate\Http\Request $request) {
+    return response()->json([
+        'success' => true,
+        'latestVersionCode' => 105,       // آخرین کد نسخه روی سرور
+        'versionName' => '1.2.0',          // نام نسخه نمایشی
+        'apkUrl' => 'https://api.mediraai.com/medira.apk',
+        'isMandatory' => true,             // آیا آپدیت اجباری است؟ (true / false)
+        'releaseNotes' => 'رفع اشکالات و بهبود پایداری برنامه'
+    ]);
+});
 Route::middleware(['auth:sanctum', 'center.staff:medical_center'])->prefix('staff/lab')->group(function () {
 
 });
