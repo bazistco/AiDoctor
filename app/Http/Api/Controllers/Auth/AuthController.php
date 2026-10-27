@@ -51,7 +51,7 @@ class AuthController extends Controller
             $remainingTtl = Redis::ttl($redisKey); // ثانیه‌های باقی‌مانده
             return response()->json([
                 'success' => false,
-                'message' => 'لطفا صبر کنید قبل ارسال کد دیگر',
+                'message' => 'محدودیت در ارسال کد لطفا کمی صبر کنید',
                 'next_allowed_in_seconds' => $remainingTtl,
             ], 429);
         }
