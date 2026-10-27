@@ -37,7 +37,7 @@ class AuthController extends Controller
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid parameters',
+                'message' => 'ورودی نامعتبر',
                 'errors' => $validator->errors()
             ], 422);
         }
@@ -51,7 +51,7 @@ class AuthController extends Controller
             $remainingTtl = Redis::ttl($redisKey); // ثانیه‌های باقی‌مانده
             return response()->json([
                 'success' => false,
-                'message' => 'Please wait before requesting another OTP.',
+                'message' => 'لطفا صبر کنید قبل ارسال کد دیگر',
                 'next_allowed_in_seconds' => $remainingTtl,
             ], 429);
         }
@@ -74,7 +74,7 @@ class AuthController extends Controller
         // بازگشت پاسخ موفقیت
         return response()->json([
             'success' => true,
-            'message' => 'OTP sent successfully',
+            'message' => 'با موفقیت ارسال شد',
             'otp' => $code, // فقط برای تست، در نسخه نهایی حذف شود
         ]);
     }
