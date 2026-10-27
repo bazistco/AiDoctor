@@ -343,8 +343,8 @@ Route::get('/user', function (Request $request) {
 Route::middleware(['auth:sanctum', 'user.active'])->post('/chat/upload', [ChatController::class, 'uploadFile']);
 
 Route::group(['prefix' => 'user'],function (){
-    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:3,1');
-    Route::post('verify',[AuthController::class,'verify'])->middleware('throttle:5,1');
+    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+    Route::post('verify',[AuthController::class,'verify'])->middleware('throttle:10,1');
      Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
          Route::get('/diagnosis/specialties',[DiagnosisController::class,'getSpecialties']);
          Route::get('/health-insights', [HealthController::class, 'getInsights']);

@@ -6,6 +6,7 @@ use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -59,6 +60,21 @@ return Application::configure(basePath: dirname(__DIR__))
                 return response()->json([
                     'message' => 'Unauthenticated.'
                 ], 401);
+        });
+        $exceptions->renderable(function (ThrottleRequestsException $e, Request $request) {
+            if ($request->expectsJson() || $request->is('api/*')) {
+                $headers = $e->getHeaders();
+                $seconds = (int) ($headers['Retry-After'] ?? 0);
+
+                $wait = $seconds > 0
+                    ? 'لطفاً ' . ceil($seconds / 60) . ' دقیقه دیگر دوباره تلاش کنید.'
+                    : 'لطفاً کمی بعد دوباره تلاش کنید.';
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'تعداد تلاش‌ها بیش از حد مجاز است. ' . $wait,
+                ], 429, $headers);
+            }
         });
         $exceptions->renderable(function (AuthenticationException $e, Request $request) { // Use Illuminate\Http\Request
             if ($request->expectsJson()) {
