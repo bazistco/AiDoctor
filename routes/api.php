@@ -70,7 +70,8 @@ Route::middleware(['auth:sanctum', 'center.staff:pharmacy'])->prefix('staff/phar
         Route::post('/{id}/cancel', [PharmacyStaffRequestController::class, 'cancelRequest']); // لغو درخواست
 
         // دانلود تصویر نسخه
-        Route::get('/{id}/prescription-file', [PharmacyStaffRequestController::class, 'downloadPrescription']);
+        Route::get('/{id}/prescription-file/{fileName}', [PharmacyStaffRequestController::class, 'downloadPrescription'])
+            ->where('fileName', '.*'); // جهت پشتیبانی از اسلش‌های احتمالی در نام فایل
     });
 });
 Route::middleware(['auth:sanctum', 'center.staff:lab'])->prefix('staff/lab')->group(function () {

@@ -300,54 +300,48 @@ class PharmacyStaffRequestController extends Controller
     /**
      * دانلود و پیش‌نمایش امن فایل نسخه برای پرسنل
      */
-    public function downloadPrescription(Request $request, $id)
+    public function downloadPrescription(Request $request, $requestId, $fileName)
     {
-        $pharmacyId = $this->getPharmacyId($request);
-
+        $pharmacyId = $this->getPharmacyId();
+        // ۱. بررسی دسترسی داروخانه به این درخواست
         $pharmacyRequest = DB::table('users_pharmacy_requests')
-            ->leftJoin('users_prescriptions', 'users_pharmacy_requests.prescription_id', '=', 'users_prescriptions.id')
-            ->where('users_pharmacy_requests.id', $id)
+            ->where('id', $requestId)
             ->where(function ($query) use ($pharmacyId) {
-                $query->where('users_pharmacy_requests.pharmacy_id', $pharmacyId)
-                    ->orWhereNull('users_pharmacy_requests.pharmacy_id');
+                $query->where('pharmacy_id', $pharmacyId)
+                    ->orWhereNull('pharmacy_id');
             })
-            ->select('users_pharmacy_requests.*', 'users_prescriptions.details as prescription_details')
             ->first();
 
         if (!$pharmacyRequest) {
-            return response()->json(['message' => 'عدم دسترسی به نسخه.'], 403);
+            return response()->json([
+                'success' => false,
+                'message' => 'شما دسترسی لازم برای مشاهده این نسخه را ندارید.'
+            ], 403);
         }
 
-        // استخراج نام فایل از details
-        $rawFileName = $request->query('file');
-        if (empty($rawFileName) && !empty($pharmacyRequest->prescription_details)) {
-            $decoded = json_decode($pharmacyRequest->prescription_details, true);
-            $rawFileName = is_array($decoded) ? ($decoded['file'] ?? null) : $pharmacyRequest->prescription_details;
-        }
-
-        if (empty($rawFileName)) {
-            return response()->json(['message' => 'فایلی برای این نسخه یافت نشد.'], 404);
-        }
-
-        $cleanFileName = str_replace(['prescriptions/', '\\'], ['', '/'], $rawFileName);
+        // ۲. پاکسازی و ایمن‌سازی مسیر فایل
+        $cleanFileName = str_replace(['prescriptions/', '\\'], ['', '/'], $fileName);
         $targetPath = 'prescriptions/' . $cleanFileName;
 
+        // ۳. بررسی وجود فایل در دیسک امن
         if (!Storage::disk('local')->exists($targetPath)) {
             return response()->json([
-                'message' => 'فایل فیزیکی نسخه در سرور یافت نشد.',
-                'path' => $targetPath
+                'success' => false,
+                'message' => 'فایل نسخه در سرور یافت نشد.',
+                'target'  => $targetPath
             ], 404);
         }
 
         $pureFileName = basename($targetPath);
         $mimeType = Storage::disk('local')->mimeType($targetPath);
 
-        // هدر Content-Disposition: inline به مرورگر اجازه می‌دهد تصویر/PDF را مستقیم نمایش دهد (پیش‌نمایش)
-        return response(Storage::disk('local')->get($targetPath), 200, [
+        // ۴. ارسال استریم فایل با قابلیت پیش‌نمایش در مرورگر
+        return Storage::disk('local')->response($targetPath, $pureFileName, [
             'Content-Type' => $mimeType,
             'Content-Disposition' => 'inline; filename="' . $pureFileName . '"',
         ]);
     }
+
 
     // ---------- acceptRequest: رزرو درخواست (وضعیت 0) ----------
     public function acceptRequest($id)
