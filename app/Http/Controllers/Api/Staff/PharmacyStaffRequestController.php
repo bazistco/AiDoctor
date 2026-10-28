@@ -10,6 +10,141 @@ use Illuminate\Support\Facades\Storage;
 
 class PharmacyStaffRequestController extends Controller
 {
+    public function addItem(Request $request, $id)
+    {
+        $pharmacyId = $this->getPharmacyId($request);
+
+        $validated = $request->validate([
+            'medicine_name' => 'required|string|max:191',
+            'quantity'      => 'required|integer|min:1',
+            'unit'          => 'nullable|string|max:50',
+            'unit_price'    => 'required|numeric|min:0',
+            'description'   => 'nullable|string|max:255',
+        ]);
+
+        $pharmacyRequest = DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->where('pharmacy_id', $pharmacyId)
+            ->first();
+
+        if (!$pharmacyRequest) {
+            return response()->json(['message' => 'درخواست یافت نشد'], 404);
+        }
+
+        if (!in_array($pharmacyRequest->status, [0, 1])) {
+            return response()->json(['message' => 'امکان ویرایش اقلام در این وضعیت وجود ندارد'], 422);
+        }
+
+        $itemTotalPrice = $validated['quantity'] * $validated['unit_price'];
+
+        DB::transaction(function () use ($id, $validated, $itemTotalPrice) {
+            // درج دارو در جدول اقلام
+            DB::table('users_pharmacy_requests_items')->insert([
+                'user_pharmacy_request_id' => $id,
+                'medicine_name'            => $validated['medicine_name'],
+                'quantity'                 => $validated['quantity'],
+                'unit'                     => $validated['unit'] ?? 'عدد',
+                'unit_price'               => $validated['unit_price'],
+                'total_price'              => $itemTotalPrice,
+                'description'              => $validated['description'] ?? null,
+                'created_at'               => now(),
+                'updated_at'               => now(),
+            ]);
+
+            // بازشماری مجموع کل فاکتور نسخه
+            $newTotal = DB::table('users_pharmacy_requests_items')
+                ->where('user_pharmacy_request_id', $id)
+                ->sum('total_price');
+
+            DB::table('users_pharmacy_requests')
+                ->where('id', $id)
+                ->update([
+                    'total_price' => $newTotal,
+                    'updated_at'  => now(),
+                ]);
+        });
+
+        return response()->json(['message' => 'قلم دارو با موفقیت اضافه شد'], 201);
+    }
+
+    /**
+     * حذف یک قلم دارو از نسخه
+     */
+    public function removeItem(Request $request, $id, $itemId)
+    {
+        $pharmacyId = $this->getPharmacyId($request);
+
+        $pharmacyRequest = DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->where('pharmacy_id', $pharmacyId)
+            ->first();
+
+        if (!$pharmacyRequest || !in_array($pharmacyRequest->status, [0, 1])) {
+            return response()->json(['message' => 'امکان حذف اقلام وجود ندارد'], 422);
+        }
+
+        DB::transaction(function () use ($id, $itemId) {
+            DB::table('users_pharmacy_requests_items')
+                ->where('id', $itemId)
+                ->where('user_pharmacy_request_id', $id)
+                ->delete();
+
+            // به‌روزرسانی جمع کل
+            $newTotal = DB::table('users_pharmacy_requests_items')
+                ->where('user_pharmacy_request_id', $id)
+                ->sum('total_price') ?? 0;
+
+            DB::table('users_pharmacy_requests')
+                ->where('id', $id)
+                ->update([
+                    'total_price' => $newTotal,
+                    'updated_at'  => now(),
+                ]);
+        });
+
+        return response()->json(['message' => 'قلم دارو حذف شد']);
+    }
+
+    /**
+     * تأیید نهایی داروها و صدور پیش‌فاکتور برای پرداخت بیمار (تغییر از 0 به 1)
+     */
+    public function acceptAndIssueInvoice(Request $request, $id)
+    {
+        $pharmacyId = $this->getPharmacyId($request);
+
+        $pharmacyRequest = DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->where('pharmacy_id', $pharmacyId)
+            ->first();
+
+        if (!$pharmacyRequest) {
+            return response()->json(['message' => 'درخواست یافت نشد'], 404);
+        }
+
+        if ($pharmacyRequest->status !== 0) {
+            return response()->json(['message' => 'درخواست در وضعیت بررسی اولیه قرار ندارد'], 422);
+        }
+
+        $itemsCount = DB::table('users_pharmacy_requests_items')
+            ->where('user_pharmacy_request_id', $id)
+            ->count();
+
+        if ($itemsCount === 0) {
+            return response()->json(['message' => 'حداقل یک قلم دارو باید به نسخه اضافه شود'], 422);
+        }
+
+        // تغییر وضعیت به 1 (در انتظار پرداخت بیمار)
+        DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->update([
+                'status'     => 1,
+                'updated_at' => now(),
+            ]);
+
+        // در صورت تمایل، ارسال پیامک صدور فاکتور به کاربر لاگین‌شده در اینجا صدا زده می‌شود
+
+        return response()->json(['message' => 'نسخه تأیید و فاکتور جهت پرداخت بیمار صادر شد']);
+    }
     /**
      * استخراج شناسه داروخانه‌ای که کارمند در آن مشغول به کار است
      */

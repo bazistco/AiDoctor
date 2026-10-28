@@ -57,9 +57,9 @@ Route::middleware(['auth:sanctum', 'center.staff:pharmacy'])->prefix('staff/phar
 
         // فرآیند پذیرش و داروها
         Route::post('/{id}/accept', [PharmacyStaffRequestController::class, 'acceptRequest']);
-        // Route::post('/{id}/items', [PharmacyStaffRequestController::class, 'addItem']);
-        // Route::delete('/{id}/items/{itemId}', [PharmacyStaffRequestController::class, 'removeItem']);
-
+        Route::post('{id}/items', [PharmacyStaffRequestController::class, 'addItem']);
+        Route::delete('{id}/items/{itemId}', [PharmacyStaffRequestController::class, 'removeItem']);
+        Route::post('{id}/accept-invoice', [PharmacyStaffRequestController::class, 'acceptAndIssueInvoice']);
         // تغییر وضعیت‌ها (متناسب با دکمه‌های کامپوننت React)
         // Route::post('/{id}/status/final-confirm', [PharmacyStaffRequestController::class, 'updateStatus']); // 0 -> 1
         Route::post('/{id}/status/preparing', [PharmacyStaffRequestController::class, 'markAsPreparing']); // 1 -> 2
