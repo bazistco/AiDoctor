@@ -12,11 +12,17 @@ class PharmacyStaffInventoryController extends Controller
     /**
      * دریافت pharmacy_id پرسنل جاری
      */
-    private function getStaffPharmacyId(Request $request)
+    protected function getPharmacyId()
     {
-        $user = $request->user();
-        // بر اساس ساختار سیستم شما: از مدل کارمند یا رابطه داروخانه
-        return $user->pharmacy_id ?? $user->staffPharmacy->pharmacy_id ?? null;
+        $userId = auth()->id();
+
+        $staff = DB::table('medical_centers_staffs')
+            ->where('staff_id', $userId)
+            ->where('center_type', 'pharmacy')
+            ->where('is_active', 1)
+            ->first();
+
+        return $staff ? $staff->center_id : null;
     }
 
     /**
@@ -24,7 +30,7 @@ class PharmacyStaffInventoryController extends Controller
      */
     public function index(Request $request)
     {
-        $pharmacyId = $this->getStaffPharmacyId($request);
+        $pharmacyId = $this->getPharmacyId();
         if (!$pharmacyId) {
             return response()->json([
                 'status'  => 'error',
@@ -78,7 +84,7 @@ class PharmacyStaffInventoryController extends Controller
      */
     public function updateStock(Request $request, $id)
     {
-        $pharmacyId = $this->getStaffPharmacyId($request);
+        $pharmacyId = $this->getPharmacyId();
         if (!$pharmacyId) {
             return response()->json([
                 'status'  => 'error',
