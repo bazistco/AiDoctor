@@ -18,7 +18,7 @@ class PharmacyStaffRequestController extends Controller
         $userId = auth()->id();
 
         $staff = DB::table('medical_centers_staffs')
-            ->where('user_id', $userId)
+            ->where('staff_id', $userId)
             ->where('center_type', 'pharmacy')
             ->where('is_active', 1)
             ->first();
