@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\Owner\MedicalCenters\MedicalCenterStaffController;
 use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyAuthController;
 use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyRequestController;
 use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyProfileController;
+use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyStaffController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
@@ -31,6 +32,11 @@ Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
         Route::post('/profile/update', [PharmacyProfileController::class, 'update']);
         Route::get('/medicines/search', [PharmacyRequestController::class, 'searchMedicines']);
 
+        Route::get('/staffs', [PharmacyStaffController::class, 'index']);
+        Route::post('/staffs', [PharmacyStaffController::class, 'store']);
+        Route::put('/staffs/{id}', [PharmacyStaffController::class, 'update']);
+        Route::patch('/staffs/{id}/toggle-status', [PharmacyStaffController::class, 'toggleStatus']);
+        Route::delete('/staffs/{id}', [PharmacyStaffController::class, 'destroy']);
         Route::prefix('requests')->name('requests.')->group(function () {
             // لیست درخواست‌ها (خام و پذیرفته شده)
             Route::get('/', [PharmacyRequestController::class, 'index'])->name('index');
