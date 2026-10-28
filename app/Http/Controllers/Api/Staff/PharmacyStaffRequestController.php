@@ -84,6 +84,7 @@ class PharmacyStaffRequestController extends Controller
 
         $pharmacyRequest = DB::table('users_pharmacy_requests')
             ->leftJoin('users', 'users_pharmacy_requests.user_id', '=', 'users.id')
+            ->leftJoin('addresses', 'addresses.id', '=', 'users_pharmacy_requests.user_address_id')
             ->leftJoin('users_prescriptions', 'users_pharmacy_requests.prescription_id', '=', 'users_prescriptions.id')
             ->leftJoin('prescription_types', 'users_prescriptions.prescription_type_id', '=', 'prescription_types.id')
             ->where('users_pharmacy_requests.id', $id)
@@ -101,7 +102,11 @@ class PharmacyStaffRequestController extends Controller
                 'users_prescriptions.status as prescription_status',
                 'users_prescriptions.details as prescription_details',
                 'users_prescriptions.created_at as prescription_created_at',
-                'prescription_types.name as prescription_type_name'
+                'prescription_types.name as prescription_type_name',
+                'addresses.address as address_name',
+                'addresses.id as address_id',
+                'addresses.lat as address_lat',
+                'addresses.lng as address_lng',
             )
             ->first();
 
