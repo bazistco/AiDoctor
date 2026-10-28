@@ -44,8 +44,8 @@ class PharmacyStaffRequestController extends Controller
                 'medicine_name'            => $validated['medicine_name'],
                 'quantity'                 => $validated['quantity'],
                 'unit'                     => $validated['unit'] ?? 'عدد',
-                'unit_price'               => $validated['unit_price'],
-                'total_price'              => $itemTotalPrice,
+                'unit_price'               => $validated['unit_price']*10,
+                'total_price'              => $itemTotalPrice*10,
                 'description'              => $validated['description'] ?? null,
                 'created_at'               => now(),
                 'updated_at'               => now(),
@@ -59,7 +59,7 @@ class PharmacyStaffRequestController extends Controller
             DB::table('users_pharmacy_requests')
                 ->where('id', $id)
                 ->update([
-                    'total_price' => $newTotal,
+                    'total_price' => $newTotal/10,
                     'updated_at'  => now(),
                 ]);
         });
@@ -212,16 +212,18 @@ class PharmacyStaffRequestController extends Controller
     }
 
     // ---------- show: نمایش جزئیات یک درخواست ----------
-    public function show($id)
+
+    /**
+     * نمایش اطلاعات و جزییات کامل نسخه برای کارمند
+     */
+    public function show(Request $request, $id)
     {
-        $pharmacyId = $this->getPharmacyId();
-        if (!$pharmacyId) return response()->json(['status' => 'error', 'message' => 'دسترسی غیرمجاز.'], 403);
+        $pharmacyId = $this->getPharmacyId($request);
 
         $pharmacyRequest = DB::table('users_pharmacy_requests')
             ->leftJoin('users', 'users_pharmacy_requests.user_id', '=', 'users.id')
             ->leftJoin('users_prescriptions', 'users_pharmacy_requests.prescription_id', '=', 'users_prescriptions.id')
             ->leftJoin('prescription_types', 'users_prescriptions.prescription_type_id', '=', 'prescription_types.id')
-            ->leftJoin('addresses', 'users_pharmacy_requests.user_address_id', '=', 'addresses.id') // اضافه شدن آدرس
             ->where('users_pharmacy_requests.id', $id)
             ->where(function ($query) use ($pharmacyId) {
                 $query->where('users_pharmacy_requests.pharmacy_id', $pharmacyId)
@@ -231,22 +233,44 @@ class PharmacyStaffRequestController extends Controller
                 'users_pharmacy_requests.*',
                 'users.name as user_name',
                 'users.phone as user_mobile',
+                'users.national_code as user_national_code',
+                // فیلدهای حیاتی نسخه بیمار:
                 'users_prescriptions.id as prescription_id',
                 'users_prescriptions.prescription_type_id',
+                'users_prescriptions.status as prescription_status',
                 'users_prescriptions.details as prescription_details',
-                'prescription_types.name as prescription_type_name',
-                'addresses.address as user_address_text' // متن آدرس برای مودال پرسنل
+                'users_prescriptions.created_at as prescription_created_at',
+                'prescription_types.name as prescription_type_name'
             )
             ->first();
 
         if (!$pharmacyRequest) {
-            return response()->json(['status' => 'error', 'message' => 'درخواست یافت نشد.'], 404);
+            return response()->json(['status' => 'error', 'message' => 'درخواست نسخه یافت نشد.'], 404);
         }
 
+        // تبدیل ریال به تومان برای نمایش در پنل
         if (isset($pharmacyRequest->total_price)) {
             $pharmacyRequest->total_price = $pharmacyRequest->total_price / 10;
         }
 
+        // استخراج نام فایل نسخه از details (در صورتی که json یا متن ساده باشد)
+        $prescriptionFile = null;
+        if (!empty($pharmacyRequest->prescription_details)) {
+            $detailsDecoded = json_decode($pharmacyRequest->prescription_details, true);
+            if (is_array($detailsDecoded) && isset($detailsDecoded['file'])) {
+                $prescriptionFile = $detailsDecoded['file'];
+            } elseif (is_string($pharmacyRequest->prescription_details) && (
+                    str_contains($pharmacyRequest->prescription_details, '.jpg') ||
+                    str_contains($pharmacyRequest->prescription_details, '.png') ||
+                    str_contains($pharmacyRequest->prescription_details, '.jpeg') ||
+                    str_contains($pharmacyRequest->prescription_details, '.pdf')
+                )) {
+                $prescriptionFile = $pharmacyRequest->prescription_details;
+            }
+        }
+        $pharmacyRequest->prescription_file_name = $prescriptionFile;
+
+        // دریافت لیست داروهای افزوده شده به این نسخه
         $items = DB::table('user_pharmacy_request_medicines as uprm')
             ->join('pharmacy_medicines as pm', 'uprm.pharmacy_medicine_id', '=', 'pm.id')
             ->join('medicines', 'pm.medicine_id', '=', 'medicines.id')
@@ -257,7 +281,7 @@ class PharmacyStaffRequestController extends Controller
                 'pm.medicine_id',
                 'uprm.quantity',
                 DB::raw('uprm.price / 10 as price'),
-                DB::raw('(uprm.quantity * uprm.price * 10) as total_price'),
+                DB::raw('(uprm.quantity * uprm.price / 10) as total_price'),
                 'medicines.name as medicine_name',
                 DB::raw("COALESCE(medicine_types.name, '-') as medicine_type_name"),
                 DB::raw("COALESCE(pm.unit, 'عدد') as unit")
@@ -270,6 +294,58 @@ class PharmacyStaffRequestController extends Controller
                 'request' => $pharmacyRequest,
                 'items'   => $items,
             ]
+        ]);
+    }
+
+    /**
+     * دانلود و پیش‌نمایش امن فایل نسخه برای پرسنل
+     */
+    public function downloadPrescription(Request $request, $id)
+    {
+        $pharmacyId = $this->getPharmacyId($request);
+
+        $pharmacyRequest = DB::table('users_pharmacy_requests')
+            ->leftJoin('users_prescriptions', 'users_pharmacy_requests.prescription_id', '=', 'users_prescriptions.id')
+            ->where('users_pharmacy_requests.id', $id)
+            ->where(function ($query) use ($pharmacyId) {
+                $query->where('users_pharmacy_requests.pharmacy_id', $pharmacyId)
+                    ->orWhereNull('users_pharmacy_requests.pharmacy_id');
+            })
+            ->select('users_pharmacy_requests.*', 'users_prescriptions.details as prescription_details')
+            ->first();
+
+        if (!$pharmacyRequest) {
+            return response()->json(['message' => 'عدم دسترسی به نسخه.'], 403);
+        }
+
+        // استخراج نام فایل از details
+        $rawFileName = $request->query('file');
+        if (empty($rawFileName) && !empty($pharmacyRequest->prescription_details)) {
+            $decoded = json_decode($pharmacyRequest->prescription_details, true);
+            $rawFileName = is_array($decoded) ? ($decoded['file'] ?? null) : $pharmacyRequest->prescription_details;
+        }
+
+        if (empty($rawFileName)) {
+            return response()->json(['message' => 'فایلی برای این نسخه یافت نشد.'], 404);
+        }
+
+        $cleanFileName = str_replace(['prescriptions/', '\\'], ['', '/'], $rawFileName);
+        $targetPath = 'prescriptions/' . $cleanFileName;
+
+        if (!Storage::disk('local')->exists($targetPath)) {
+            return response()->json([
+                'message' => 'فایل فیزیکی نسخه در سرور یافت نشد.',
+                'path' => $targetPath
+            ], 404);
+        }
+
+        $pureFileName = basename($targetPath);
+        $mimeType = Storage::disk('local')->mimeType($targetPath);
+
+        // هدر Content-Disposition: inline به مرورگر اجازه می‌دهد تصویر/PDF را مستقیم نمایش دهد (پیش‌نمایش)
+        return response(Storage::disk('local')->get($targetPath), 200, [
+            'Content-Type' => $mimeType,
+            'Content-Disposition' => 'inline; filename="' . $pureFileName . '"',
         ]);
     }
 
@@ -360,29 +436,5 @@ class PharmacyStaffRequestController extends Controller
         }
     }
 
-    // متد دانلود نسخه (همانند ادمین اما با شناسه کارمند)
-    public function downloadPharmacyPrescription($requestId, $fileName)
-    {
-        $pharmacyId = $this->getPharmacyId();
-        if (!$pharmacyId) return response()->json(['success' => false], 403);
 
-        $pharmacyRequest = DB::table('users_pharmacy_requests')
-            ->where('id', $requestId)
-            ->where(function($query) use ($pharmacyId) {
-                $query->where('pharmacy_id', $pharmacyId)->orWhereNull('pharmacy_id');
-            })->first();
-
-        if (!$pharmacyRequest) return response()->json(['success' => false], 403);
-
-        $cleanFileName = str_replace('prescriptions/', '', $fileName);
-        $targetPath = 'prescriptions/' . $cleanFileName;
-
-        if (!Storage::disk('local')->exists($targetPath)) {
-            return response()->json(['success' => false, 'message' => 'فایل یافت نشد.'], 404);
-        }
-
-        return Storage::disk('local')->response($targetPath, basename($targetPath), [
-            'Content-Type' => Storage::disk('local')->mimeType($targetPath),
-        ]);
-    }
 }
