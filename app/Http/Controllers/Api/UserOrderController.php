@@ -314,7 +314,7 @@ class UserOrderController extends Controller
 
             // ۲. داروخانه: وضعیت ۱ (در انتظار پرداخت) -> تغییر به ۷ (لغو شده)
             $expiredPharmacyIds = DB::table('users_pharmacy_requests')
-                ->where('status', 1)
+                ->whereIn('status', [0,1])
                 ->where('created_at', '<=', $thresholdTime)
                 ->pluck('id')
                 ->toArray();
