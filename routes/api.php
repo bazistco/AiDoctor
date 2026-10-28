@@ -50,29 +50,27 @@ Route::middleware(['auth:sanctum', 'center.staff:medical_center'])->prefix('staf
 
 });
 Route::middleware(['auth:sanctum', 'center.staff:pharmacy'])->prefix('staff/pharmacy')->group(function () {
-    // روت‌های مدیریت درخواست‌های نسخه توسط پرسنل
-    Route::prefix('requests')->group(function () {
-        Route::get('/', [PharmacyStaffRequestController::class, 'index']);
-        Route::get('/{id}', [PharmacyStaffRequestController::class, 'show']);
+    Route::get('requests', [PharmacyStaffRequestController::class, 'index']);
+    Route::get('requests/{id}', [PharmacyStaffRequestController::class, 'show']);
 
-        // فرآیند پذیرش و داروها
-        Route::post('/{id}/accept', [PharmacyStaffRequestController::class, 'acceptRequest']);
-        Route::post('{id}/items', [PharmacyStaffRequestController::class, 'addItem']);
-        Route::delete('{id}/items/{itemId}', [PharmacyStaffRequestController::class, 'removeItem']);
-        Route::post('{id}/accept-invoice', [PharmacyStaffRequestController::class, 'acceptAndIssueInvoice']);
-        // تغییر وضعیت‌ها (متناسب با دکمه‌های کامپوننت React)
-        // Route::post('/{id}/status/final-confirm', [PharmacyStaffRequestController::class, 'updateStatus']); // 0 -> 1
-        Route::post('/{id}/status/preparing', [PharmacyStaffRequestController::class, 'markAsPreparing']); // 1 -> 2
-        Route::post('/{id}/status/ready', [PharmacyStaffRequestController::class, 'markAsReadyForDelivery']); // 2 -> 3
-        Route::post('/{id}/status/delivering', [PharmacyStaffRequestController::class, 'markAsDelivering']); // 3 -> 4
-        Route::post('/{id}/status/delivered', [PharmacyStaffRequestController::class, 'markAsDelivered']); // 3,4 -> 5
+    // برداشتن و رهاسازی درخواست توسط کارمند
+    Route::post('requests/{id}/accept', [PharmacyStaffRequestController::class, 'acceptRequest']);
+    Route::post('requests/{id}/release', [PharmacyStaffRequestController::class, 'releaseRequest']);
 
-        Route::post('/{id}/cancel', [PharmacyStaffRequestController::class, 'cancelRequest']); // لغو درخواست
+    // مدیریت اقلام دارو
+    Route::post('requests/{id}/items', [PharmacyStaffRequestController::class, 'addItem']);
+    Route::delete('requests/{id}/items/{itemId}', [PharmacyStaffRequestController::class, 'removeItem']);
+    Route::post('requests/{id}/accept-invoice', [PharmacyStaffRequestController::class, 'acceptAndIssueInvoice']);
 
-        // دانلود تصویر نسخه
-        Route::get('/{id}/prescription-file/{fileName}', [PharmacyStaffRequestController::class, 'downloadPrescription'])
-            ->where('fileName', '.*'); // جهت پشتیبانی از اسلش‌های احتمالی در نام فایل
-    });
+    // جریان وضعیت‌ها
+    Route::post('requests/{id}/status/preparing', [PharmacyStaffRequestController::class, 'markAsPreparing']);
+    Route::post('requests/{id}/status/ready', [PharmacyStaffRequestController::class, 'markAsReadyForDelivery']);
+    Route::post('requests/{id}/status/delivering', [PharmacyStaffRequestController::class, 'markAsDelivering']);
+    Route::post('requests/{id}/status/delivered', [PharmacyStaffRequestController::class, 'markAsDelivered']);
+    Route::post('requests/{id}/cancel', [PharmacyStaffRequestController::class, 'cancelRequest']);
+
+    // دانلود و پیش‌نمایش تصویر نسخه
+    Route::get('requests/{id}/prescription-file/{fileName}', [PharmacyStaffRequestController::class, 'downloadPrescription'])->where('fileName', '.*');
 });
 Route::middleware(['auth:sanctum', 'center.staff:lab'])->prefix('staff/lab')->group(function () {
     // ۱. دریافت لیست درخواست‌های ارجاع‌شده به همین کارمند
