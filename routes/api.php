@@ -51,6 +51,8 @@ Route::middleware(['auth:sanctum', 'center.staff:medical_center'])->prefix('staf
 
 });
 Route::middleware(['auth:sanctum', 'center.staff:pharmacy'])->prefix('staff/pharmacy')->group(function () {
+    Route::get('medicines/search', [PharmacyStaffRequestController::class, 'searchMedicines']);
+
     Route::get('requests', [PharmacyStaffRequestController::class, 'index']);
     Route::get('requests/{id}', [PharmacyStaffRequestController::class, 'show']);
 

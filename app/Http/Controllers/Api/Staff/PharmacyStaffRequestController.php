@@ -27,6 +27,49 @@ class PharmacyStaffRequestController extends Controller
         return $staff ? $staff->center_id : null;
     }
 
+    // ---------- searchMedicines: جستجوی داروها برای انتخاب در نسخه ----------
+    public function searchMedicines(Request $request)
+    {
+        $pharmacyId = $this->getPharmacyId();
+        if (!$pharmacyId) {
+            return response()->json(['status' => 'error', 'message' => 'دسترسی غیرمجاز.'], 403);
+        }
+
+        $queryParam = trim($request->input('q', ''));
+
+        $query = DB::table('medicines')
+            ->leftJoin('pharmacy_medicines', function ($join) use ($pharmacyId) {
+                $join->on('medicines.id', '=', 'pharmacy_medicines.medicine_id')
+                    ->where('pharmacy_medicines.pharmacy_id', '=', $pharmacyId);
+            })
+            ->select(
+                'medicines.id',
+                'medicines.name',
+                'medicines.generic_name',
+                'medicines.slug',
+                DB::raw('medicines.base_price / 10 as base_price'), // تبدیل پایه به تومان
+                'pharmacy_medicines.id as pharmacy_medicine_id',
+                DB::raw('pharmacy_medicines.price_per_unit / 10 as pharmacy_price'), // تبدیل قیمت داروخانه به تومان
+                'pharmacy_medicines.unit as pharmacy_unit',
+                'pharmacy_medicines.stock'
+            );
+
+        if (!empty($queryParam)) {
+            $query->where(function ($q) use ($queryParam) {
+                $q->where('medicines.name', 'LIKE', "%{$queryParam}%")
+                    ->orWhere('medicines.generic_name', 'LIKE', "%{$queryParam}%")
+                    ->orWhere('medicines.slug', 'LIKE', "%{$queryParam}%");
+            });
+        }
+
+        $medicines = $query->limit(20)->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data'   => $medicines,
+        ]);
+    }
+
     // ---------- index: فهرست درخواست‌ها ----------
     public function index(Request $request)
     {
@@ -176,7 +219,7 @@ class PharmacyStaffRequestController extends Controller
 
         return response()->json([
             'status'  => 'success',
-            'message' => 'درخواست با موفقیت برای داروخانه شما ثبت شد. اکنون می‌توانید قیمت‌گذاری کنید.'
+            'message' => 'درخواست با موفقیت برای داروخانه شما ثبت شد. اکنون می‌توانید اقلام نسخه را مشخص نمایید.'
         ]);
     }
 
@@ -202,12 +245,10 @@ class PharmacyStaffRequestController extends Controller
         }
 
         DB::transaction(function () use ($id) {
-            // حذف اقلام ثبت‌شده قبلی روی این درخواست
             DB::table('user_pharmacy_request_medicines')
                 ->where('user_pharmacy_request_id', $id)
                 ->delete();
 
-            // رهاسازی درخواست
             DB::table('users_pharmacy_requests')
                 ->where('id', $id)
                 ->update([
@@ -224,12 +265,12 @@ class PharmacyStaffRequestController extends Controller
         ]);
     }
 
-    // ---------- addItem: افزودن قلم دارو (وضعیت 0) ----------
+    // ---------- addItem: افزودن قلم دارو (با ساخت خودکار در صورت نبود) ----------
     public function addItem(Request $request, $id)
     {
         $pharmacyId = $this->getPharmacyId();
         if (!$pharmacyId) {
-            return response()->json(['status' => 'error', 'message' => 'دسترسی غیرمجاز'], 403);
+            return response()->json(['status' => 'error', 'message' => 'دسترسی غیرمجاز.'], 403);
         }
 
         $pharmacyRequest = DB::table('users_pharmacy_requests')
@@ -241,23 +282,23 @@ class PharmacyStaffRequestController extends Controller
         if (!$pharmacyRequest) {
             return response()->json([
                 'status'  => 'error',
-                'message' => 'درخواست نامعتبر است یا هنوز توسط شما برداشته نشده است.'
+                'message' => 'درخواست نامعتبر است یا در وضعیت قابل ویرایش قرار ندارد.'
             ], 403);
         }
 
-        // هماهنگی فیلدها با فرانت‌اند
         $medicineId   = $request->input('medicine_id');
-        $medicineName = $request->input('medicine_name');
+        $medicineName = trim((string)$request->input('medicine_name'));
         $qty          = (int) ($request->input('quantity') ?? $request->input('qty', 1));
         $unitPrice    = (float) ($request->input('unit_price') ?? $request->input('price', 0)); // ورودی به تومان
         $unit         = $request->input('unit', 'عدد');
 
         if (empty($medicineName) && empty($medicineId)) {
-            return response()->json(['status' => 'error', 'message' => 'نام یا شناسه دارو را وارد کنید.'], 422);
+            return response()->json(['status' => 'error', 'message' => 'نام یا شناسه دارو باید مشخص شود.'], 422);
         }
 
-        DB::transaction(function () use ($pharmacyId, $id, &$medicineId, $medicineName, $qty, $unitPrice, $unit) {
-            // اگر دارو قبلا در دیتابیس نبود، ثبت می‌کنیم
+        DB::beginTransaction();
+        try {
+            // ۱. اگر شناسه ارسال نشده اما نام وارد شده، در جدول medicines بررسی یا درج شود
             if (empty($medicineId) && !empty($medicineName)) {
                 $existingMed = DB::table('medicines')->where('name', $medicineName)->first();
                 if ($existingMed) {
@@ -267,61 +308,80 @@ class PharmacyStaffRequestController extends Controller
                         'name'       => $medicineName,
                         'slug'       => Str::slug($medicineName) ?: str_replace(' ', '-', $medicineName),
                         'created_at' => now(),
+                        'updated_at' => now(),
                     ]);
                 }
             }
 
-            // بررسی اتصال به انبار داروخانه
+            // ۲. بررسی وجود دارو در جدول داروهای این داروخانه (pharmacy_medicines)
             $pharmacyMedicine = DB::table('pharmacy_medicines')
                 ->where('pharmacy_id', $pharmacyId)
                 ->where('medicine_id', $medicineId)
                 ->first();
 
-            $priceInRial = $unitPrice * 10;
+            $priceInRial = (float)$unitPrice * 10;
 
             if (!$pharmacyMedicine) {
+                // اگر قبلا در انبار داروخانه نبود، اضافه شود
                 $pharmacyMedicineId = DB::table('pharmacy_medicines')->insertGetId([
                     'pharmacy_id'      => $pharmacyId,
                     'medicine_id'      => $medicineId,
                     'medicine_type_id' => 1,
-                    'unit'             => $unit,
+                    'unit'             => $unit ?: 'عدد',
                     'price_per_unit'   => $priceInRial,
+                    'stock'            => 0,  // به صورت پیش‌فرض در انبار 0 لحاظ شود
+                    'min_stock'        => 10,
                     'status'           => 1,
                     'created_at'       => now(),
                     'updated_at'       => now(),
                 ]);
             } else {
                 $pharmacyMedicineId = $pharmacyMedicine->id;
+                // به‌روزرسانی قیمت و واحد در انبار در صورت ارسال مقادیر جدید
                 DB::table('pharmacy_medicines')
                     ->where('id', $pharmacyMedicineId)
                     ->update([
-                        'price_per_unit' => $priceInRial,
-                        'unit'           => $unit,
+                        'price_per_unit' => $priceInRial > 0 ? $priceInRial : $pharmacyMedicine->price_per_unit,
+                        'unit'           => $unit ?: $pharmacyMedicine->unit,
                         'updated_at'     => now(),
                     ]);
             }
 
-            // ثبت قلم در درخواست بیمار
+            // ۳. ثبت قلم در جدول اقلام نسخه بیمار
             DB::table('user_pharmacy_request_medicines')->insert([
                 'user_pharmacy_request_id' => $id,
                 'pharmacy_medicine_id'     => $pharmacyMedicineId,
-                'quantity'                 => $qty,
+                'quantity'                 => $qty > 0 ? $qty : 1,
                 'price'                    => $priceInRial,
                 'created_at'               => now(),
                 'updated_at'               => now(),
             ]);
 
-            // بازشماری جمع کل به ریال در جدول اصلی
+            // بازشماری جمع کل به ریال در جدول اصلی نسخه
             $this->updateRequestTotalPrice($id);
-        });
 
-        return response()->json(['status' => 'success', 'message' => 'دارو با موفقیت اضافه شد.']);
+            DB::commit();
+
+            return response()->json([
+                'status'  => 'success',
+                'message' => 'دارو با موفقیت به فاکتور نسخه اضافه شد.',
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'خطا در ثبت دارو: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     // ---------- removeItem: حذف یک قلم دارو (وضعیت 0) ----------
     public function removeItem($id, $itemId)
     {
         $pharmacyId = $this->getPharmacyId();
+        if (!$pharmacyId) {
+            return response()->json(['status' => 'error', 'message' => 'دسترسی غیرمجاز.'], 403);
+        }
 
         $request = DB::table('users_pharmacy_requests')
             ->where('id', $id)
@@ -386,7 +446,7 @@ class PharmacyStaffRequestController extends Controller
 
             DB::commit();
 
-            return response()->json(['status' => 'success', 'message' => 'نسخه تأیید و فاکتور پرداخت برای بیمار ارسال شد.']);
+            return response()->json(['status' => 'success', 'message' => 'نسخه تأیید و فاکتور پرداخت برای بیمار صادر شد.']);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['status' => 'error', 'message' => 'خطا در صدور فاکتور: ' . $e->getMessage()], 500);
