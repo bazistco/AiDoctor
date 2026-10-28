@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffAuthController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffDashboardController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffPatientController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffScheduleController;
+use App\Http\Controllers\Api\Staff\PharmacyStaffInventoryController;
 use App\Http\Controllers\Api\Staff\PharmacyStaffRequestController;
 use App\Http\Controllers\Api\Staff\StaffLabRequestController;
 use App\Http\Controllers\Api\UserOrderController;
@@ -71,6 +72,12 @@ Route::middleware(['auth:sanctum', 'center.staff:pharmacy'])->prefix('staff/phar
 
     // دانلود و پیش‌نمایش تصویر نسخه
     Route::get('requests/{id}/prescription-file/{fileName}', [PharmacyStaffRequestController::class, 'downloadPrescription'])->where('fileName', '.*');
+
+    Route::prefix('inventory')->group(function () {
+        Route::get('/', [PharmacyStaffInventoryController::class, 'index']);
+        Route::patch('/{id}/stock', [PharmacyStaffInventoryController::class, 'updateStock']);
+    });
+
 });
 Route::middleware(['auth:sanctum', 'center.staff:lab'])->prefix('staff/lab')->group(function () {
     // ۱. دریافت لیست درخواست‌های ارجاع‌شده به همین کارمند
