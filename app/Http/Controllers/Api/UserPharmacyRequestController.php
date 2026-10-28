@@ -16,14 +16,9 @@ class UserPharmacyRequestController extends Controller
 {
     protected $financialService;
 
-    // تزریق سرویس مالی در کانستراکتور
-    public function __construct(
-         FinancialService $financialService // اگر تایپ هینت دارید این خط را از کامنت خارج کنید
-    ) {
-         $this->financialService = $financialService;
-
-        // نکته: اگر از کانتینر لاراول به شکل دیگری سرویس مالی را فراخوانی می‌کنید (مثلا با app())
-        // آن را اینجا مقداردهی کنید. من فرض را بر این می‌گیرم که $this->financialService در دسترس است.
+    public function __construct(FinancialService $financialService)
+    {
+        $this->financialService = $financialService;
     }
 
     /**
@@ -33,7 +28,6 @@ class UserPharmacyRequestController extends Controller
     {
         $userId = $request->user()->id;
 
-        // ۱. بررسی وجود و وضعیت درخواست داروخانه
         $pharmacyRequest = DB::table('users_pharmacy_requests')
             ->where('id', $id)
             ->where('user_id', $userId)
@@ -46,7 +40,6 @@ class UserPharmacyRequestController extends Controller
             ], 404);
         }
 
-        // فقط در وضعیت 0 (در انتظار تایید) و 1 (در انتظار پرداخت) کاربر مجاز به لغو است
         if (!in_array((int)$pharmacyRequest->status, [0, 1])) {
             return response()->json([
                 'success' => false,
@@ -56,7 +49,6 @@ class UserPharmacyRequestController extends Controller
 
         DB::beginTransaction();
         try {
-            // ۲. لغو درخواست داروخانه (وضعیت 7 = لغو شده)
             DB::table('users_pharmacy_requests')
                 ->where('id', $id)
                 ->update([
@@ -64,22 +56,18 @@ class UserPharmacyRequestController extends Controller
                     'updated_at' => now(),
                 ]);
 
-            // ۳. اگر سفارش مالی (Order) برای آن ایجاد شده بود، آن را هم کنسل می‌کنیم
-            // reason_id = 6 مخصوص فاکتورهای داروخانه است
             if ((int)$pharmacyRequest->status === 1) {
                 DB::table('orders')
                     ->where('user_id', $userId)
                     ->where('reason_id', 6)
                     ->where('reason_ref', $id)
-                    ->where('status', 1) // اگر هنوز پرداخت نشده (Pending)
+                    ->where('status', 1)
                     ->update([
-                        'status' => 3, // 3 = Cancelled
+                        'status' => 3,
                         'cancelled_at' => now(),
                         'updated_at' => now(),
                     ]);
             }
-
-            // ۴. در صورت لزوم رهاسازی داروها یا آپدیت‌های جانبی می‌تواند اینجا انجام شود
 
             DB::commit();
 
@@ -102,8 +90,9 @@ class UserPharmacyRequestController extends Controller
             ], 500);
         }
     }
+
     /**
-     * نمایش جزئیات درخواست داروخانه به همراه فاکتور
+     * نمایش جزئیات درخواست داروخانه به همراه فاکتور و اطلاعات تحویل
      */
     public function show($id)
     {
@@ -125,7 +114,6 @@ class UserPharmacyRequestController extends Controller
             ], 400);
         }
 
-        // دریافت اقلام فاکتور
         $items = DB::table('user_pharmacy_request_medicines as uprm')
             ->join('pharmacy_medicines as pm', 'uprm.pharmacy_medicine_id', '=', 'pm.id')
             ->join('medicines as m', 'pm.medicine_id', '=', 'm.id')
@@ -162,7 +150,6 @@ class UserPharmacyRequestController extends Controller
         $userId = $request->user()->id;
         $now = Carbon::now();
 
-        // ── ۱. واکشی اطلاعات درخواست داروخانه ─────────────
         $pharmacyRequest = DB::table('users_pharmacy_requests')
             ->where('id', $id)
             ->where('user_id', $userId)
@@ -180,23 +167,20 @@ class UserPharmacyRequestController extends Controller
             return response()->json(['success' => false, 'message' => 'مبلغ فاکتور نامعتبر است'], 422);
         }
 
-        // ── ۲. فرآیند مالی و تغییر وضعیت (داخل تراکنش) ─────────────
         DB::beginTransaction();
 
         try {
             $totalPrice = $pharmacyRequest->total_price;
-            $pharmacyId = $pharmacyRequest->pharmacy_id; // آیدی کاربریِ داروخانه جهت واریز وجه
+            $pharmacyId = $pharmacyRequest->pharmacy_id;
 
-            // ۳.۱ ایجاد سفارش در سیستم مالی
             $orderId = $this->financialService->createOrder(
                 userId:      $userId,
-                reasonId:    6, // reason_id مخصوص درخواست‌های داروخانه
+                reasonId:    6,
                 reasonRef:   $id,
                 amount:      $totalPrice,
                 description: "پرداخت فاکتور درخواست داروخانه #{$id}"
             );
 
-            // ۳.۲ ایجاد پرداخت (gateway: mock)
             $paymentId = $this->financialService->createPayment(
                 userId:    $userId,
                 orderId:   $orderId,
@@ -206,11 +190,9 @@ class UserPharmacyRequestController extends Controller
                 gateway:   'mock'
             );
 
-            // ۳.۳ شبیه‌سازی authority و ref_id (برای درگاه شبیه‌سازی شده)
             $authority = 'MOCK-' . str_pad($paymentId, 30, '0', STR_PAD_LEFT);
             $refId     = 'SIM-' . strtoupper(Str::random(12));
 
-            // ثبت authority در جدول پرداخت‌ها
             DB::table('payments')
                 ->where('id', $paymentId)
                 ->update([
@@ -218,8 +200,6 @@ class UserPharmacyRequestController extends Controller
                     'updated_at' => $now,
                 ]);
 
-            // ۳.۴ تکمیل پرداخت (کسر از کاربر و واریز به داروخانه)
-            // گرفتن نام بیمار برای درج در توضیحات تراکنش داروخانه
             $patient = DB::table('users')
                 ->where('id', $userId)
                 ->first(['name']);
@@ -231,11 +211,10 @@ class UserPharmacyRequestController extends Controller
                 paymentId:                      $paymentId,
                 authority:                      $authority,
                 refId:                          $refId,
-                providerId:                     $pharmacyId, // کیف پول داروخانه شارژ می‌شود
+                providerId:                     $pharmacyId,
                 providerId_payment_description: $description
             );
 
-            // ۳.۵ تغییر وضعیت درخواست به مرحله ۲ (در حال آماده‌سازی)
             DB::table('users_pharmacy_requests')
                 ->where('id', $id)
                 ->update([
@@ -245,7 +224,6 @@ class UserPharmacyRequestController extends Controller
 
             DB::commit();
 
-            // لاگ موفقیت‌آمیز بودن فرآیند
             Log::info('Pharmacy request paid successfully via mock', [
                 'request_id'  => $id,
                 'user_id'     => $userId,
@@ -301,99 +279,113 @@ class UserPharmacyRequestController extends Controller
             default => 'نامشخص',
         };
     }
+
+    /**
+     * ثبت درخواست جدید داروخانه توسط کاربر
+     */
     public function storeRequest(Request $request)
     {
         $userId = auth()->id();
 
         // اعتبارسنجی
         $validator = Validator::make($request->all(), [
-            'delivery_type' => 'required|in:0,1', // 0: حضوری, 1: ارسال
-            'user_address_id' => 'required_if:delivery_type,1|nullable|integer',
-            'prescription_code' => 'nullable|string',
-            'medicines_text' => 'nullable|string',
+            'delivery_type'      => 'required|in:0,1', // 0: حضوری, 1: ارسال
+            'user_address_id'    => 'required_if:delivery_type,1|nullable|integer',
+            'prescription_code'  => 'nullable|string',
+            'medicines_text'     => 'nullable|string',
             'prescription_image' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
-            'has_insurance' => 'nullable|boolean',
-            'description' => 'nullable|string|max:1000'
+            'has_insurance'      => 'nullable|boolean',
+            'description'        => 'nullable|string|max:1000'
         ]);
 
         if ($validator->fails()) {
             return response()->json(['status' => 'error', 'errors' => $validator->errors()], 422);
         }
 
-        $pharRequestId = DB::table('users_pharmacy_requests')->where('user_id', $request->user()->id)->whereIn('status',[0,1])->exists();
-        if ($pharRequestId) {
+        $pendingExists = DB::table('users_pharmacy_requests')
+            ->where('user_id', $userId)
+            ->whereIn('status', [0, 1])
+            ->exists();
+
+        if ($pendingExists) {
             return response()->json([
                 'success' => false,
-                'message' => 'شما یک درخواست در انتظار پرداخت دارید. لطفاً ابتدا آن را تعیین تکلیف یا پرداخت نمایید.',
+                'message' => 'شما یک درخواست در انتظار پرداخت یا بررسی دارید. لطفاً ابتدا آن را تعیین تکلیف نمایید.',
             ], 400);
         }
+
         // ۱. تعیین نوع نسخه (prescription_type_id)
-        $prescriptionTypeId = 1; // پیش‌فرض: 1 (بدون نسخه / متنی)
+        $prescriptionTypeId = 1;
         if ($request->hasFile('prescription_image')) {
-            $prescriptionTypeId = 3; // 3: فایل نسخه
+            $prescriptionTypeId = 3;
         } elseif ($request->filled('prescription_code')) {
-            $prescriptionTypeId = 2; // 2: نسخه دیجیتال
+            $prescriptionTypeId = 2;
         }
 
         $uploadedFiles = [];
         if ($request->hasFile('prescription_image')) {
-            // تغییر از public به local برای جلوگیری از دسترسی مستقیم از طریق URL
             $path = $request->file('prescription_image')->store('prescriptions', 'local');
             $uploadedFiles[] = $path;
         }
 
-        // ۳. ساختاردهی فیلد details به صورت JSON
+        $deliveryType  = (int) $request->input('delivery_type');
+        $userAddressId = $deliveryType === 1 ? $request->input('user_address_id') : null;
+
+        // ۲. ساختاردهی فیلد details جهت نگهداری نسخه
         $details = [
-            'code' => $request->input('prescription_code'),
-            'medicines' => $request->input('medicines_text'), // نام داروهای دستی
-            'files' => $uploadedFiles,
-            'delivery_type' => $request->input('delivery_type'),
-            'user_address_id' => $request->input('user_address_id'),
-            'has_insurance' => $request->input('has_insurance', 0),
-            'description' => $request->input('description')
+            'code'            => $request->input('prescription_code'),
+            'medicines'       => $request->input('medicines_text'),
+            'files'           => $uploadedFiles,
+            'delivery_type'   => $deliveryType,
+            'user_address_id' => $userAddressId,
+            'has_insurance'   => $request->input('has_insurance', 0),
+            'description'     => $request->input('description')
         ];
 
         DB::beginTransaction();
         try {
-            // ۴. ثبت اطلاعات در جدول users_prescriptions
+            // ۳. ثبت اطلاعات در جدول users_prescriptions
             $prescriptionId = DB::table('users_prescriptions')->insertGetId([
-                'user_id' => $userId,
+                'user_id'              => $userId,
                 'prescription_type_id' => $prescriptionTypeId,
-                'status' => 1,
-                'details' => json_encode($details, JSON_UNESCAPED_UNICODE),
-                'created_at' => now(),
-                'updated_at' => now(),
+                'status'               => 1,
+                'details'              => json_encode($details, JSON_UNESCAPED_UNICODE),
+                'created_at'           => now(),
+                'updated_at'           => now(),
             ]);
 
-            // ۵. ثبت درخواست در جدول users_pharmacy_requests
+            // ۴. ثبت درخواست در جدول users_pharmacy_requests به همراه delivery_type و user_address_id مستقیم
             $requestId = DB::table('users_pharmacy_requests')->insertGetId([
-                'user_id' => $userId,
-                'pharmacy_id' => null, // Null = درخواست آزاد برای همه داروخانه‌ها
+                'user_id'                  => $userId,
+                'pharmacy_id'              => null,
                 'pharmacy_request_type_id' => null,
-                'prescription_id' => $prescriptionId,
-                'total_price' => null,
-                'status' => 0, // 0: در انتظار بررسی
-                'created_at' => now(),
-                'updated_at' => now(),
+                'prescription_id'          => $prescriptionId,
+                'delivery_type'            => $deliveryType,      // 0: حضوری | 1: ارسال
+                'user_address_id'          => $userAddressId,     // شناسه آدرس در صورت انتخاب پیک
+                'total_price'              => null,
+                'status'                   => 0,
+                'created_at'               => now(),
+                'updated_at'               => now(),
             ]);
 
             DB::commit();
 
             return response()->json([
-                'status' => 'success',
+                'status'  => 'success',
                 'message' => 'درخواست شما با موفقیت برای داروخانه‌های اطراف ارسال شد.',
-                'data' => [
-                    'request_id' => $requestId,
-                    'prescription_id' => $prescriptionId
+                'data'    => [
+                    'request_id'      => $requestId,
+                    'prescription_id' => $prescriptionId,
+                    'delivery_type'   => $deliveryType,
                 ]
             ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
-                'status' => 'error',
+                'status'  => 'error',
                 'message' => 'خطا در ثبت درخواست.',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage()
             ], 500);
         }
     }
