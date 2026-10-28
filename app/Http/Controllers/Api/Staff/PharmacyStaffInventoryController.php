@@ -40,12 +40,13 @@ class PharmacyStaffInventoryController extends Controller
 
         $query = DB::table('pharmacy_medicines as pm')
             ->join('medicines as m', 'pm.medicine_id', '=', 'm.id')
+            ->join('medicine_types as mt', 'mt.id', '=', 'pm.medicine_type_id')
             ->where('pm.pharmacy_id', $pharmacyId)
             ->select([
                 'pm.id',
                 'pm.medicine_id',
                 'm.name as name',
-                'm.form as form', // یا شکل دارویی مثلا قرص، شربت و ...
+                'mt.name as form', // یا شکل دارویی مثلا قرص، شربت و ...
                 'pm.stock',
                 'pm.min_stock as minStock',
                 'pm.updated_at',
