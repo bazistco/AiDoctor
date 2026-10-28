@@ -86,7 +86,7 @@ class PharmacyStaffRequestController extends Controller
             ->leftJoin('users', 'users_pharmacy_requests.user_id', '=', 'users.id')
             ->leftJoin('users_prescriptions', 'users_pharmacy_requests.prescription_id', '=', 'users_prescriptions.id')
             ->leftJoin('prescription_types', 'users_prescriptions.prescription_type_id', '=', 'prescription_types.id')
-            ->leftJoin('user_addresses', 'users_pharmacy_requests.user_address_id', '=', 'user_addresses.id') // اضافه شدن آدرس
+            ->leftJoin('addresses', 'users_pharmacy_requests.user_address_id', '=', 'addresses.id') // اضافه شدن آدرس
             ->where('users_pharmacy_requests.id', $id)
             ->where(function ($query) use ($pharmacyId) {
                 $query->where('users_pharmacy_requests.pharmacy_id', $pharmacyId)
@@ -100,7 +100,7 @@ class PharmacyStaffRequestController extends Controller
                 'users_prescriptions.prescription_type_id',
                 'users_prescriptions.details as prescription_details',
                 'prescription_types.name as prescription_type_name',
-                'user_addresses.address as user_address_text' // متن آدرس برای مودال پرسنل
+                'addresses.address as user_address_text' // متن آدرس برای مودال پرسنل
             )
             ->first();
 
