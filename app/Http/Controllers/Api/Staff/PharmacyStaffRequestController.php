@@ -641,104 +641,74 @@ class PharmacyStaffRequestController extends Controller
     public function deliveryList(Request $request)
     {
         $pharmacyId = $this->getPharmacyId();
+        if (!$pharmacyId) {
+            return response()->json(['status' => 'error', 'message' => 'دسترسی غیرمجاز'], 403);
+        }
 
-        $query = DB::table('pharmacy_requests as pr')
-            ->leftJoin('users as u', 'pr.user_id', '=', 'u.id')
+        // استفاده از جدول users_pharmacy_requests طبق ساختار پروژه شما
+        $query = DB::table('users_pharmacy_requests')
+            ->leftJoin('users', 'users_pharmacy_requests.user_id', '=', 'users.id')
+            ->leftJoin('users_prescriptions', 'users_pharmacy_requests.prescription_id', '=', 'users_prescriptions.id')
             ->select([
-                'pr.id',
-                'pr.tracking_code',
-                'pr.user_id',
-                'pr.status',
-                'pr.delivery_type',
-                'pr.delivery_address',
-                'pr.recipient_name',
-                'pr.recipient_phone',
-                'pr.courier_name',
-                'pr.courier_phone',
-                'pr.total_price',
-                'pr.ready_at',
-                'pr.delivered_at',
-                'pr.created_at',
-                'pr.updated_at',
-                // در صورت نبود recipient_name، از اطلاعات جدول کاربران استفاده می‌شود
-                DB::raw('COALESCE(pr.recipient_name, u.name) as patient_name'),
-                DB::raw('COALESCE(pr.recipient_phone, u.mobile) as patient_phone'),
+                'users_pharmacy_requests.*',
+                'users.name as user_name',
+                'users.phone as user_mobile',
+                DB::raw("JSON_UNQUOTE(JSON_EXTRACT(users_prescriptions.details, '$.code')) as prescription_code")
             ])
-            ->where('pr.pharmacy_id', $pharmacyId)
-            ->where('pr.delivery_type', 1); // الزاما ارسال با پیک
+            ->where('users_pharmacy_requests.pharmacy_id', $pharmacyId)
+            ->where('users_pharmacy_requests.delivery_type', 1); // فیلتر ارسال با پیک
 
-        // فیلتر بر اساس تب/وضعیت انتخابی
-        $tab = $request->query('tab', 'active'); // مقدار پیش‌فرض: سفارش‌های فعالِ ارسال
+        // اعمال فیلتر وضعیت (مطابق تب‌های فرانت‌اند)
+        $tab = $request->query('tab', 'active');
 
+        // وضعیت‌ها در پروژه شما: فرض بر تطبیق با منطق وضعیت‌های سفارش (۳: آماده، ۴: در حال ارسال، ۵: تحویل شده)
         switch ($tab) {
-            case 'ready': // آماده ارسال
-                $query->where('pr.status', 3);
+            case 'ready':
+                $query->where('users_pharmacy_requests.status', 3);
                 break;
-            case 'delivering': // در حال ارسال (پیک تحویل گرفته)
-                $query->where('pr.status', 4);
+            case 'delivering':
+                $query->where('users_pharmacy_requests.status', 4);
                 break;
-            case 'delivered': // تحویل داده شده به مشتری
-                $query->where('pr.status', 5);
+            case 'delivered':
+                $query->where('users_pharmacy_requests.status', 5);
                 break;
-            case 'all': // تمام سفارش‌های ارسالی با پیک
-                $query->whereIn('pr.status', [3, 4, 5]);
+            case 'all':
+                $query->whereIn('users_pharmacy_requests.status', [3, 4, 5]);
                 break;
-            case 'active': // پیش‌فرض: سفارش‌های در جریان ارسال
+            case 'active':
             default:
-                $query->whereIn('pr.status', [3, 4]);
+                $query->whereIn('users_pharmacy_requests.status', [3, 4]);
                 break;
         }
 
-        // جستجو در کد رهگیری، نام بیمار یا مشخصات پیک
+        // جستجو در نام بیمار، موبایل یا کد نسخه
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
-                $q->where('pr.tracking_code', 'like', "%{$search}%")
-                    ->orWhere('pr.recipient_name', 'like', "%{$search}%")
-                    ->orWhere('u.name', 'like', "%{$search}%")
-                    ->orWhere('pr.courier_name', 'like', "%{$search}%")
-                    ->orWhere('pr.courier_phone', 'like', "%{$search}%");
+                $q->where('users.name', 'like', "%{$search}%")
+                    ->orWhere('users.phone', 'like', "%{$search}%")
+                    ->orWhere(DB::raw("JSON_UNQUOTE(JSON_EXTRACT(users_prescriptions.details, '$.code'))"), 'like', "%{$search}%")
+                    ->orWhere('users_pharmacy_requests.courier_name', 'like', "%{$search}%");
             });
         }
 
-        // مرتب‌سازی: سفارش‌های جدیدتر یا تغییر وضعیت یافته در بالا
-        $perPage = (int) $request->query('per_page', 15);
-        $deliveries = $query->orderByDesc('pr.updated_at')
-            ->paginate($perPage);
+        $requests = $query->orderBy('users_pharmacy_requests.updated_at', 'desc')->get()->map(function ($item) {
+            if (isset($item->total_price)) {
+                $item->total_price = $item->total_price / 10; // تبدیل واحد قیمت
+            }
+            return $item;
+        });
 
         return response()->json([
-            'success' => true,
-            'data'    => $deliveries->items(),
-            'meta'    => [
-                'current_page' => $deliveries->currentPage(),
-                'last_page'    => $deliveries->lastPage(),
-                'per_page'     => $deliveries->perPage(),
-                'total'        => $deliveries->total(),
-            ],
-            // شمارنده‌های مفید برای نمایش Badge روی تب‌ها در فرانت‌اند
-            'counts'  => $this->getDeliveryCounts($pharmacyId),
+            'status' => 'success',
+            'data'   => $requests,
+            'counts' => [
+                'ready' => (clone $query)->where('users_pharmacy_requests.status', 3)->count(),
+                'delivering' => (clone $query)->where('users_pharmacy_requests.status', 4)->count(),
+                'delivered_today' => (clone $query)->where('users_pharmacy_requests.status', 5)
+                    ->whereDate('users_pharmacy_requests.updated_at', now())->count(),
+            ]
         ]);
     }
 
-    /**
-     * متد کمکی برای دریافت تعداد سفارش‌ها در هر وضعیت پیک
-     */
-    protected function getDeliveryCounts($pharmacyId)
-    {
-        $counts = DB::table('pharmacy_requests')
-            ->where('pharmacy_id', $pharmacyId)
-            ->where('delivery_type', 1)
-            ->selectRaw("
-                COUNT(CASE WHEN status = 3 THEN 1 END) as ready_count,
-                COUNT(CASE WHEN status = 4 THEN 1 END) as delivering_count,
-                COUNT(CASE WHEN status = 5 THEN 1 END) as delivered_today_count
-            ")
-            ->first();
-
-        return [
-            'ready'           => (int) ($counts->ready_count ?? 0),
-            'delivering'      => (int) ($counts->delivering_count ?? 0),
-            'delivered_today' => (int) ($counts->delivered_today_count ?? 0),
-        ];
-    }
 
 }
