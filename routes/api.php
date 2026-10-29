@@ -65,6 +65,12 @@ Route::middleware(['auth:sanctum', 'center.staff:pharmacy'])->prefix('staff/phar
     Route::delete('requests/{id}/items/{itemId}', [PharmacyStaffRequestController::class, 'removeItem']);
     Route::post('requests/{id}/accept-invoice', [PharmacyStaffRequestController::class, 'acceptAndIssueInvoice']);
 
+    Route::get('deliveries', [PharmacyStaffRequestController::class, 'deliveryList']);
+
+    Route::post('requests/{id}/assign-courier', [PharmacyStaffRequestController::class, 'assignCourier']);
+    // ثبت تحویل سفارش توسط پیک (تغییر وضعیت به ۵ و ثبت delivered_at)
+    Route::post('requests/{id}/mark-delivered', [PharmacyStaffRequestController::class, 'markAsDelivered']);
+
     // جریان وضعیت‌ها
     Route::post('requests/{id}/status/preparing', [PharmacyStaffRequestController::class, 'markAsPreparing']);
     Route::post('requests/{id}/status/ready', [PharmacyStaffRequestController::class, 'markAsReadyForDelivery']);

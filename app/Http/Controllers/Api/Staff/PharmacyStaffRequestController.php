@@ -517,16 +517,29 @@ class PharmacyStaffRequestController extends Controller
         return $this->changeStatus($id, $this->getPharmacyId(), 3, 4, 'وضعیت به "در حال ارسال با پیک" تغییر یافت.');
     }
 
-    public function markAsDelivered($id) {
+    public function markAsDelivered(Request $request, $id)
+    {
         $pharmacyId = $this->getPharmacyId();
+        if (!$pharmacyId) return response()->json(['status' => 'error', 'message' => 'دسترسی غیرمجاز.'], 403);
+
         $affected = DB::table('users_pharmacy_requests')
             ->where('id', $id)
             ->where('pharmacy_id', $pharmacyId)
-            ->whereIn('status', [3, 4])
-            ->update(['status' => 5, 'updated_at' => now()]);
+            ->whereIn('status', [3, 4]) // آماده ارسال یا در حال ارسال
+            ->update([
+                'status'       => 5,
+                'delivered_at' => now(),
+                'updated_at'   => now(),
+            ]);
 
-        if ($affected === 0) return response()->json(['status' => 'error', 'message' => 'عملیات نامعتبر است.'], 403);
-        return response()->json(['status' => 'success', 'message' => 'نسخه به بیمار تحویل داده شد.']);
+        if ($affected === 0) {
+            return response()->json(['status' => 'error', 'message' => 'عملیات نامعتبر است (سفارش قبلاً تحویل شده یا در وضعیت مجاز نیست).'], 403);
+        }
+
+        return response()->json([
+            'status'  => 'success',
+            'message' => 'نسخه به بیمار تحویل داده شد.'
+        ]);
     }
 
     // ---------- cancelRequest: لغو درخواست ----------
@@ -585,4 +598,147 @@ class PharmacyStaffRequestController extends Controller
                 'updated_at'  => now(),
             ]);
     }
+    public function assignCourier(Request $request, $id)
+    {
+        $pharmacyId = $this->getPharmacyId();
+        if (!$pharmacyId) return response()->json(['status' => 'error', 'message' => 'دسترسی غیرمجاز.'], 403);
+
+        $validated = $request->validate([
+            'courier_name'  => 'required|string|max:150',
+            'courier_phone' => 'nullable|string|max:20',
+        ]);
+
+        $pharmacyRequest = DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->where('pharmacy_id', $pharmacyId)
+            ->whereIn('status', [3, 4]) // آماده ارسال یا در حال ارسال
+            ->first();
+
+        if (!$pharmacyRequest) {
+            return response()->json(['status' => 'error', 'message' => 'سفارش یافت نشد یا در وضعیت قابل ویرایش نیست.'], 403);
+        }
+
+        $updateData = [
+            'courier_name'  => $validated['courier_name'],
+            'courier_phone' => $validated['courier_phone'] ?? null,
+            'updated_at'    => now(),
+        ];
+
+        // اگر سفارش در وضعیت آماده ارسال (3) باشد، به در حال ارسال (4) تغییر وضعیت می‌دهد
+        if ($pharmacyRequest->status == 3) {
+            $updateData['status'] = 4;
+        }
+
+        DB::table('users_pharmacy_requests')
+            ->where('id', $id)
+            ->update($updateData);
+
+        return response()->json([
+            'status'  => 'success',
+            'message' => 'اطلاعات پیک ثبت گردید.'
+        ]);
+    }
+    public function deliveryList(Request $request)
+    {
+        $pharmacyId = $this->getPharmacyId();
+
+        $query = DB::table('pharmacy_requests as pr')
+            ->leftJoin('users as u', 'pr.user_id', '=', 'u.id')
+            ->select([
+                'pr.id',
+                'pr.tracking_code',
+                'pr.user_id',
+                'pr.status',
+                'pr.delivery_type',
+                'pr.delivery_address',
+                'pr.recipient_name',
+                'pr.recipient_phone',
+                'pr.courier_name',
+                'pr.courier_phone',
+                'pr.total_price',
+                'pr.ready_at',
+                'pr.delivered_at',
+                'pr.created_at',
+                'pr.updated_at',
+                // در صورت نبود recipient_name، از اطلاعات جدول کاربران استفاده می‌شود
+                DB::raw('COALESCE(pr.recipient_name, u.name) as patient_name'),
+                DB::raw('COALESCE(pr.recipient_phone, u.mobile) as patient_phone'),
+            ])
+            ->where('pr.pharmacy_id', $pharmacyId)
+            ->where('pr.delivery_type', 1); // الزاما ارسال با پیک
+
+        // فیلتر بر اساس تب/وضعیت انتخابی
+        $tab = $request->query('tab', 'active'); // مقدار پیش‌فرض: سفارش‌های فعالِ ارسال
+
+        switch ($tab) {
+            case 'ready': // آماده ارسال
+                $query->where('pr.status', 3);
+                break;
+            case 'delivering': // در حال ارسال (پیک تحویل گرفته)
+                $query->where('pr.status', 4);
+                break;
+            case 'delivered': // تحویل داده شده به مشتری
+                $query->where('pr.status', 5);
+                break;
+            case 'all': // تمام سفارش‌های ارسالی با پیک
+                $query->whereIn('pr.status', [3, 4, 5]);
+                break;
+            case 'active': // پیش‌فرض: سفارش‌های در جریان ارسال
+            default:
+                $query->whereIn('pr.status', [3, 4]);
+                break;
+        }
+
+        // جستجو در کد رهگیری، نام بیمار یا مشخصات پیک
+        if ($search = $request->query('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('pr.tracking_code', 'like', "%{$search}%")
+                    ->orWhere('pr.recipient_name', 'like', "%{$search}%")
+                    ->orWhere('u.name', 'like', "%{$search}%")
+                    ->orWhere('pr.courier_name', 'like', "%{$search}%")
+                    ->orWhere('pr.courier_phone', 'like', "%{$search}%");
+            });
+        }
+
+        // مرتب‌سازی: سفارش‌های جدیدتر یا تغییر وضعیت یافته در بالا
+        $perPage = (int) $request->query('per_page', 15);
+        $deliveries = $query->orderByDesc('pr.updated_at')
+            ->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $deliveries->items(),
+            'meta'    => [
+                'current_page' => $deliveries->currentPage(),
+                'last_page'    => $deliveries->lastPage(),
+                'per_page'     => $deliveries->perPage(),
+                'total'        => $deliveries->total(),
+            ],
+            // شمارنده‌های مفید برای نمایش Badge روی تب‌ها در فرانت‌اند
+            'counts'  => $this->getDeliveryCounts($pharmacyId),
+        ]);
+    }
+
+    /**
+     * متد کمکی برای دریافت تعداد سفارش‌ها در هر وضعیت پیک
+     */
+    protected function getDeliveryCounts($pharmacyId)
+    {
+        $counts = DB::table('pharmacy_requests')
+            ->where('pharmacy_id', $pharmacyId)
+            ->where('delivery_type', 1)
+            ->selectRaw("
+                COUNT(CASE WHEN status = 3 THEN 1 END) as ready_count,
+                COUNT(CASE WHEN status = 4 THEN 1 END) as delivering_count,
+                COUNT(CASE WHEN status = 5 THEN 1 END) as delivered_today_count
+            ")
+            ->first();
+
+        return [
+            'ready'           => (int) ($counts->ready_count ?? 0),
+            'delivering'      => (int) ($counts->delivering_count ?? 0),
+            'delivered_today' => (int) ($counts->delivered_today_count ?? 0),
+        ];
+    }
+
 }
