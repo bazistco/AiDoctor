@@ -520,27 +520,34 @@ class PharmacyStaffRequestController extends Controller
     public function markAsDelivered(Request $request, $id)
     {
         $pharmacyId = $this->getPharmacyId();
-        if (!$pharmacyId) return response()->json(['status' => 'error', 'message' => 'دسترسی غیرمجاز.'], 403);
+        if (!$pharmacyId) {
+            return response()->json(['status' => 'error', 'message' => 'دسترسی غیرمجاز.'], 403);
+        }
 
-        $affected = DB::table('users_pharmacy_requests')
+        $pharmacyRequest = DB::table('users_pharmacy_requests')
             ->where('id', $id)
             ->where('pharmacy_id', $pharmacyId)
-            ->whereIn('status', [3, 4]) // آماده ارسال یا در حال ارسال
+            ->whereIn('status', [3, 4])
+            ->first();
+
+        if (!$pharmacyRequest) {
+            return response()->json(['status' => 'error', 'message' => 'سفارش یافت نشد یا در وضعیت معتبر برای تحویل نیست.'], 404);
+        }
+
+        DB::table('users_pharmacy_requests')
+            ->where('id', $id)
             ->update([
-                'status'       => 5,
+                'status'       => 5, // تحویل داده شده
                 'delivered_at' => now(),
                 'updated_at'   => now(),
             ]);
 
-        if ($affected === 0) {
-            return response()->json(['status' => 'error', 'message' => 'عملیات نامعتبر است (سفارش قبلاً تحویل شده یا در وضعیت مجاز نیست).'], 403);
-        }
-
         return response()->json([
             'status'  => 'success',
-            'message' => 'نسخه به بیمار تحویل داده شد.'
+            'message' => 'سفارش با موفقیت به عنوان تحویل‌شده ثبت شد.'
         ]);
     }
+
 
     // ---------- cancelRequest: لغو درخواست ----------
     public function cancelRequest($id)
@@ -645,23 +652,36 @@ class PharmacyStaffRequestController extends Controller
             return response()->json(['status' => 'error', 'message' => 'دسترسی غیرمجاز'], 403);
         }
 
-        // استفاده از جدول users_pharmacy_requests طبق ساختار پروژه شما
+        $baseQuery = DB::table('users_pharmacy_requests')
+            ->where('users_pharmacy_requests.pharmacy_id', $pharmacyId)
+            ->where('users_pharmacy_requests.delivery_type', 1);
+
+        // شمارنده‌ها بر اساس جدول users_pharmacy_requests
+        $counts = [
+            'ready' => (clone $baseQuery)->where('status', 3)->count(),
+            'delivering' => (clone $baseQuery)->where('status', 4)->count(),
+            'delivered_today' => (clone $baseQuery)->where('status', 5)
+                ->whereDate('updated_at', now()->toDateString())->count(),
+        ];
+
         $query = DB::table('users_pharmacy_requests')
             ->leftJoin('users', 'users_pharmacy_requests.user_id', '=', 'users.id')
+            ->leftJoin('addresses', 'addresses.id', '=', 'users_pharmacy_requests.user_address_id')
             ->leftJoin('users_prescriptions', 'users_pharmacy_requests.prescription_id', '=', 'users_prescriptions.id')
             ->select([
                 'users_pharmacy_requests.*',
                 'users.name as user_name',
                 'users.phone as user_mobile',
+                'addresses.address as address_name',
+                'addresses.lat as address_lat',
+                'addresses.lng as address_lng',
                 DB::raw("JSON_UNQUOTE(JSON_EXTRACT(users_prescriptions.details, '$.code')) as prescription_code")
             ])
             ->where('users_pharmacy_requests.pharmacy_id', $pharmacyId)
-            ->where('users_pharmacy_requests.delivery_type', 1); // فیلتر ارسال با پیک
+            ->where('users_pharmacy_requests.delivery_type', 1);
 
-        // اعمال فیلتر وضعیت (مطابق تب‌های فرانت‌اند)
+        // فیلتر بر اساس تب
         $tab = $request->query('tab', 'active');
-
-        // وضعیت‌ها در پروژه شما: فرض بر تطبیق با منطق وضعیت‌های سفارش (۳: آماده، ۴: در حال ارسال، ۵: تحویل شده)
         switch ($tab) {
             case 'ready':
                 $query->where('users_pharmacy_requests.status', 3);
@@ -681,19 +701,20 @@ class PharmacyStaffRequestController extends Controller
                 break;
         }
 
-        // جستجو در نام بیمار، موبایل یا کد نسخه
+        // جستجو
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('users.name', 'like', "%{$search}%")
                     ->orWhere('users.phone', 'like', "%{$search}%")
-                    ->orWhere(DB::raw("JSON_UNQUOTE(JSON_EXTRACT(users_prescriptions.details, '$.code'))"), 'like', "%{$search}%")
-                    ->orWhere('users_pharmacy_requests.courier_name', 'like', "%{$search}%");
+                    ->orWhere('users_pharmacy_requests.courier_name', 'like', "%{$search}%")
+                    ->orWhere('users_pharmacy_requests.courier_phone', 'like', "%{$search}%")
+                    ->orWhere(DB::raw("JSON_UNQUOTE(JSON_EXTRACT(users_prescriptions.details, '$.code'))"), 'like', "%{$search}%");
             });
         }
 
         $requests = $query->orderBy('users_pharmacy_requests.updated_at', 'desc')->get()->map(function ($item) {
             if (isset($item->total_price)) {
-                $item->total_price = $item->total_price / 10; // تبدیل واحد قیمت
+                $item->total_price = $item->total_price / 10;
             }
             return $item;
         });
@@ -701,14 +722,10 @@ class PharmacyStaffRequestController extends Controller
         return response()->json([
             'status' => 'success',
             'data'   => $requests,
-            'counts' => [
-                'ready' => (clone $query)->where('users_pharmacy_requests.status', 3)->count(),
-                'delivering' => (clone $query)->where('users_pharmacy_requests.status', 4)->count(),
-                'delivered_today' => (clone $query)->where('users_pharmacy_requests.status', 5)
-                    ->whereDate('users_pharmacy_requests.updated_at', now())->count(),
-            ]
+            'counts' => $counts,
         ]);
     }
+
 
 
 }
