@@ -68,7 +68,7 @@ Route::middleware(['auth:sanctum', 'center.staff:pharmacy'])->prefix('staff/phar
     Route::get('deliveries', [PharmacyStaffRequestController::class, 'deliveryList']);
 
     Route::post('requests/{id}/assign-courier', [PharmacyStaffRequestController::class, 'assignCourier']);
-    // ثبت تحویل سفارش توسط پیک (تغییر وضعیت به ۵ و ثبت delivered_at)
+
     Route::post('requests/{id}/mark-delivered', [PharmacyStaffRequestController::class, 'markAsDelivered']);
 
     // جریان وضعیت‌ها
