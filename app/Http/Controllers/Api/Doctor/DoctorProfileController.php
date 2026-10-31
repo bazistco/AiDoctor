@@ -173,21 +173,21 @@ class DoctorProfileController extends Controller
                     'exists' => !empty($doctorInfo->national_card_image),
                     'type' => $getFileType($doctorInfo->national_card_image),
                     'download_url' => !empty($doctorInfo->national_card_image)
-                        ? url('/api/doctor/documents/download?type=national_card')
+                        ? secure_url('/api/doctor/documents/download?type=national_card')
                         : null,
                 ],
                 'medical_council_card' => [
                     'exists' => !empty($doctorInfo->medical_council_card_image),
                     'type' => $getFileType($doctorInfo->medical_council_card_image),
                     'download_url' => !empty($doctorInfo->medical_council_card_image)
-                        ? url('/api/doctor/documents/download?type=medical_council_card')
+                        ? secure_url('/api/doctor/documents/download?type=medical_council_card')
                         : null,
                 ],
                 'clinic_license' => [
                     'exists' => !empty($doctorInfo->clinic_license_image),
                     'type' => $getFileType($doctorInfo->clinic_license_image),
                     'download_url' => !empty($doctorInfo->clinic_license_image)
-                        ? url('/api/doctor/documents/download?type=clinic_license')
+                        ? secure_url('/api/doctor/documents/download?type=clinic_license')
                         : null,
                 ],
             ]
