@@ -143,102 +143,128 @@ class DoctorProfileController extends Controller
         }
     }
 
-    public function uploadDocuments(Request $request)
+    public function getDocumentsStatus(Request $request)
     {
-        $userId = $request->user()->id;
+        $user = $request->user();
+        $doctorInfo = DB::table('doctor_info')->where('user_id', $user->id)->first();
 
-        // اعتبارسنجی سخت‌گیرانه برای جلوگیری از فایل‌های مخرب (شل، اسکریپت و...)
-        $request->validate([
-            'national_card_image' => 'required|file|mimes:jpeg,png,jpg,pdf|max:5120', // حداکثر 5 مگابایت
-            'medical_council_card_image' => 'required|file|mimes:jpeg,png,jpg,pdf|max:5120',
-            'clinic_license_image' => 'required|file|mimes:jpeg,png,jpg,pdf|max:5120',
-        ], [
-            'mimes' => 'فرمت فایل باید jpg, png یا pdf باشد.',
-            'max' => 'حجم فایل نباید بیشتر از ۵ مگابایت باشد.'
-        ]);
-
-        try {
-            DB::beginTransaction();
-
-            // ذخیره فایل‌ها در دیسک local (خارج از دسترس پابلیک)
-            // مسیر ذخیره: storage/app/doctor_documents/{user_id}/...
-            $nationalCardPath = $request->file('national_card_image')->store('doctor_documents/' . $userId, 'local');
-            $medicalCouncilPath = $request->file('medical_council_card_image')->store('doctor_documents/' . $userId, 'local');
-            $clinicLicensePath = $request->file('clinic_license_image')->store('doctor_documents/' . $userId, 'local');
-
-            // ثبت مسیرها و تغییر وضعیت در دیتابیس
-            DB::table('doctor_info')->where('user_id', $userId)->update([
-                'national_card_image' => $nationalCardPath,
-                'medical_council_card_image' => $medicalCouncilPath,
-                'clinic_license_image' => $clinicLicensePath,
-                'has_uploaded_documents' => 0,
-                'updated_at' => now(),
-            ]);
-
-            DB::commit();
-
+        if (!$doctorInfo) {
             return response()->json([
-                'status' => 200,
-                'message' => 'مدارک با موفقیت بارگذاری و تایید اولیه شد.'
+                'status' => 'not_uploaded',
+                'national_card_image' => null,
+                'medical_council_card_image' => null,
+                'clinic_license_image' => null,
+                'rejection_reason' => null,
             ]);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            // در صورت بروز خطا اگر فایلی آپلود شده بود، بهتر است حذف شود (اختیاری)
-            return response()->json([
-                'status' => 500,
-                'message' => 'خطا در ذخیره مدارک سیستم.',
-                'error' => $e->getMessage()
-            ], 500);
         }
+
+        // بررسی پسوند برای تفکیک تصویر یا PDF در پیش‌نمایش
+        $getFileType = function ($path) {
+            if (!$path) return null;
+            $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+            return in_array($ext, ['jpg', 'jpeg', 'png', 'webp']) ? 'image' : 'pdf';
+        };
+
+        return response()->json([
+            'status' => $doctorInfo->document_status ?? 'not_uploaded',
+            'rejection_reason' => $doctorInfo->document_rejection_reason ?? null,
+            'documents' => [
+                'national_card' => [
+                    'exists' => !empty($doctorInfo->national_card_image),
+                    'type' => $getFileType($doctorInfo->national_card_image),
+                    'download_url' => !empty($doctorInfo->national_card_image)
+                        ? url('/api/doctor/documents/download?type=national_card')
+                        : null,
+                ],
+                'medical_council_card' => [
+                    'exists' => !empty($doctorInfo->medical_council_card_image),
+                    'type' => $getFileType($doctorInfo->medical_council_card_image),
+                    'download_url' => !empty($doctorInfo->medical_council_card_image)
+                        ? url('/api/doctor/documents/download?type=medical_council_card')
+                        : null,
+                ],
+                'clinic_license' => [
+                    'exists' => !empty($doctorInfo->clinic_license_image),
+                    'type' => $getFileType($doctorInfo->clinic_license_image),
+                    'download_url' => !empty($doctorInfo->clinic_license_image)
+                        ? url('/api/doctor/documents/download?type=clinic_license')
+                        : null,
+                ],
+            ]
+        ]);
     }
 
     /**
-     * دریافت امن فایل مدرک پزشک (فقط برای خود پزشک یا ادمین)
+     * آپلود مدارک و قرار دادن وضعیت در حالت 'pending'
+     */
+    public function uploadDocuments(Request $request)
+    {
+        $user = $request->user();
+
+        $request->validate([
+            'national_card_image' => 'required|file|mimes:jpeg,png,jpg,pdf|max:5120',
+            'medical_council_card_image' => 'required|file|mimes:jpeg,png,jpg,pdf|max:5120',
+            'clinic_license_image' => 'required|file|mimes:jpeg,png,jpg,pdf|max:5120',
+        ]);
+
+        $folder = "doctor_documents/{$user->id}";
+
+        $nationalCardPath = $request->file('national_card_image')->store($folder, 'local');
+        $medicalCouncilPath = $request->file('medical_council_card_image')->store($folder, 'local');
+        $clinicLicensePath = $request->file('clinic_license_image')->store($folder, 'local');
+
+        DB::table('doctor_info')->updateOrInsert(
+            ['user_id' => $user->id],
+            [
+                'national_card_image' => $nationalCardPath,
+                'medical_council_card_image' => $medicalCouncilPath,
+                'clinic_license_image' => $clinicLicensePath,
+                'has_uploaded_documents' => 1,
+                'document_status' => 'pending', // ارسال برای تایید ادمین
+                'document_rejection_reason' => null,
+                'updated_at' => now(),
+            ]
+        );
+
+        return response()->json([
+            'status' => 200,
+            'message' => 'مدارک با موفقیت بارگذاری شد و در انتظار بررسی ادمین قرار گرفت.',
+            'document_status' => 'pending'
+        ]);
+    }
+
+    /**
+     * دانلود/مشاهده امن مدارک
      */
     public function getDocument(Request $request)
     {
-        $userId = $request->user()->id;
-        $type = $request->query('type'); // ورودی از Query String
+        $user = $request->user();
+        $type = $request->query('type');
 
-        // نگاشت ورودی کاربر به نام ستون‌های دیتابیس برای جلوگیری از SQL Injection و دسترسی غیرمجاز
-        $validTypes = [
+        $column = match ($type) {
             'national_card' => 'national_card_image',
-            'medical_council' => 'medical_council_card_image',
-            'clinic_license' => 'clinic_license_image'
-        ];
+            'medical_council_card' => 'medical_council_card_image',
+            'clinic_license' => 'clinic_license_image',
+            default => null,
+        };
 
-        if (!array_key_exists($type, $validTypes)) {
-            return response()->json([
-                'status' => 400,
-                'message' => 'نوع مدرک درخواستی نامعتبر است.'
-            ], 400);
+        if (!$column) {
+            return response()->json(['message' => 'نوع مدرک نامعتبر است.'], 400);
         }
 
-        $columnName = $validTypes[$type];
+        $doctorInfo = DB::table('doctor_info')->where('user_id', $user->id)->first();
 
-        $doctorInfo = DB::table('doctor_info')->where('user_id', $userId)->first();
-
-        // بررسی اینکه آیا آدرس فایل در دیتابیس وجود دارد
-        if (!$doctorInfo || empty($doctorInfo->{$columnName})) {
-            return response()->json([
-                'status' => 404,
-                'message' => 'مدرک مورد نظر یافت نشد.'
-            ], 404);
+        if (!$doctorInfo || empty($doctorInfo->$column)) {
+            return response()->json(['message' => 'مدرک یافت نشد.'], 404);
         }
 
-        $filePath = $doctorInfo->{$columnName};
+        $filePath = $doctorInfo->$column;
 
-        // بررسی وجود فایل به صورت فیزیکی در دیسک خصوصی
         if (!Storage::disk('local')->exists($filePath)) {
-            return response()->json([
-                'status' => 404,
-                'message' => 'فایل مدرک در سرور یافت نشد.'
-            ], 404);
+            return response()->json(['message' => 'فایل فیزیکی در سرور یافت نشد.'], 404);
         }
 
-        // بازگرداندن فایل به صورت مستقیم بدون افشای مسیر
-        return Storage::disk('local')->response($filePath);
+        return response()->file(Storage::disk('local')->path($filePath));
     }
 
     public function finance(Request $request)
