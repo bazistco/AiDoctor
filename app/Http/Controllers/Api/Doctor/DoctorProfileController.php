@@ -378,6 +378,7 @@ class DoctorProfileController extends Controller
                 'doctor_info.medical_code',
                 'doctor_info.rank',
                 'doctor_info.reviews',
+                'doctor_info.document_status',
                 'doctor_info.recommendation',
                 'doctor_info.has_paid_subscription',
                 'doctor_info.has_uploaded_documents',
@@ -428,7 +429,8 @@ class DoctorProfileController extends Controller
                 'phone_consultation_price'=>(int) $profile->phone_consultation_price,
                 'video_consultation_price'=>(int) $profile->video_consultation_price,
                 'has_paid_subscription'=> (int) $profile->has_paid_subscription,
-                'has_uploaded_documents'=> (int)$profile->has_uploaded_documents
+                'has_uploaded_documents'=> (int)$profile->has_uploaded_documents,
+         'document_status' =>$profile-> document_status,
             ]
         ]);
     }
