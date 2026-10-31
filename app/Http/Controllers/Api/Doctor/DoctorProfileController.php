@@ -238,10 +238,22 @@ class DoctorProfileController extends Controller
      */
     public function downloadDoctorDocument(Request $request, $type = null)
     {
-        // دریافت type از route param یا query string
+        $origin = $request->header('Origin') ?: '*';
+
+        $corsHeaders = [
+            'Access-Control-Allow-Origin'      => $origin,
+            'Access-Control-Allow-Methods'     => 'GET, OPTIONS',
+            'Access-Control-Allow-Headers'     => 'Authorization, Content-Type, Accept, Origin, X-Requested-With',
+            'Access-Control-Allow-Credentials' => 'true',
+        ];
+
+        // اگر درخواست پیش‌پرواز (Preflight) بود
+        if ($request->isMethod('OPTIONS')) {
+            return response('', 200, $corsHeaders);
+        }
+
         $type = $type ?? $request->query('type') ?? $request->input('type');
 
-        // ۱. بررسی معتبر بودن نوع مدرک
         $allowedTypes = [
             'national_card'        => 'national_card_image',
             'medical_council_card' => 'medical_council_card_image',
@@ -252,12 +264,11 @@ class DoctorProfileController extends Controller
             return response()->json([
                 'status'  => false,
                 'message' => 'نوع مدرک نامعتبر یا ارسال نشده است.'
-            ], 400);
+            ], 400, $corsHeaders);
         }
 
         $column = $allowedTypes[$type];
 
-        // ۲. دریافت اطلاعات پزشک و مسیر فایل از دیتابیس
         $doctor = $request->user();
         $docRecord = DB::table('doctor_info')->where('user_id', $doctor->id)->first();
 
@@ -265,31 +276,32 @@ class DoctorProfileController extends Controller
             return response()->json([
                 'status'  => false,
                 'message' => 'مدرک مورد نظر ثبت نشده است.'
-            ], 404);
+            ], 404, $corsHeaders);
         }
 
         $filePath = $docRecord->$column;
 
-        // ۳. بررسی وجود فایل روی دیسک لوکال
         if (!Storage::disk('local')->exists($filePath)) {
             return response()->json([
                 'status'  => false,
                 'message' => 'فایل مدرک در سرور یافت نشد.'
-            ], 404);
+            ], 404, $corsHeaders);
         }
 
-        // ۴. استخراج اطلاعات فایل
         $mimeType = Storage::disk('local')->mimeType($filePath);
         $fileName = basename($filePath);
 
-        // ۵. بازگرداندن امن فایل همراه با هدرهای صریح CORS
-        return Storage::disk('local')->response($filePath, $fileName, [
-            'Content-Type'                 => $mimeType,
-            'Access-Control-Allow-Origin'  => '*',
-            'Access-Control-Allow-Methods' => 'GET, OPTIONS',
-            'Access-Control-Allow-Headers' => 'Authorization, Content-Type, Accept, Origin, X-Requested-With',
-        ]);
+        // ادغام هدرهای CORS با هدر فایل
+        return Storage::disk('local')->response(
+            $filePath,
+            $fileName,
+            array_merge([
+                'Content-Type'        => $mimeType,
+                'Content-Disposition' => 'inline; filename="' . $fileName . '"',
+            ], $corsHeaders)
+        );
     }
+
 
 
     public function finance(Request $request)
