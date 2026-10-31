@@ -8,6 +8,7 @@ use App\Services\Payment\PaymentService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class DoctorProfileController extends Controller
 {
@@ -142,6 +143,103 @@ class DoctorProfileController extends Controller
         }
     }
 
+    public function uploadDocuments(Request $request)
+    {
+        $userId = $request->user()->id;
+
+        // اعتبارسنجی سخت‌گیرانه برای جلوگیری از فایل‌های مخرب (شل، اسکریپت و...)
+        $request->validate([
+            'national_card_image' => 'required|file|mimes:jpeg,png,jpg,pdf|max:5120', // حداکثر 5 مگابایت
+            'medical_council_card_image' => 'required|file|mimes:jpeg,png,jpg,pdf|max:5120',
+            'clinic_license_image' => 'required|file|mimes:jpeg,png,jpg,pdf|max:5120',
+        ], [
+            'mimes' => 'فرمت فایل باید jpg, png یا pdf باشد.',
+            'max' => 'حجم فایل نباید بیشتر از ۵ مگابایت باشد.'
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            // ذخیره فایل‌ها در دیسک local (خارج از دسترس پابلیک)
+            // مسیر ذخیره: storage/app/doctor_documents/{user_id}/...
+            $nationalCardPath = $request->file('national_card_image')->store('doctor_documents/' . $userId, 'local');
+            $medicalCouncilPath = $request->file('medical_council_card_image')->store('doctor_documents/' . $userId, 'local');
+            $clinicLicensePath = $request->file('clinic_license_image')->store('doctor_documents/' . $userId, 'local');
+
+            // ثبت مسیرها و تغییر وضعیت در دیتابیس
+            DB::table('doctor_info')->where('user_id', $userId)->update([
+                'national_card_image' => $nationalCardPath,
+                'medical_council_card_image' => $medicalCouncilPath,
+                'clinic_license_image' => $clinicLicensePath,
+                'has_uploaded_documents' => 0,
+                'updated_at' => now(),
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'status' => 200,
+                'message' => 'مدارک با موفقیت بارگذاری و تایید اولیه شد.'
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            // در صورت بروز خطا اگر فایلی آپلود شده بود، بهتر است حذف شود (اختیاری)
+            return response()->json([
+                'status' => 500,
+                'message' => 'خطا در ذخیره مدارک سیستم.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * دریافت امن فایل مدرک پزشک (فقط برای خود پزشک یا ادمین)
+     */
+    public function getDocument(Request $request)
+    {
+        $userId = $request->user()->id;
+        $type = $request->query('type'); // ورودی از Query String
+
+        // نگاشت ورودی کاربر به نام ستون‌های دیتابیس برای جلوگیری از SQL Injection و دسترسی غیرمجاز
+        $validTypes = [
+            'national_card' => 'national_card_image',
+            'medical_council' => 'medical_council_card_image',
+            'clinic_license' => 'clinic_license_image'
+        ];
+
+        if (!array_key_exists($type, $validTypes)) {
+            return response()->json([
+                'status' => 400,
+                'message' => 'نوع مدرک درخواستی نامعتبر است.'
+            ], 400);
+        }
+
+        $columnName = $validTypes[$type];
+
+        $doctorInfo = DB::table('doctor_info')->where('user_id', $userId)->first();
+
+        // بررسی اینکه آیا آدرس فایل در دیتابیس وجود دارد
+        if (!$doctorInfo || empty($doctorInfo->{$columnName})) {
+            return response()->json([
+                'status' => 404,
+                'message' => 'مدرک مورد نظر یافت نشد.'
+            ], 404);
+        }
+
+        $filePath = $doctorInfo->{$columnName};
+
+        // بررسی وجود فایل به صورت فیزیکی در دیسک خصوصی
+        if (!Storage::disk('local')->exists($filePath)) {
+            return response()->json([
+                'status' => 404,
+                'message' => 'فایل مدرک در سرور یافت نشد.'
+            ], 404);
+        }
+
+        // بازگرداندن فایل به صورت مستقیم بدون افشای مسیر
+        return Storage::disk('local')->response($filePath);
+    }
 
     public function finance(Request $request)
     {

@@ -293,7 +293,8 @@ Route::group(['prefix' => 'doctor'], function () {
 
         Route::patch('/schedule/slots/{slotId}/toggle-status', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'toggleSlotStatus']);
         Route::get('/finance', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'finance'])->name('profile.finance');
-
+        Route::post('/documents/upload', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'uploadDocuments']);
+        Route::get('/documents/download', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'getDocument']);
         Route::patch('/appointments/{id}/mark-done', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'markAppointmentAsDone']);
         Route::get('/appointments/{id}', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'getAppointmentDetail']);
         Route::patch('/appointments/{id}/notes', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'updateAppointmentNotes']);
