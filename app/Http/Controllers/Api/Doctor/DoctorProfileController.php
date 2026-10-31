@@ -236,34 +236,46 @@ class DoctorProfileController extends Controller
     /**
      * دانلود/مشاهده امن مدارک
      */
-    public function downloadDoctorDocument(Request $request, $type)
+    public function downloadDoctorDocument(Request $request, $type = null)
     {
+        // دریافت type از route param یا query string
+        $type = $type ?? $request->query('type') ?? $request->input('type');
+
         // ۱. بررسی معتبر بودن نوع مدرک
         $allowedTypes = [
-            'national_card' => 'national_card_image',
+            'national_card'        => 'national_card_image',
             'medical_council_card' => 'medical_council_card_image',
-            'clinic_license' => 'clinic_license_image',
+            'clinic_license'       => 'clinic_license_image',
         ];
 
-        if (!array_key_exists($type, $allowedTypes)) {
-            return response()->json(['success' => false, 'message' => 'نوع مدرک نامعتبر است.'], 400);
+        if (!$type || !array_key_exists($type, $allowedTypes)) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'نوع مدرک نامعتبر یا ارسال نشده است.'
+            ], 400);
         }
 
         $column = $allowedTypes[$type];
 
         // ۲. دریافت اطلاعات پزشک و مسیر فایل از دیتابیس
-        $doctor = $request->user(); // یا از جدول doctor_info بر اساس احراز هویت
+        $doctor = $request->user();
         $docRecord = DB::table('doctor_info')->where('user_id', $doctor->id)->first();
 
         if (!$docRecord || empty($docRecord->$column)) {
-            return response()->json(['success' => false, 'message' => 'مدرک مورد نظر ثبت نشده است.'], 404);
+            return response()->json([
+                'status'  => false,
+                'message' => 'مدرک مورد نظر ثبت نشده است.'
+            ], 404);
         }
 
         $filePath = $docRecord->$column;
 
         // ۳. بررسی وجود فایل روی دیسک لوکال
         if (!Storage::disk('local')->exists($filePath)) {
-            return response()->json(['success' => false, 'message' => 'فایل مدرک در سرور یافت نشد.'], 404);
+            return response()->json([
+                'status'  => false,
+                'message' => 'فایل مدرک در سرور یافت نشد.'
+            ], 404);
         }
 
         // ۴. استخراج اطلاعات فایل
@@ -272,12 +284,13 @@ class DoctorProfileController extends Controller
 
         // ۵. بازگرداندن امن فایل همراه با هدرهای صریح CORS
         return Storage::disk('local')->response($filePath, $fileName, [
-            'Content-Type' => $mimeType,
-            'Access-Control-Allow-Origin' => '*',
+            'Content-Type'                 => $mimeType,
+            'Access-Control-Allow-Origin'  => '*',
             'Access-Control-Allow-Methods' => 'GET, OPTIONS',
             'Access-Control-Allow-Headers' => 'Authorization, Content-Type, Accept, Origin, X-Requested-With',
         ]);
     }
+
 
     public function finance(Request $request)
     {
