@@ -296,7 +296,7 @@ Route::group(['prefix' => 'doctor'], function () {
 
         Route::get('/documents/status', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'getDocumentsStatus']);
         Route::post('/documents/upload', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'uploadDocuments']);
-        Route::get('/documents/download', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'getDocument']);
+        Route::get('/documents/download', [\App\Http\Controllers\Api\Doctor\DoctorProfileController::class, 'downloadDoctorDocument']);
         Route::patch('/appointments/{id}/mark-done', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'markAppointmentAsDone']);
         Route::get('/appointments/{id}', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'getAppointmentDetail']);
         Route::patch('/appointments/{id}/notes', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'updateAppointmentNotes']);

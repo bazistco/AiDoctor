@@ -236,35 +236,47 @@ class DoctorProfileController extends Controller
     /**
      * دانلود/مشاهده امن مدارک
      */
-    public function getDocument(Request $request)
+    public function downloadDoctorDocument(Request $request, $type)
     {
-        $user = $request->user();
-        $type = $request->query('type');
-
-        $column = match ($type) {
+        // ۱. بررسی معتبر بودن نوع مدرک
+        $allowedTypes = [
             'national_card' => 'national_card_image',
             'medical_council_card' => 'medical_council_card_image',
             'clinic_license' => 'clinic_license_image',
-            default => null,
-        };
+        ];
 
-        if (!$column) {
-            return response()->json(['message' => 'نوع مدرک نامعتبر است.'], 400);
+        if (!array_key_exists($type, $allowedTypes)) {
+            return response()->json(['success' => false, 'message' => 'نوع مدرک نامعتبر است.'], 400);
         }
 
-        $doctorInfo = DB::table('doctor_info')->where('user_id', $user->id)->first();
+        $column = $allowedTypes[$type];
 
-        if (!$doctorInfo || empty($doctorInfo->$column)) {
-            return response()->json(['message' => 'مدرک یافت نشد.'], 404);
+        // ۲. دریافت اطلاعات پزشک و مسیر فایل از دیتابیس
+        $doctor = $request->user(); // یا از جدول doctor_info بر اساس احراز هویت
+        $docRecord = DB::table('doctor_info')->where('user_id', $doctor->id)->first();
+
+        if (!$docRecord || empty($docRecord->$column)) {
+            return response()->json(['success' => false, 'message' => 'مدرک مورد نظر ثبت نشده است.'], 404);
         }
 
-        $filePath = $doctorInfo->$column;
+        $filePath = $docRecord->$column;
 
+        // ۳. بررسی وجود فایل روی دیسک لوکال
         if (!Storage::disk('local')->exists($filePath)) {
-            return response()->json(['message' => 'فایل فیزیکی در سرور یافت نشد.'], 404);
+            return response()->json(['success' => false, 'message' => 'فایل مدرک در سرور یافت نشد.'], 404);
         }
 
-        return response()->file(Storage::disk('local')->path($filePath));
+        // ۴. استخراج اطلاعات فایل
+        $mimeType = Storage::disk('local')->mimeType($filePath);
+        $fileName = basename($filePath);
+
+        // ۵. بازگرداندن امن فایل همراه با هدرهای صریح CORS
+        return Storage::disk('local')->response($filePath, $fileName, [
+            'Content-Type' => $mimeType,
+            'Access-Control-Allow-Origin' => '*',
+            'Access-Control-Allow-Methods' => 'GET, OPTIONS',
+            'Access-Control-Allow-Headers' => 'Authorization, Content-Type, Accept, Origin, X-Requested-With',
+        ]);
     }
 
     public function finance(Request $request)
