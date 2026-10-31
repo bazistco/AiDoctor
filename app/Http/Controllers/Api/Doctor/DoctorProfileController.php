@@ -256,6 +256,7 @@ class DoctorProfileController extends Controller
                 'doctor_info.reviews',
                 'doctor_info.recommendation',
                 'doctor_info.has_paid_subscription',
+                'doctor_info.has_uploaded_documents',
                 'doctor_info.phone_consultation_price',
                 'doctor_info.video_consultation_price',
                 'specialties.name as specialty_name'
@@ -303,6 +304,7 @@ class DoctorProfileController extends Controller
                 'phone_consultation_price'=>(int) $profile->phone_consultation_price,
                 'video_consultation_price'=>(int) $profile->video_consultation_price,
                 'has_paid_subscription'=> (int) $profile->has_paid_subscription,
+                'has_uploaded_documents'=> (int)$profile->has_uploaded_documents
             ]
         ]);
     }
