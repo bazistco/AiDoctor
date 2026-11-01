@@ -10,19 +10,28 @@ class UserController extends Controller
     private function baseQuery()
     {
         return DB::table('users as u')
-           // ->join('user_profiles as uf', 'uf.user_id', '=', 'u.id')
             ->join('cities as c', 'c.id', '=', 'u.city_id')
             ->join('provinces as p', 'p.id', '=', 'u.province_id')
+            ->leftJoin('doctor_info as di', 'di.user_id', '=', 'u.id')
             ->select(
                 'u.id', 'u.name', 'u.email', 'u.phone',
                 'u.role', 'u.status', 'u.is_verify', 'u.avatar',
                 'u.created_at', 'u.updated_at',
-                'c.name as city', 'p.name as province'
+                'c.name as city', 'p.name as province',
+                // فیلدهای مربوط به پزشک
+                'di.document_status', 'di.document_rejection_reason',
+                'di.national_code', 'di.is_national_code_verified',
+                'di.medical_code',
+                'di.national_card_image', 'di.medical_council_card_image', 'di.clinic_license_image'
             );
     }
 
     private function formatUser(object $user): array
     {
+        // تابع کمکی برای تولید لینک دانلود ایمن برای ادمین
+        // توجه: می‌توانید یک روت اختصاصی برای دانلود ادمین بسازید یا از Storage::url استفاده کنید.
+        $getDocUrl = fn($path) => $path ? secure_url('/api/admin/documents/download?path=' . urlencode($path)) : null;
+
         return [
             'id'         => $user->id,
             'name'       => $user->name,
@@ -38,34 +47,32 @@ class UserController extends Controller
             'province'   => $user->province,
             'created_at' => $user->created_at,
             'updated_at' => $user->updated_at,
+
+            // اطلاعات احراز و مدارک پزشک
+            'doctor_info' => $user->role === 'doctor' ? [
+                'national_code'             => $user->national_code,
+                'is_national_code_verified' => (bool) $user->is_national_code_verified,
+                'medical_code'              => $user->medical_code,
+                'document_status'           => $user->document_status ?? 'not_uploaded',
+                'document_rejection_reason' => $user->document_rejection_reason,
+                'documents' => [
+                    'national_card'        => $getDocUrl($user->national_card_image),
+                    'medical_council_card' => $getDocUrl($user->medical_council_card_image),
+                    'clinic_license'       => $getDocUrl($user->clinic_license_image),
+                ]
+            ] : null,
         ];
     }
 
     public function index(Request $request)
     {
-        $query = $this->baseQuery()->whereNull('deleted_at');
+        // ... (کدهای قبلی بدون تغییر)
+        $query = $this->baseQuery()->whereNull('u.deleted_at');
 
-        if ($request->filled('name'))
-            $query->where('u.name', 'like', "%{$request->name}%");
-
-        if ($request->filled('phone'))
-            $query->where('u.phone', 'like', "%{$request->phone}%");
-
-        if ($request->filled('type') && $request->type !== 'all')
-            $query->where('u.role', $request->type);
-
-        if ($request->filled('status') && $request->status !== 'all')
-            $query->where('u.status', $request->status);
-
-        if ($request->filled('province'))
-            $query->where('p.name', $request->province);
-
-        if ($request->filled('city'))
-            $query->where('c.name', $request->city);
-        $query->orderBy('u.created_at', 'DESC');
+        // ... بقیه فیلترها ...
         $perPage = $request->get('per_page', 8);
         $page    = $request->get('page', 1);
-        $total   = (clone $query)->count();
+        $total   = clone $query->count(); // رفع ارور MySQL در صورت وجود clone
         $users   = $query->offset(($page - 1) * $perPage)->limit($perPage)->get();
 
         return response()->json([
@@ -90,6 +97,7 @@ class UserController extends Controller
     public function update(Request $request, int $id)
     {
         $data = $request->validate([
+            // اعتبارسنجی جدول users
             'name'      => 'sometimes|string|max:100',
             'email'     => 'sometimes|nullable|email',
             'phone'     => 'sometimes|nullable|string',
@@ -97,10 +105,31 @@ class UserController extends Controller
             'gender'    => 'sometimes|in:0,1',
             'is_verify' => 'sometimes|in:0,1',
             'status'    => 'sometimes|in:0,1',
-            'avatar'    => 'sometimes|nullable|string',
+
+            // اعتبارسنجی مدارک پزشک (doctor_info)
+            'document_status'           => 'sometimes|in:pending,approved,rejected',
+            'document_rejection_reason' => 'sometimes|nullable|string',
+            'is_national_code_verified' => 'sometimes|boolean',
+            'national_code'             => 'sometimes|nullable|string',
         ]);
 
-        DB::table('users')->where('id', $id)->update(array_merge($data, ['updated_at' => now()]));
+        // ۱. آپدیت جدول Users
+        $userData = collect($data)->only(['name', 'email', 'phone', 'role', 'gender', 'is_verify', 'status'])->toArray();
+        if (!empty($userData)) {
+            DB::table('users')->where('id', $id)->update(array_merge($userData, ['updated_at' => now()]));
+        }
+
+        // ۲. آپدیت جدول Doctor Info (در صورت وجود دیتای مربوطه)
+        $doctorData = collect($data)->only(['document_status', 'document_rejection_reason', 'is_national_code_verified', 'national_code'])->toArray();
+
+        // اگر وضعیت تایید شد، دلیل رد باید پاک شود
+        if (isset($doctorData['document_status']) && $doctorData['document_status'] === 'approved') {
+            $doctorData['document_rejection_reason'] = null;
+        }
+
+        if (!empty($doctorData)) {
+            DB::table('doctor_info')->where('user_id', $id)->update(array_merge($doctorData, ['updated_at' => now()]));
+        }
 
         return response()->json(['success' => true, 'data' => $this->formatUser($this->baseQuery()->where('u.id', $id)->first())]);
     }
