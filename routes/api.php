@@ -109,7 +109,6 @@ Route::middleware(['auth:sanctum', 'center.staff:lab'])->prefix('staff/lab')->gr
     Route::get('/schedule', [StaffLabRequestController::class, 'schedule']);
 
 });
-
 Route::prefix('staff/{type}/auth')
     ->where(['type' => 'lab|pharmacy|medical_center'])
     ->group(function () {
@@ -216,8 +215,15 @@ Route::get('/test/lab-time-check', function () {
         'raw_settings' => $rules // کل تنظیمات خام ردیس
     ], 200, [], JSON_UNESCAPED_UNICODE);
 });
-Route::get('/health',function (){
-    return response()->json(["status"=>"success","data"=>['date'=>now()]]);
+Route::get('/health', function (Request $request) {
+    return response()->json([
+        'status' => 'success',
+        'data'   => [
+            'date'      => now()->toDateTimeString(),
+            'client_ip' => $request->ip(),
+            'server_ip' => $request->server('SERVER_ADDR') ?? gethostbyname(gethostname()),
+        ],
+    ]);
 });
  Route::get('pg/{token}',function ($token){
      return redirect("https://sep.shaparak.ir/OnlinePG/SendToken?token={$token}");
@@ -361,6 +367,7 @@ Route::group(['prefix' => 'admin'],function (){
         Route::post('/appointments/{id}/cancel', [AppointmentManagementController::class, 'cancel']);
         Route::get('documents/download', [\App\Http\Controllers\Api\Admin\UserController::class, 'previewDocument']);
         Route::post('users/{id}/verify-shahkar', [\App\Http\Controllers\Api\Admin\UserController::class, 'verifyShahkar']);
+
     });
 
 });
