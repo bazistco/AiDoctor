@@ -261,4 +261,40 @@ class UserController extends Controller
             'message' => $result['message'] ?? 'عدم انطباق شماره موبایل و کد ملی در سامانه شاهکار.',
         ], 400);
     }
+    use Illuminate\Http\Request;
+    use Illuminate\Support\Facades\DB;
+
+    public function rejectDocuments(Request $request, $userId)
+    {
+        $request->validate([
+            'reason' => 'required|string|min:3|max:1000',
+        ], [
+            'reason.required' => 'درج علت رد مدارک الزامی است.',
+            'reason.min' => 'علت رد مدارک باید حداقل ۳ کاراکتر باشد.',
+        ]);
+
+        $doctorInfo = DB::table('doctor_info')->where('user_id', $userId)->first();
+
+        if (!$doctorInfo) {
+            return response()->json([
+                'success' => false,
+                'message' => 'اطلاعات پزشک یافت نشد.'
+            ], 404);
+        }
+
+        DB::table('doctor_info')
+            ->where('user_id', $userId)
+            ->update([
+                'document_status'           => 'rejected',
+                'document_rejection_reason' => trim($request->input('reason')),
+                'status'                    => 0, // در صورت نیاز تعلیق فعالیت پزشک تا بارگذاری مجدد
+                'updated_at'                => now(),
+            ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'مدارک پزشک با موفقیت رد شد و علت رد ثبت گردید.',
+        ]);
+    }
+
 }

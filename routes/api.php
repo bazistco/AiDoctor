@@ -367,6 +367,7 @@ Route::group(['prefix' => 'admin'],function (){
         Route::post('/appointments/{id}/cancel', [AppointmentManagementController::class, 'cancel']);
         Route::get('documents/download', [\App\Http\Controllers\Api\Admin\UserController::class, 'previewDocument']);
         Route::post('users/{id}/verify-shahkar', [\App\Http\Controllers\Api\Admin\UserController::class, 'verifyShahkar']);
+        Route::post('users/{userId}/reject-documents', [\App\Http\Controllers\Api\Admin\UserController::class, 'rejectDocuments']);
 
     });
 
