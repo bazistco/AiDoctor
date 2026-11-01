@@ -293,6 +293,8 @@ class PaymentService
                 // قفل ردیف اسلات برای جلوگیری از دسترسی همزمان دو درخواست کالبک
                 $slot = DB::table('appointment_slots')
                     ->where('id', $slotId)
+                    ->where('status', '!=', 'booked')
+                    ->where('patient_id', $order->user_id)
                     ->lockForUpdate()
                     ->first();
 
