@@ -66,13 +66,32 @@ class UserController extends Controller
 
     public function index(Request $request)
     {
-        // ... (کدهای قبلی بدون تغییر)
         $query = $this->baseQuery()->whereNull('u.deleted_at');
 
-        // ... بقیه فیلترها ...
+        if ($request->filled('name'))
+            $query->where('u.name', 'like', "%{$request->name}%");
+
+        if ($request->filled('phone'))
+            $query->where('u.phone', 'like', "%{$request->phone}%");
+
+        if ($request->filled('type') && $request->type !== 'all')
+            $query->where('u.role', $request->type);
+
+        if ($request->filled('status') && $request->status !== 'all')
+            $query->where('u.status', $request->status);
+
+        if ($request->filled('province'))
+            $query->where('p.name', $request->province);
+
+        if ($request->filled('city'))
+            $query->where('c.name', $request->city);
+
+        $query->orderBy('u.created_at', 'DESC');
         $perPage = $request->get('per_page', 8);
         $page    = $request->get('page', 1);
-        $total   = clone $query->count(); // رفع ارور MySQL در صورت وجود clone
+
+        $total   = (clone $query)->count();
+
         $users   = $query->offset(($page - 1) * $perPage)->limit($perPage)->get();
 
         return response()->json([
@@ -85,6 +104,7 @@ class UserController extends Controller
             ],
         ]);
     }
+
 
     public function show(int $id)
     {
