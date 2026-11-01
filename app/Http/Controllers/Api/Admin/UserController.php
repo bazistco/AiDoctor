@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 
 class UserController extends Controller
 {
@@ -172,5 +174,80 @@ class UserController extends Controller
         $request->validate(['ids' => 'required|array', 'ids.*' => 'integer']);
         DB::table('users')->whereIn('id', $request->ids)->update(['deleted_at' => now()]);
         return response()->json(['success' => true]);
+    }
+    public function previewDocument(Request $request)
+    {
+        $path = $request->query('path');
+
+        // بررسی وجود مسیر و فایل (فرض بر این است که فایل‌ها در دیسک public یا local هستند)
+        if (!$path || !Storage::disk('local')->exists($path)) {
+            return response()->json(['success' => false, 'message' => 'فایل یافت نشد یا حذف شده است.'], 404);
+        }
+
+        $file = Storage::disk('local')->path($path);
+        $mimeType = Storage::disk('local')->mimeType($path);
+
+        // ارسال فایل به صورت مستقیم تا مرورگر بتواند آن را رندر کند یا دانلود کند
+        return response()->file($file, [
+            'Content-Type' => $mimeType,
+            'Access-Control-Expose-Headers' => 'Content-Disposition'
+        ]);
+    }
+
+    /**
+     * فراخوانی سرویس شاهکار (فینوتک) برای تطابق کد ملی و موبایل
+     */
+    public function verifyShahkar(Request $request, int $id)
+    {
+        $request->validate([
+            'national_code' => 'required|string|size:10'
+        ]);
+
+        $user = DB::table('users')->where('id', $id)->first();
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'کاربر یافت نشد'], 404);
+        }
+
+        $mobile = $user->phone;
+        $nationalCode = $request->national_code;
+
+        // TODO: در محیط پروداکشن، کلاینت‌کد و توکن باید از فایل config('services.finotech.client_id') خوانده شود
+        $finotechClientId = env('FINOTECH_CLIENT_ID', 'YOUR_CLIENT_ID');
+        $finotechToken = env('FINOTECH_TOKEN', 'YOUR_ACCESS_TOKEN');
+
+        try {
+            // فراخوانی API شاهکار فینوتک
+            $response = Http::withToken($finotechToken)
+                ->timeout(10)
+                ->get("https://api.finotech.ir/ccg/v1/clients/{$finotechClientId}/shahkar/verify", [
+                    'mobile' => $mobile,
+                    'nationalCode' => $nationalCode
+                ]);
+
+            if ($response->successful() && isset($response->json()['result']['isMatch'])) {
+                $isMatch = $response->json()['result']['isMatch'];
+
+                if ($isMatch) {
+                    // آپدیت دیتابیس در صورت تطابق
+                    DB::table('doctor_info')->updateOrInsert(
+                        ['user_id' => $id],
+                        [
+                            'national_code' => $nationalCode,
+                            'is_national_code_verified' => 1,
+                            'updated_at' => now()
+                        ]
+                    );
+
+                    return response()->json(['success' => true, 'message' => 'احراز هویت با موفقیت تایید شد.']);
+                } else {
+                    return response()->json(['success' => false, 'message' => 'کد ملی با شماره موبایل کاربر تطابق ندارد!'], 400);
+                }
+            }
+
+            return response()->json(['success' => false, 'message' => 'خطا در ارتباط با سرویس شاهکار.', 'details' => $response->json()], 502);
+
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'سرویس شاهکار در حال حاضر در دسترس نیست.'], 500);
+        }
     }
 }
