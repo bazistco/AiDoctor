@@ -261,8 +261,7 @@ class UserController extends Controller
             'message' => $result['message'] ?? 'عدم انطباق شماره موبایل و کد ملی در سامانه شاهکار.',
         ], 400);
     }
-    use Illuminate\Http\Request;
-    use Illuminate\Support\Facades\DB;
+
 
     public function rejectDocuments(Request $request, $userId)
     {
