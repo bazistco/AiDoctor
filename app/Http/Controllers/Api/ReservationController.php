@@ -597,7 +597,7 @@ class ReservationController extends Controller
         DB::beginTransaction();
         try {
             // محاسبه مبلغ
-            $amount =  15000;
+            $amount =  250000;
 
             // ۴. آماده‌سازی اطلاعات اضافی (extra_detail)
             $extraDetail = [
