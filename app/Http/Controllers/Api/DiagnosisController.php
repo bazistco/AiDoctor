@@ -1100,6 +1100,7 @@ class DiagnosisController extends Controller
             ->join('doctor_info', 'users.id', '=', 'doctor_info.user_id')
             ->join('specialties', 'doctor_info.specialty_id', '=', 'specialties.id')
             ->leftJoin('wallets', 'users.id', '=', 'wallets.user_id')
+            ->leftJoin('doctor_ad_wallets as daw', 'users.id', '=', 'daw.doctor_id')
             ->leftJoin('doctor_subscriptions as ds', function ($join) use ($now) {
                 $join->on('users.id', '=', 'ds.doctor_id')
                     ->where('ds.status', 1)
@@ -1155,8 +1156,12 @@ class DiagnosisController extends Controller
                 ->leftJoin('keywords as matched_keywords', 'dks.keyword_id', '=', 'matched_keywords.id')
                 ->addSelect(
                     DB::raw("
-                    COALESCE(MAX(CASE WHEN dks.keyword_id IS NOT NULL AND dp.tier_level IS NOT NULL THEN dp.tier_level ELSE 0 END), 0) AS search_rank
-                "),
+    COALESCE(MAX(CASE
+        WHEN dks.keyword_id IS NOT NULL AND dp.tier_level IS NOT NULL AND COALESCE(daw.balance, 0) > 0
+        THEN dp.tier_level
+        ELSE 0
+    END), 0) AS search_rank
+"),
                     DB::raw("
                     COALESCE(MAX(CASE WHEN dks.keyword_id IS NOT NULL AND dp.multiplier IS NOT NULL THEN dp.multiplier ELSE 1 END), 1) AS plan_multiplier
                 "),
@@ -1182,7 +1187,10 @@ class DiagnosisController extends Controller
                     ->orWhere('specialties.name', 'LIKE', '%' . $searchTerm . '%');
 
                 if (!empty($detectedKeywordIds)) {
-                    $q->orWhereIn('dks.keyword_id', $detectedKeywordIds);
+                    $q->orWhere(function($subQ) use ($detectedKeywordIds) {
+                        $subQ->whereIn('dks.keyword_id', $detectedKeywordIds)
+                            ->where('daw.balance', '>', 0);
+                    });
                 }
             });
         }
@@ -1206,8 +1214,7 @@ class DiagnosisController extends Controller
                 'doctor_info.phone', 'doctor_info.visit_count', 'doctor_info.appointments',
                 'doctor_info.medical_code', 'doctor_info.rank', 'doctor_info.reviews',
                 'doctor_info.recommendation', 'doctor_info.city', 'doctor_info.province',
-                'wallets.id', 'wallets.balance','dp.tier_level',
-                'dp.multiplier'
+                'wallets.id', 'wallets.balance','dp.tier_level'
             );
 
         if ($searchTerm !== '') {
@@ -1234,21 +1241,29 @@ class DiagnosisController extends Controller
         /*
   * محاسبه هزینه، کسر از کیف پول مجازی و ثبت لاگ (Real-time Billing)
   */
-        DB::transaction(function () use ($doctors, $keywordPrices, $keywordWords, $searcherIp, $userAgent, $searcherId) {
-            $currentTime = now();
+        $sortedDoctors = $doctors->sortBy('id');
 
-            foreach ($doctors as $doctor) {
+        DB::transaction(function () use ($sortedDoctors, $keywordPrices, $keywordWords, $searcherIp, $userAgent, $searcherId) {
+            $currentTime = now();
+            $targetDoctorIds = $sortedDoctors->filter(fn($d) => $d->search_rank > 0 && !empty($d->matched_keyword_ids))->pluck('id');
+
+            if ($targetDoctorIds->isEmpty()) {
+                return;
+            }
+
+            // ۲. قفل همه کیف‌پول‌ها یکجا به ترتیب ID
+            $adWallets = DB::table('doctor_ad_wallets')
+                ->whereIn('doctor_id', $targetDoctorIds)
+                ->orderBy('doctor_id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('doctor_id');
+            foreach ($sortedDoctors as $doctor) {
                 if ($doctor->search_rank > 0 && !empty($doctor->matched_keyword_ids)) {
+                    $adWallet = $adWallets->get($doctor->id);
+                    $currentBalance = $adWallet ? (float) $adWallet->balance : 0.0;
                     $keywordIds = array_unique(explode(',', $doctor->matched_keyword_ids));
                     $multiplier = (float) ($doctor->plan_multiplier ?? 1.0);
-
-                    // 🟢 دریافت و قفل کیف پول مجازی اختصاصی تبلیغات پزشک برای جلوگیری از Race Condition
-                    $adWallet = DB::table('doctor_ad_wallets')
-                        ->where('doctor_id', $doctor->id)
-                        ->lockForUpdate()
-                        ->first();
-
-                    $currentBalance = $adWallet ? (float) $adWallet->balance : 0.0;
 
                     foreach ($keywordIds as $kId) {
                         $keywordWord = $keywordWords[$kId] ?? 'نامشخص';
