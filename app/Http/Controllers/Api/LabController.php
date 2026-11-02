@@ -81,6 +81,7 @@ class LabController extends Controller
     public function searchCenters(Request $request)
     {
         $validator = Validator::make($request->all(), [
+            'address_id'=>'nullable|exists:addresses,id',
             'test_pack_ids' => 'required|array|min:1',
             'test_pack_ids.*' => 'integer|exists:test_packs,id',
         ]);
@@ -92,6 +93,7 @@ class LabController extends Controller
             ], 422);
         }
 
+        $adrress_id = $request->input('address_id');
         $testPackIds = array_values(array_unique($request->test_pack_ids));
 
         $labs = DB::table('labs_tests')
