@@ -116,6 +116,7 @@ class MedicalRequestController extends Controller
     {
         try {
             $request->validate([
+                'address_id'=>'nullable|exists:addresses,id',
                 'service_ids'   => 'required|array',
                 'service_ids.*' => 'integer|exists:medical_services,id',
             ]);
