@@ -197,7 +197,7 @@ class LabRequestController extends Controller
         }
 
         // ۲. اعمال صفحه‌بندی روی درخواست‌های یکتا
-        $paginator = $query->orderByDesc('ulr.id')->paginate($request->query('per_page', 15));
+        $paginator = $query->orderByDesc('ulr.id')->paginate($request->query('per_page', 50));
 
         // ۳. استخراج شناسه درخواست‌های موجود در این صفحه
         $requestIds = collect($paginator->items())->pluck('request_id')->toArray();
