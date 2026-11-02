@@ -500,7 +500,7 @@ Route::group(['prefix' => 'user'],function (){
         Route::middleware('api.rate.limit')->post('/diagnose', [DiagnosisController::class, 'diagnose']);
         Route::middleware('api.rate.limit')->post('/chat', [DiagnosisController::class, 'chat']);
 
-        Route::get('/doctors', [DiagnosisController::class, 'getDoctorsList']);
+        Route::get('/doctors', [DiagnosisController::class, 'getDoctorsListV2']);
         Route::get('/keywords/suggest', [DiagnosisController::class, 'suggestKeywords']);
         Route::post('/doctor/{id}/click', [DiagnosisController::class, 'registerDoctorClick']);
 
