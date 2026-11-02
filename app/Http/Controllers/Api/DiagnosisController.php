@@ -1402,7 +1402,7 @@ class DiagnosisController extends Controller
                 ->where('users.status', 1)
                 ->where('doctor_info.status', 1)
                 ->select(
-                    'users.id', 'users.name', 'users.email', 'users.phone', 'users.gender',
+                    'users.id', 'users.name', 'users.email', 'users.phone', 'users.gender','users.city_id',
                     'doctor_info.specialty_id', 'specialties.name as specialty_name',
                     'doctor_info.visit_price', 'doctor_info.experience', 'doctor_info.address',
                     'doctor_info.rating', 'doctor_info.visit_count', 'doctor_info.image_url',
@@ -1412,6 +1412,7 @@ class DiagnosisController extends Controller
                 )
                 ->first();
 
+
             if (!$doctor) {
                 return response()->json([
                     'success' => false,
@@ -1419,6 +1420,13 @@ class DiagnosisController extends Controller
                 ], 404);
             }
 
+            $city=DB::table('cities')->where('id', $doctor->city_id)->first();
+            if ($city)
+            {
+                $city=$city->name;
+            }else{
+                $city='-';
+            }
             if (!empty($doctor->image_url)) {
                 $doctor->image_url = asset('storage/' . $doctor->image_url);
             }
@@ -1548,7 +1556,9 @@ class DiagnosisController extends Controller
                         'rating' => $doctor->rating,
                         'image_url' => $doctor->image_url,
                         'specialty_name' => $doctor->specialty_name,
-                        // ... سایر فیلدها ...
+                        'medical_code'=>$doctor->medical_code,
+                        'city'=>$city,
+                        'address'=>$doctor->address,
                         'tags' => $tags
                     ],
                     'available_slots' => $slotsByDate,
