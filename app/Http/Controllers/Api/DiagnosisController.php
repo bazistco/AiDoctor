@@ -1073,6 +1073,8 @@ class DiagnosisController extends Controller
         $searcherIp = request()->ip();
         $userAgent = request()->userAgent();
         $searcherId = auth()->check() ? auth()->id() : null;
+        $provinceId = $request->input('province');
+        $cityId = $request->input('city');
 
         /*
          * مرحله اول: شناسایی کلمات کلیدی و دریافت "قیمت پایه نمایش" آن‌ها
@@ -1184,7 +1186,15 @@ class DiagnosisController extends Controller
                 }
             });
         }
+        if (!empty($provinceId) && $provinceId !== 'all') {
+            // اگر ستون province_id است: 'doctor_info.province_id'
+            $query->where('doctor_info.province_id', $provinceId);
+        }
 
+        if (!empty($cityId) && $cityId !== 'all') {
+            // اگر ستون city_id است: 'doctor_info.city_id'
+            $query->where('doctor_info.city_id', $cityId);
+        }
         $query
             ->where('users.role', 'doctor')
             ->whereNull('users.deleted_at')
@@ -1218,7 +1228,7 @@ class DiagnosisController extends Controller
             ->orderByDesc('doctor_info.rating');
 
         // صفحه‌بندی: ۲۵ پزشک در هر صفحه
-        $doctorsPaginator = $query->paginate(25);
+        $doctorsPaginator = $query->paginate(25)->appends($request->query());
         $doctors = $doctorsPaginator->getCollection(); // Collection از آیتم‌های صفحه جاری
 
         /*
