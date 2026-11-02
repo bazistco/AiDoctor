@@ -9,6 +9,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class DoctorProfileController extends Controller
 {
@@ -154,10 +155,13 @@ class DoctorProfileController extends Controller
         if (!$doctorInfo) {
             return response()->json([
                 'status' => 'not_uploaded',
+                'national_code' => null,
+                'medical_code' => null,
                 'national_card_image' => null,
                 'medical_council_card_image' => null,
                 'clinic_license_image' => null,
                 'rejection_reason' => null,
+                'documents' => null,
             ]);
         }
 
@@ -170,6 +174,8 @@ class DoctorProfileController extends Controller
 
         return response()->json([
             'status' => $doctorInfo->document_status ?? 'not_uploaded',
+            'national_code' => $doctorInfo->national_code ?? null,
+            'medical_code' => $doctorInfo->medical_code ?? null,
             'rejection_reason' => $doctorInfo->document_rejection_reason ?? null,
             'documents' => [
                 'national_card' => [
@@ -197,6 +203,7 @@ class DoctorProfileController extends Controller
         ]);
     }
 
+
     /**
      * آپلود مدارک و قرار دادن وضعیت در حالت 'pending'
      */
@@ -204,34 +211,75 @@ class DoctorProfileController extends Controller
     {
         $user = $request->user();
 
+        // پاکسازی و تبدیل اعداد فارسی/عربی به انگلیسی در صورت نیاز
+        $cleanInput = function ($str) {
+            if (!$str) return $str;
+            $persian = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+            $arabic  = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+            $num     = range(0, 9);
+            return trim(str_replace($arabic, $num, str_replace($persian, $num, (string)$str)));
+        };
+
+        $request->merge([
+            'national_code' => $cleanInput($request->input('national_code')),
+            'medical_code'  => $cleanInput($request->input('medical_code')),
+        ]);
+
+        // دریافت آیدی رکورد فعلی doctor_info برای استثنا کردن در اعتبارسنجی unique
+        $existingDoctor = DB::table('doctor_info')->where('user_id', $user->id)->first();
+        $doctorId = $existingDoctor ? $existingDoctor->id : null;
+
         $request->validate([
-            'national_card_image' => 'required|file|mimes:jpeg,png,jpg,pdf|max:5120',
-            'medical_council_card_image' => 'required|file|mimes:jpeg,png,jpg,pdf|max:5120',
-            'clinic_license_image' => 'required|file|mimes:jpeg,png,jpg,pdf|max:5120',
+            'national_code' => [
+                'required',
+                'string',
+                'digits:10', // اعتبارسنجی ۱۰ رقمی بودن کد ملی
+                Rule::unique('doctor_info', 'national_code')->ignore($doctorId),
+            ],
+            'medical_code' => [
+                'required',
+                'string',
+                'max:20',
+                Rule::unique('doctor_info', 'medical_code')->ignore($doctorId),
+            ],
+            'national_card_image'        => 'required|file|mimes:jpeg,png,jpg,pdf|max:10240',
+            'medical_council_card_image' => 'required|file|mimes:jpeg,png,jpg,pdf|max:10240',
+            'clinic_license_image'       => 'required|file|mimes:jpeg,png,jpg,pdf|max:10240',
+        ], [
+            'national_code.required' => 'وارد کردن کد ملی الزامی است.',
+            'national_code.digits'   => 'کد ملی باید دقیقاً ۱۰ رقم باشد.',
+            'national_code.unique'   => 'این کد ملی قبلاً در سامانه ثبت شده است.',
+            'medical_code.required'  => 'وارد کردن شماره نظام پزشکی الزامی است.',
+            'medical_code.unique'    => 'این شماره نظام پزشکی قبلاً در سامانه ثبت شده است.',
+            'national_card_image.max' => 'حجم فایل کارت ملی نباید بیشتر از ۱۰ مگابایت باشد.',
+            'medical_council_card_image.max' => 'حجم فایل کارت نظام پزشکی نباید بیشتر از ۱۰ مگابایت باشد.',
+            'clinic_license_image.max' => 'حجم فایل پروانه مطب نباید بیشتر از ۱۰ مگابایت باشد.',
         ]);
 
         $folder = "doctor_documents/{$user->id}";
 
-        $nationalCardPath = $request->file('national_card_image')->store($folder, 'local');
+        $nationalCardPath   = $request->file('national_card_image')->store($folder, 'local');
         $medicalCouncilPath = $request->file('medical_council_card_image')->store($folder, 'local');
-        $clinicLicensePath = $request->file('clinic_license_image')->store($folder, 'local');
+        $clinicLicensePath  = $request->file('clinic_license_image')->store($folder, 'local');
 
         DB::table('doctor_info')->updateOrInsert(
             ['user_id' => $user->id],
             [
-                'national_card_image' => $nationalCardPath,
+                'national_code'              => $request->input('national_code'),
+                'medical_code'               => $request->input('medical_code'),
+                'national_card_image'        => $nationalCardPath,
                 'medical_council_card_image' => $medicalCouncilPath,
-                'clinic_license_image' => $clinicLicensePath,
-                'has_uploaded_documents' => 1,
-                'document_status' => 'pending', // ارسال برای تایید ادمین
-                'document_rejection_reason' => null,
-                'updated_at' => now(),
+                'clinic_license_image'       => $clinicLicensePath,
+                'has_uploaded_documents'     => 1,
+                'document_status'            => 'pending',
+                'document_rejection_reason'  => null,
+                'updated_at'                 => now(),
             ]
         );
 
         return response()->json([
-            'status' => 200,
-            'message' => 'مدارک با موفقیت بارگذاری شد و در انتظار بررسی ادمین قرار گرفت.',
+            'status'          => 200,
+            'message'         => 'مدارک و اطلاعات هویتی با موفقیت بارگذاری شد و در انتظار بررسی ادمین قرار گرفت.',
             'document_status' => 'pending'
         ]);
     }
