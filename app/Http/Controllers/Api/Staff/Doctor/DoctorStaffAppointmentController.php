@@ -336,7 +336,7 @@ class DoctorStaffAppointmentController extends Controller
         }
 
         // تعرفه زیرساخت رزرو نوبت حضوری توسط منشی (به ریال)
-        $infrastructureFee = 200000;
+        $infrastructureFee = 250000;
         $now = now();
         $secretaryIp = $request->ip();
         $userAgent = $request->userAgent();
@@ -431,6 +431,7 @@ class DoctorStaffAppointmentController extends Controller
                 ->update([
                     'patient_id' => $patientId,
                     'status'     => 'booked',
+                    'pay_type'=>1,//doctor_wallet
                     'source'     => 'secretary',
                     'updated_at' => $now,
                 ]);
