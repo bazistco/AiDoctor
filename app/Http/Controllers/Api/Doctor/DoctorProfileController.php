@@ -65,58 +65,62 @@ class DoctorProfileController extends Controller
     {
         $userId = $request->user()->id;
 
-        // اعتبارسنجی داده‌های ورودی (اضافه شدن avatar)
         $validated = $request->validate([
             'name' => 'nullable|string|max:255',
             'email' => 'nullable|email|max:255',
             'gender' => 'nullable|in:0,1',
-            'province_id' => 'nullable|integer|exists:provinces,id',
-            'city_id'     => 'nullable|integer|exists:cities,id',
             'bio' => 'nullable|string',
             'address' => 'nullable|string',
+            'phone' => 'nullable|string|max:20',
             'office_phone' => 'nullable|string|max:20',
-            'visit_price' => 'nullable|numeric',
-            'phone_consultation_price' => 'nullable|numeric',
-            'video_consultation_price' => 'nullable|numeric',
-            'medical_code' => 'nullable|string|max:50',
+            'visit_price' => 'nullable|numeric|min:0',
+            'phone_consultation_price' => 'nullable|numeric|min:0',
+            'video_consultation_price' => 'nullable|numeric|min:0',
+            'is_text_consultation_enabled' => 'nullable|in:0,1,true,false',
+            'text_consultation_price' => 'nullable|numeric|min:0',
             'experience' => 'nullable|integer',
-            'avatar' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:4096', // حداکثر 4 مگابایت
+            'avatar' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:4096',
         ]);
 
         try {
             DB::beginTransaction();
 
-            // آپدیت جدول users
+            // 1. آپدیت جدول users
             $userData = [];
             if ($request->has('name')) $userData['name'] = $validated['name'];
             if ($request->has('email')) $userData['email'] = $validated['email'];
+            if ($request->has('phone')) $userData['phone'] = $validated['phone'];
             if ($request->has('gender')) $userData['gender'] = $validated['gender'];
-            if ($request->has('province_id')) $userData['province_id'] = $validated['province_id'];
-            if ($request->has('city_id')) $userData['city_id'] = $validated['city_id'];
 
             if (!empty($userData)) {
                 DB::table('users')->where('id', $userId)->update($userData);
             }
 
-            // آپدیت جدول doctor_info
+            // 2. آپدیت جدول doctor_info
             $doctorData = [];
             if ($request->has('name')) $doctorData['name'] = $validated['name'];
             if ($request->has('bio')) $doctorData['bio'] = $validated['bio'];
             if ($request->has('address')) $doctorData['address'] = $validated['address'];
             if ($request->has('office_phone')) $doctorData['phone'] = $validated['office_phone'];
-            if ($request->has('visit_price')) $doctorData['visit_price'] = $validated['visit_price'];
-            if ($request->has('phone_consultation_price')) $doctorData['phone_consultation_price'] = $validated['phone_consultation_price'];
-            if ($request->has('video_consultation_price')) $doctorData['video_consultation_price'] = $validated['video_consultation_price'];
-            if ($request->has('medical_code')) $doctorData['medical_code'] = $validated['medical_code'];
+            if ($request->has('visit_price')) $doctorData['visit_price'] = $validated['visit_price']*10;
+            if ($request->has('phone_consultation_price')) $doctorData['phone_consultation_price'] = $validated['phone_consultation_price']*10;
+            if ($request->has('video_consultation_price')) $doctorData['video_consultation_price'] = $validated['video_consultation_price']*10;
             if ($request->has('experience')) $doctorData['experience'] = $validated['experience'];
 
-            // هندل کردن آپلود عکس
-            if ($request->hasFile('avatar')) {
-                // آپلود در پوشه storage/app/public/avatars
-                $path = $request->file('avatar')->store('avatars', 'public');
+            // وضعیت و تعرفه مشاوره متنی
+            if ($request->has('is_text_consultation_enabled')) {
+                $isEnabled = filter_var($request->input('is_text_consultation_enabled'), FILTER_VALIDATE_BOOLEAN);
+                $doctorData['is_text_consultation_enabled'] = $isEnabled ? 1 : 0;
 
-                // در اینجا فرض شده ستون عکس در دیتابیس image_url است
-                // اگر نام ستون در دیتابیس شما چیز دیگریست (مثل image یا avatar) آن را تغییر دهید
+                // در صورت غیرفعال بودن، قیمت متنی ریست یا مقدار دریافتی درج می‌شود
+                $doctorData['text_consultation_price'] = $isEnabled
+                    ? ($validated['text_consultation_price'] ?? 0)
+                    : 0;
+            }
+
+            // هندل کردن آپلود تصویر
+            if ($request->hasFile('avatar')) {
+                $path = $request->file('avatar')->store('avatars', 'public');
                 $doctorData['image_url'] = $path;
             }
 
@@ -129,7 +133,6 @@ class DoctorProfileController extends Controller
             return response()->json([
                 'status' => 200,
                 'message' => 'پروفایل با موفقیت بروزرسانی شد.',
-                // لینک عکس آپلود شده برای آپدیت درجا در فرانت در صورت نیاز
                 'avatar_url' => isset($path) ? asset('storage/' . $path) : null
             ]);
 
@@ -421,6 +424,8 @@ class DoctorProfileController extends Controller
                 'doctor_info.has_uploaded_documents',
                 'doctor_info.phone_consultation_price',
                 'doctor_info.video_consultation_price',
+                'doctor_info.is_text_consultation_enabled',
+                'doctor_info.text_consultation_price',
                 'specialties.name as specialty_name'
             )
             ->first();
@@ -428,11 +433,9 @@ class DoctorProfileController extends Controller
         if (!$profile) {
             return response()->json(['message' => 'پروفایل یافت نشد.'], 404);
         }
-        if ($profile) {
-            // تبدیل مسیر نسبی دیتابیس به لینک کامل (URL)
-            if (!empty($profile->image_url)) {
-                $profile->image_url = asset('storage/' . $profile->image_url);
-            }
+
+        if (!empty($profile->image_url)) {
+            $profile->image_url = asset('storage/' . $profile->image_url);
         }
 
         return response()->json([
@@ -450,7 +453,11 @@ class DoctorProfileController extends Controller
                 'status' => $profile->status,
                 'bio' => $profile->bio,
                 'specialty' => $profile->specialty_name,
-                'visit_price' => (int) $profile->visit_price,
+                'visit_price' => (int) $profile->visit_price/10,
+                'phone_consultation_price' => (int) $profile->phone_consultation_price/10,
+                'video_consultation_price' => (int) $profile->video_consultation_price/10,
+                'is_text_consultation_enabled' => (bool) ($profile->is_text_consultation_enabled ?? false),
+                'text_consultation_price' => (int) ($profile->text_consultation_price/10 ?? 0),
                 'experience' => $profile->experience,
                 'address' => $profile->address,
                 'province_id' => $profile->province_id,
@@ -463,11 +470,9 @@ class DoctorProfileController extends Controller
                 'rank' => $profile->rank,
                 'reviews' => (int) $profile->reviews,
                 'recommendation' => (int) $profile->recommendation,
-                'phone_consultation_price'=>(int) $profile->phone_consultation_price,
-                'video_consultation_price'=>(int) $profile->video_consultation_price,
-                'has_paid_subscription'=> (int) $profile->has_paid_subscription,
-                'has_uploaded_documents'=> (int)$profile->has_uploaded_documents,
-         'document_status' =>$profile-> document_status,
+                'has_paid_subscription' => (int) $profile->has_paid_subscription,
+                'has_uploaded_documents' => (int) $profile->has_uploaded_documents,
+                'document_status' => $profile->document_status,
             ]
         ]);
     }
