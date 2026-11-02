@@ -136,12 +136,12 @@ class UserController extends Controller
             'document_rejection_reason' => 'sometimes|nullable|string',
             'is_national_code_verified' => 'sometimes|boolean',
             'national_code'             => 'sometimes|nullable|string',
-            'province'             => 'sometimes|exists:provinces,name',
-            'city'             => 'sometimes|exists:cities,id',
+            'province_id'             => 'sometimes|exists:provinces,name',
+            'city_id'             => 'sometimes|exists:cities,id',
         ]);
 
         // ۱. آپدیت جدول Users
-        $userData = collect($data)->only(['name', 'email', 'phone', 'role', 'gender', 'is_verify', 'status' ,'city','province'])->toArray();
+        $userData = collect($data)->only(['name', 'email', 'phone', 'role', 'gender', 'is_verify', 'status' ,'city_id','province_id'])->toArray();
         if (!empty($userData)) {
             DB::table('users')->where('id', $id)->update(array_merge($userData, ['updated_at' => now()]));
         }
