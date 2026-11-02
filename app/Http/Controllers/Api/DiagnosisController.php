@@ -1188,12 +1188,12 @@ class DiagnosisController extends Controller
         }
         if (!empty($provinceId) && $provinceId !== 'all') {
             // اگر ستون province_id است: 'doctor_info.province_id'
-            $query->where('doctor_info.province_id', $provinceId);
+            $query->where('users.province_id', $provinceId);
         }
 
         if (!empty($cityId) && $cityId !== 'all') {
             // اگر ستون city_id است: 'doctor_info.city_id'
-            $query->where('doctor_info.city_id', $cityId);
+            $query->where('users.city_id', $cityId);
         }
         $query
             ->where('users.role', 'doctor')
