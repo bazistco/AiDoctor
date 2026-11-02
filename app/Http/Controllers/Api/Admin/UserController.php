@@ -22,7 +22,7 @@ class UserController extends Controller
                 'u.id', 'u.name', 'u.email', 'u.phone',
                 'u.role', 'u.status', 'u.is_verify', 'u.avatar',
                 'u.created_at', 'u.updated_at',
-                'c.name as city', 'p.name as province',
+                'c.id as city', 'p.id as province',
                 // فیلدهای مربوط به پزشک
                 'di.document_status', 'di.document_rejection_reason',
                 'di.national_code', 'di.is_national_code_verified',
