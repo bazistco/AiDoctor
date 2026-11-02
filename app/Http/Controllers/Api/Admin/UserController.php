@@ -136,7 +136,7 @@ class UserController extends Controller
             'document_rejection_reason' => 'sometimes|nullable|string',
             'is_national_code_verified' => 'sometimes|boolean',
             'national_code'             => 'sometimes|nullable|string',
-            'province_id'             => 'sometimes|exists:provinces,name',
+            'province_id'             => 'sometimes|exists:provinces,id',
             'city_id'             => 'sometimes|exists:cities,id',
         ]);
 
