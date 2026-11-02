@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class UserOrderController extends Controller
 {
@@ -277,7 +278,6 @@ class UserOrderController extends Controller
     public function cancelExpiredPendingOrders()
     {
         $thresholdTime = Carbon::now()->subMinutes(30);
-
         $results = [
             'pharmacy' => 0,
             'lab'      => 0,
@@ -286,10 +286,11 @@ class UserOrderController extends Controller
         ];
 
         DB::transaction(function () use ($thresholdTime, &$results) {
+            $service_time = 60;
             // ۱. آزمایشگاه: وضعیت ۱ (در انتظار پرداخت) -> تغییر به ۶ (لغو شده)
             $expiredLabIds = DB::table('users_labs_requests')
-                ->where('status', 1)
-                ->where('created_at', '<=', $thresholdTime)
+                ->whereIn('status', [0,1])
+                ->where('created_at', '<=', $service_time)
                 ->pluck('id')
                 ->toArray();
 
@@ -315,7 +316,7 @@ class UserOrderController extends Controller
             // ۲. داروخانه: وضعیت ۱ (در انتظار پرداخت) -> تغییر به ۷ (لغو شده)
             $expiredPharmacyIds = DB::table('users_pharmacy_requests')
                 ->whereIn('status', [0,1])
-                ->where('created_at', '<=', $thresholdTime)
+                ->where('created_at', '<=', $service_time)
                 ->pluck('id')
                 ->toArray();
 
@@ -341,7 +342,7 @@ class UserOrderController extends Controller
             // ۳. مراکز درمانی / پرستاری: وضعیت ۰ (در انتظار پرداخت) -> تغییر به ۵ (لغو شده)
             $expiredNurseIds = DB::table('user_medical_center_requests')
                 ->where('status', 0)
-                ->where('created_at', '<=', $thresholdTime)
+                ->where('created_at', '<=', $service_time)
                 ->pluck('id')
                 ->toArray();
 
