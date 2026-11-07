@@ -11,37 +11,62 @@ class FinnotechService
 {
     protected static string $clientId = 'medira';
     protected static string $clientSecret = '2BgcjAkbvwCR9is8qWyY';
-    // در صورت استفاده از پروداکشن از api.finnotech.ir استفاده کنید:
+    protected static string $nid = '0922521700';
     protected static string $baseUrl = 'https://api.finnotech.ir';
 
     /**
-     * دریافت توکن دسترسی فینوتک با کش هوشمند
+     * کلید کش توکن
      */
-    public static function token(): ?string
+    protected static function getCacheKey(): string
     {
-        // کش کردن توکن به مدت زمان اعتبار آن (پیش‌فرض ۴ ساعت منهای چند دقیقه حاشیه امنیت)
-        return Cache::remember('finnotech_token_' . static::$clientId, 14000, function () {
-            try {
-                $response = Http::withBasicAuth(static::$clientId, static::$clientSecret)
-                    ->asJson()
-                    ->post(static::$baseUrl . '/dev/v2/oauth2/token', [
-                        'grant_type' => 'client_credentials',
-                        'nid'        => '0922521700', // در صورت نیاز فینوتک به NID سازمان/حقیقی
-                        'scopes'     => 'facility:shahkar:get',
-                    ]);
+        return 'finnotech_token_' . static::$clientId;
+    }
 
-                if ($response->successful()) {
-                    $data = $response->json();
-                    return $data['result']['value'] ?? null;
+    /**
+     * دریافت توکن دسترسی فینوتک با مدیریت هوشمند کش و زمان انقضا
+     */
+    public static function token(bool $forceRefresh = false): ?string
+    {
+        $cacheKey = static::getCacheKey();
+
+        if ($forceRefresh) {
+            Cache::forget($cacheKey);
+        }
+
+        if (Cache::has($cacheKey)) {
+            return Cache::get($cacheKey);
+        }
+
+        try {
+            $response = Http::withBasicAuth(static::$clientId, static::$clientSecret)
+                ->asJson()
+                ->timeout(15)
+                ->post(static::$baseUrl . '/dev/v2/oauth2/token', [
+                    'grant_type' => 'client_credentials',
+                    'nid'        => static::$nid,
+                    'scopes'     => 'facility:shahkar:get',
+                ]);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                $token = $data['result']['value'] ?? null;
+
+                if ($token) {
+                    // فینوتک lifeTime را به میلی‌ثانیه برمی‌گرداند (در صورت نبودن، پیش‌فرض 3 ساعت)
+                    $lifeTimeMs = $data['result']['lifeTime'] ?? 10800000;
+                    $ttlSeconds = max((int) ($lifeTimeMs / 1000) - 300, 60); // ۵ دقیقه حاشیه امنیت
+
+                    Cache::put($cacheKey, $token, $ttlSeconds);
+                    return $token;
                 }
-
-                Log::error('خطا در دریافت توکن فینوتک: ' . $response->body());
-                return null;
-            } catch (\Exception $e) {
-                Log::error('استثنا در توکن فینوتک: ' . $e->getMessage());
-                return null;
             }
-        });
+
+            Log::error('خطا در دریافت توکن فینوتک: ' . $response->body());
+            return null;
+        } catch (\Exception $e) {
+            Log::error('استثنا در دریافت توکن فینوتک: ' . $e->getMessage());
+            return null;
+        }
     }
 
     /**
@@ -49,15 +74,14 @@ class FinnotechService
      *
      * @param string $mobile شماره موبایل (مثال: 09123456789)
      * @param string $nationalCode کد ملی ۱۰ رقمی
-     * @return array ['success' => bool, 'isValid' => bool, 'message' => string, 'data' => mixed]
+     * @param bool $isRetry آیا درخواست در حال تلاش مجدد پس از رفرش توکن است؟
+     * @return array
      */
-    public static function verifyShahkar(string $mobile, string $nationalCode): array
+    public static function verifyShahkar(string $mobile, string $nationalCode, bool $isRetry = false): array
     {
-        $token = static::token();
+        $token = static::token($isRetry);
 
         if (!$token) {
-            // یک بار پاک‌سازی کش در صورت نامعتبر بودن توکن
-            Cache::forget('finnotech_token_' . static::$clientId);
             return [
                 'success' => false,
                 'isValid' => false,
@@ -65,7 +89,6 @@ class FinnotechService
             ];
         }
 
-        // تمیزسازی ورودی‌ها
         $mobile = trim($mobile);
         $nationalCode = trim($nationalCode);
         $trackId = (string) Str::uuid();
@@ -79,6 +102,7 @@ class FinnotechService
 
             $response = Http::withToken($token)
                 ->acceptJson()
+                ->timeout(15)
                 ->get($endpoint, [
                     'mobile'       => $mobile,
                     'nationalCode' => $nationalCode,
@@ -87,12 +111,33 @@ class FinnotechService
 
             $json = $response->json();
 
-            // در صورت منقضی شدن توکن (کد 401)، کش حذف شده و یک بار دیگر مجدد تلاش می‌شود
-            if ($response->status() === 401) {
-                Cache::forget('finnotech_token_' . static::$clientId);
+            // بررسی خطای انقضای توکن (فینوتک برای انقضا گاهی 403 و کد UNAUTHORIZED برمی‌گرداند)
+            $errorCode = $json['error']['code'] ?? '';
+            $errorMessage = $json['error']['message'] ?? '';
+
+            $isTokenExpired = in_array($response->status(), [401, 403])
+                && ($errorCode === 'UNAUTHORIZED' || str_contains(strtolower($errorMessage), 'expiration'));
+
+            if ($isTokenExpired) {
+                Cache::forget(static::getCacheKey());
+
+                // یک بار تلاش مجدد خودکار با توکن جدید
+                if (!$isRetry) {
+                    Log::info('توکن فینوتک منقضی شده بود؛ در حال دریافت توکن جدید و تلاش مجدد...');
+                    return static::verifyShahkar($mobile, $nationalCode, true);
+                }
+
+                // اگر بعد از دریافت توکن جدید باز هم خطای انقضا داد، یعنی قرارداد اسکوپ در پنل فینوتک منقضی شده است
+                Log::critical('تاریخ اعتبار دسترسی (Scope) شاهکار در پنل فینوتک به پایان رسیده است: ' . json_encode($json, JSON_UNESCAPED_UNICODE));
+                return [
+                    'success'  => false,
+                    'isValid'  => false,
+                    'message'  => 'اعتبار سرویس استعلام در پنل فینوتک به پایان رسیده است.',
+                    'response' => $json
+                ];
             }
 
-            if ($response->successful() && isset($json['status']) && $json['status'] === 'DONE') {
+            if ($response->successful() && ($json['status'] ?? '') === 'DONE') {
                 $isValid = (bool) ($json['result']['isValid'] ?? false);
 
                 return [
@@ -104,14 +149,14 @@ class FinnotechService
                 ];
             }
 
-            // در صورت بروز خطا در پاسخ وب‌سرویس
-            $errorMessage = $json['error']['message'] ?? 'خطا در استعلام از سامانه شاهکار';
+            // سایر خطاهای وب‌سرویس (مانند فرمت نامعتبر کد ملی یا قطعی شاهکار)
+            $userMessage = $json['error']['message'] ?? 'خطا در استعلام از سامانه شاهکار';
             Log::warning('خطای سامانه شاهکار فینوتک: ' . json_encode($json, JSON_UNESCAPED_UNICODE));
 
             return [
-                'success' => false,
-                'isValid' => false,
-                'message' => $errorMessage,
+                'success'  => false,
+                'isValid'  => false,
+                'message'  => $userMessage,
                 'response' => $json
             ];
 
