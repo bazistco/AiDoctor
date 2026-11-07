@@ -172,10 +172,10 @@ class DoctorAuthController extends Controller
 
             // ۱. استعلام شاهکار
             $shahkarResult = FinnotechService::verifyShahkar($phone, $request->national_code);
-            if (empty($shahkarResult['success']) || empty($shahkarResult['isValid'])) {
+            if (false ||empty($shahkarResult['success']) || empty($shahkarResult['isValid'])) {
                 return response()->json([
                     'success' => false,
-                    'message' => $shahkarResult['message'] ?? 'عدم انطباق شماره موبایل و کد ملی در سامانه شاهکار.',
+                    'message' =>  'عدم انطباق شماره موبایل و کد ملی در سامانه شاهکار.',
                 ], 400);
             }
 
