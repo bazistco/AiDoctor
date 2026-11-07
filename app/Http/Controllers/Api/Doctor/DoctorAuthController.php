@@ -62,7 +62,7 @@ class DoctorAuthController extends Controller
 
         // بررسی Rate Limit در Redis
         $redisKey = "otp:rate_limit:doctor:{$phone}";
-        $ttlSeconds = 120; // 2 دقیقه
+        $ttlSeconds = 180; // 3 دقیقه
 
         $lockAcquired = Redis::set($redisKey, 1, 'EX', $ttlSeconds, 'NX');
 
