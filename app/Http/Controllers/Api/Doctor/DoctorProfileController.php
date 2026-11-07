@@ -234,13 +234,13 @@ class DoctorProfileController extends Controller
                 'required',
                 'string',
                 'digits:10', // اعتبارسنجی ۱۰ رقمی بودن کد ملی
-                Rule::unique('doctor_info', 'national_code')->ignore($doctorId),
+//                Rule::unique('doctor_info', 'national_code')->ignore($doctorId),
             ],
             'medical_code' => [
                 'required',
                 'string',
                 'max:20',
-                Rule::unique('doctor_info', 'medical_code')->ignore($doctorId),
+//                Rule::unique('doctor_info', 'medical_code')->ignore($doctorId),
             ],
             'national_card_image'        => 'required|file|mimes:jpeg,png,jpg,pdf|max:10240',
             'medical_council_card_image' => 'required|file|mimes:jpeg,png,jpg,pdf|max:10240',
