@@ -199,8 +199,10 @@ class DoctorAuthController extends Controller
 
                 // ایجاد کاربر
                 $userId = DB::table('users')->insertGetId([
+
                     'name'        => $fullName,
                     'phone'       => $phone,
+                    'national_code'=> $request->national_code,
                     'password'    => Hash::make($phone), // پسورد پیش‌فرض
                     'role'        => 'doctor',
                     'status'      => 1,
