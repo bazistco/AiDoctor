@@ -203,7 +203,7 @@ class DoctorAuthController extends Controller
                     'phone'       => $phone,
                     'password'    => Hash::make($phone), // پسورد پیش‌فرض
                     'role'        => 'doctor',
-                    'status'      => 0,
+                    'status'      => 1,
                     'is_verify'   => 0, // تایید موبایل انجام شده
                     'province_id' => $province->id,
                     'city_id'     => $city->id,
