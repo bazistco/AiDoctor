@@ -278,7 +278,9 @@ Route::middleware(['auth:sanctum', 'user.active'])->prefix('user/medical')->grou
 });
 Route::group(['prefix' => 'doctor'], function () {
 
-    Route::post('/login', [\App\Http\Controllers\Api\Doctor\DoctorAuthController::class, 'login'])->middleware('throttle:3,1');
+//    Route::post('/login', [\App\Http\Controllers\Api\Doctor\DoctorAuthController::class, 'login'])->middleware('throttle:3,1');
+    Route::post('/login/check-mobile', [\App\Http\Controllers\Api\Doctor\DoctorAuthController::class, 'checkMobile'])->middleware('throttle:5,1');
+    Route::post('/login/verify', [\App\Http\Controllers\Api\Doctor\DoctorAuthController::class, 'verifyAndLogin'])->middleware('throttle:5,1');
 
     Route::middleware(['auth:sanctum', 'user.active', 'role:doctor'])->group(function () {
         Route::post('secretaries', [DoctorSecretaryController::class, 'store']);
