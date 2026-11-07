@@ -156,6 +156,27 @@ class UserController extends Controller
 
         if (!empty($doctorData)) {
             DB::table('doctor_info')->where('user_id', $id)->update(array_merge($doctorData, ['updated_at' => now()]));
+
+            // ارسال پیامک در صورت تایید مدارک
+            if (isset($doctorData['document_status']) && $doctorData['document_status'] === 'approved' && isset($doctorData['is_national_code_verified']) && $doctorData['is_national_code_verified'] === 1) {
+                try {
+                    // دریافت شماره موبایل کاربر
+                    $userPhone = DB::table('users')->where('id', $id)->value('phone');
+
+                    if ($userPhone) {
+                        // کلید API را از تنظیمات (config) یا env فراخوانی کنید
+                        $apiKey = config('services.kavenegar.key');
+                        $api = new KavenegarApi($apiKey);
+
+                        // ارسال پیامک با استفاده از قالب (VerifyLookup)
+                        // نام قالب (template) را از پنل کاوه نگار جایگزین کنید
+                        $api->VerifyLookup($userPhone,"", "", "", 'doc_document_approve', 'sms');
+                    }
+                } catch (\Exception $e) {
+                    // لاگ کردن خطا در صورت عدم ارسال پیامک برای جلوگیری از اختلال در روند اصلی
+                    \Log::error("Error sending approval SMS to doctor $id: " . $e->getMessage());
+                }
+            }
         }
 
         return response()->json(['success' => true, 'data' => $this->formatUser($this->baseQuery()->where('u.id', $id)->first())]);
