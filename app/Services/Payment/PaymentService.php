@@ -813,51 +813,76 @@ class PaymentService
      */
     public function refund(int $paymentId, ?string $reason = null): bool
     {
-        return DB::transaction(function () use ($paymentId, $reason): bool {
-            $payment = DB::table('payments')
-                ->where('id', $paymentId)
-                ->where('status', self::PAY_PAID)
-                ->lockForUpdate()
-                ->first();
+        // 1. بررسی و قفل پرداخت و سفارش قبل از عملیات وب‌سرویس
+        $payment = DB::table('payments')
+            ->where('id', $paymentId)
+            ->where('status', self::PAY_PAID)
+            ->first();
 
-            if (! $payment) {
-                throw new RuntimeException("پرداخت #{$paymentId} قابل استرداد نیست.");
-            }
+        if (! $payment) {
+            throw new RuntimeException("پرداخت #{$paymentId} معتبر نبوده یا قبلاً مسترد شده است.");
+        }
 
-            if (empty($payment->rrn)) {
-                throw new RuntimeException("RRN برای پرداخت #{$paymentId} موجود نیست.");
-            }
+        if (empty($payment->rrn)) {
+            throw new RuntimeException("کد مرجع (RRN) برای پرداخت #{$paymentId} یافت نشد.");
+        }
 
-            $this->gateway->reverse(
+        // دریافت اطلاعات سفارش جهت استخراج provider_id و reason
+        $order = DB::table('orders')->where('id', $payment->order_id)->first();
+        if (! $order) {
+            throw new RuntimeException("سفارش مربوط به پرداخت #{$paymentId} یافت نشد.");
+        }
+
+        // 2. صدا زدن Reverse درگاه (خارج از قفل‌های سنگین DB جهت جلوگیری از Connection Pool Lock)
+        try {
+            $gatewayResult = $this->gateway->reverse(
                 refNum: (string) $payment->ref_num,
                 rrn:    (string) $payment->rrn,
                 amount: (int)    $payment->amount,
             );
+        } catch (\Throwable $e) {
+            Log::error("Gateway reverse failed for Payment #{$paymentId}: " . $e->getMessage());
+            throw new RuntimeException("خطا در انجام استرداد توسط درگاه پرداخت: " . $e->getMessage());
+        }
 
+        // 3. اعمال تغییرات درون Transaction یکپارچه
+        return DB::transaction(function () use ($payment, $order, $paymentId, $reason, $gatewayResult): bool {
+
+            // به‌روزرسانی پرداخت به وضعیت REFUNDED
             DB::table('payments')->where('id', $paymentId)->update([
                 'status'     => self::PAY_REFUNDED,
                 'updated_at' => now(),
             ]);
 
+            // انتقال وضعیت سفارش با ماشین وضعیت رسمی OrderService
             $this->orderService->transition(
-                (int) $payment->order_id,
-                OrderService::STATUS_REFUNDED
-            );
-
-            $this->financialService->refundPayment(
                 orderId: (int) $payment->order_id,
-                reason:  $reason,
+                toStatus: OrderService::STATUS_REFUNDED
             );
 
+            // اعمال عملیات مالی جانبی (کسر از پزشک + کنسل کردن اسلات نوبت)
+            $this->financialService->applyRefundSideEffects(
+                orderId:            (int) $payment->order_id,
+                userId:             (int) $payment->user_id,
+                amount:             (int) $payment->amount,
+                reasonId:           (int) $order->reason_id,
+                reasonRef:          (int) $order->reason_ref,
+                providerId:         $order->provider_id ? (int) $order->provider_id : null,
+                refundToUserWallet: false, // چون پول به حساب شتاب ریورس شده است
+                reason:             $reason
+            );
+
+            // ثبت لاگ درگاه
             $this->logGateway($paymentId, 'reverse', [
                 'ref_num' => $payment->ref_num,
                 'rrn'     => $payment->rrn,
                 'reason'  => $reason,
-            ], ['result' => 'reversed']);
+            ], ['result' => $gatewayResult ?? 'reversed']);
 
             return true;
         });
     }
+
 
     // ─── متدهای کمکی ───────────────────────────────────────────────
 
