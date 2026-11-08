@@ -176,7 +176,7 @@ class DoctorAuthController extends Controller
                 if (false ||empty($shahkarResult['success']) || empty($shahkarResult['isValid'])) {
                 return response()->json([
                     'success' => false,
-                    'message' =>  'عدم انطباق شماره موبایل و کد ملی در سامانه شاهکار.',
+                    'message' =>  'عدم انطباق شماره موبایل و کد ملی',
                 ], 400);
             }
 
