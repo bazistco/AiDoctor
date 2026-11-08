@@ -39,7 +39,7 @@ class AppointmentController
                 'status'           => true,
                 'code'             => 200,
                 'message'          => 'نرخ ویزیت با موفقیت بروزرسانی شد.',
-                'visit_price_rial' => $priceInRials,
+                'visit_price_rial' => $priceInRials/10,
                 'visit_price_toman'=> (int) $validated['visit_price'],
             ]);
 
