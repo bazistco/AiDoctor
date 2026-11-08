@@ -156,7 +156,7 @@ class DoctorAuthController extends Controller
         }
 
         // بررسی انقضای کد (۲ دقیقه)
-        $expiresAt = Carbon::parse($otpRecord->created_at)->addMinutes(2);
+        $expiresAt = Carbon::parse($otpRecord->created_at)->addMinutes(5);
         if (Carbon::now()->greaterThan($expiresAt)) {
             DB::table('otp_codes')->where('id', $otpRecord->id)->delete();
             return response()->json([
@@ -172,9 +172,8 @@ class DoctorAuthController extends Controller
 
             // ۱. استعلام شاهکار
             $shahkarResult = FinnotechService::verifyShahkar($phone, $request->national_code);
-            if (false ) {
 
-//                if (false ||empty($shahkarResult['success']) || empty($shahkarResult['isValid'])) {
+                if (false ||empty($shahkarResult['success']) || empty($shahkarResult['isValid'])) {
                 return response()->json([
                     'success' => false,
                     'message' =>  'عدم انطباق شماره موبایل و کد ملی در سامانه شاهکار.',
