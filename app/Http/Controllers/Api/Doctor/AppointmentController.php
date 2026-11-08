@@ -11,6 +11,49 @@ use Illuminate\Support\Facades\Redis;
 
 class AppointmentController
 {
+    // متد داخل کنترلر:
+    public function updateVisitPrice(Request $request)
+    {
+        $userId = $request->user()->id;
+
+        $validated = $request->validate([
+            'visit_price' => 'required|numeric|min:0', // ورودی به تومان
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            // تبدیل تومان به ریال برای ذخیره در دیتابیس
+            $priceInRials = (int) round($validated['visit_price'] * 10);
+
+            DB::table('doctor_info')
+                ->where('user_id', $userId)
+                ->update([
+                    'visit_price' => $priceInRials,
+                    'updated_at'  => now(),
+                ]);
+
+            DB::commit();
+
+            return response()->json([
+                'status'           => true,
+                'code'             => 200,
+                'message'          => 'نرخ ویزیت با موفقیت بروزرسانی شد.',
+                'visit_price_rial' => $priceInRials,
+                'visit_price_toman'=> (int) $validated['visit_price'],
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status'  => false,
+                'code'    => 500,
+                'message' => 'خطا در بروزرسانی نرخ ویزیت.',
+                'error'   => $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function getCalendarSummary(Request $request): JsonResponse
     {
         $doctorInfoId = $this->getDoctorUserId($request);
