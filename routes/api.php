@@ -296,7 +296,7 @@ Route::group(['prefix' => 'doctor'], function () {
     Route::post('/login/verify', [\App\Http\Controllers\Api\Doctor\DoctorAuthController::class, 'verifyAndLogin'])->middleware('throttle:5,1');
 
     Route::middleware(['auth:sanctum', 'user.active', 'role:doctor'])->group(function () {
-        Route::patch('/doctor/schedule/visit-price', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'updateVisitPrice']);
+        Route::patch('/schedule/visit-price', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'updateVisitPrice']);
         Route::post('secretaries', [DoctorSecretaryController::class, 'store']);
         Route::get('secretaries', [DoctorSecretaryController::class, 'index']);
         Route::patch('secretaries/{id}/toggle-status', [DoctorSecretaryController::class, 'toggleStatus']);
