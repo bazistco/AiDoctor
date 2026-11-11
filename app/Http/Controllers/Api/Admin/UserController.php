@@ -162,7 +162,6 @@ class UserController extends Controller
             // ارسال پیامک در صورت تغییر وضعیت مدارک (تایید یا رد)
             if (isset($doctorData['document_status']) && in_array($doctorData['document_status'], ['approved', 'rejected'])) {
                 try {
-                    // دریافت اطلاعات کاربر و وضعیت پزشک به صورت مستقیم و کامل از دیتابیس
                     $currentUser = DB::table('users as u')
                         ->leftJoin('doctor_info as di', 'di.user_id', '=', 'u.id')
                         ->where('u.id', $id)
@@ -173,17 +172,21 @@ class UserController extends Controller
                         $apiKey = config('services.kavenegar.key');
                         $api = new KavenegarApi($apiKey);
 
-                        // کاوه‌نگار در توکن‌ها فاصله نمی‌پذیرد؛ جایگزینی فاصله با نیم‌فاصله یا خط تیره
-                        $safeName = $currentUser->name ? str_replace(' ', '‌', trim($currentUser->name)) : 'کاربر';
+                        // تفکیک نام و نام خانوادگی بدون هیچ‌گونه فاصله، نیم‌فاصله یا سیمبل
+                        $parts = preg_split('/\s+/u', trim($currentUser->name ?? ''), -1, PREG_SPLIT_NO_EMPTY);
+                        $firstName = $parts[0] ?? 'همکار';
+
+                        array_shift($parts);
+                        $lastName = !empty($parts) ? implode('', $parts) : 'گرامی';
 
                         // ۱) حالت تایید مدارک (با شرط تایید بودن کد ملی)
                         if ($doctorData['document_status'] === 'approved' && (bool) $currentUser->is_national_code_verified) {
                             $api->VerifyLookup(
                                 $currentUser->phone,
-                                $safeName,
-                                '',
-                                '',
-                                'medira-doctor-approve', // نام پترن تایید در پنل کاوه‌نگار
+                                $firstName,
+                                $lastName,
+                                null,
+                                'medira-doctor-approve',
                                 'sms'
                             );
                         }
@@ -192,10 +195,10 @@ class UserController extends Controller
                         if ($doctorData['document_status'] === 'rejected') {
                             $api->VerifyLookup(
                                 $currentUser->phone,
-                                $safeName,
-                                '',
-                                '',
-                                'medira-doctor-deny', // نام پترن رد مدارک در پنل کاوه‌نگار (توکن ۱: نام، توکن ۲: دلیل رد)
+                                $firstName,
+                                $lastName,
+                                null,
+                                'medira-doctor-deny',
                                 'sms'
                             );
                         }
