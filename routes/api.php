@@ -41,6 +41,9 @@ Route::get('/routes-count', function () {
         'total_routes' => $routes->count(),
     ]);
 });
+Route::get('/check/ip',function (){
+    return response()->json(['ip' => request()->ip()]);
+});
 Route::prefix('marketer')->group(function () {
     Route::post('login',  [DoctorStaffAuthController::class, 'login']);
 });
