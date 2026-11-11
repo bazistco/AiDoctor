@@ -169,8 +169,7 @@ class UserController extends Controller
                         ->first();
 
                     if ($currentUser && !empty($currentUser->phone)) {
-                        $apiKey = config('services.kavenegar.key');
-                        $api = new KavenegarApi($apiKey);
+                        $api = new KavenegarApi(env('KAVENEGAR_API_KEY'));
 
                         // تفکیک نام و نام خانوادگی بدون هیچ‌گونه فاصله، نیم‌فاصله یا سیمبل
                         $parts = preg_split('/\s+/u', trim($currentUser->name ?? ''), -1, PREG_SPLIT_NO_EMPTY);
