@@ -84,8 +84,8 @@ class UserManagementController extends Controller
 
                 // شرط ۲: مدارک آپلود نشده باشد (0 یا NULL)
                 $q->where(function ($subQ) {
-                    $subQ->where('di.has_uploaded_documents', 0)
-                        ->orWhereNull('di.has_uploaded_documents');
+                    $subQ->whereIn('di.document_status', ['not_uploaded', 'pending', 'rejected'])
+                        ->orWhereNull('di.document_status');
                 });
             });
 
