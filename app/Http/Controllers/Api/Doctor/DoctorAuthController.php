@@ -283,7 +283,7 @@ class DoctorAuthController extends Controller
                 $k = new KavenegarApi(env('KAVENEGAR_API_KEY'));
                 $k->VerifyLookup($phone, $fullName, "", "", 'medira-doctor-welcome', 'sms');
             } catch (\Exception $e) {
-                Log::error("Kavenegar SMS Error for User {$id}: " . $e->getMessage());
+                Log::error("Kavenegar SMS Error for User {$fullName}: " . $e->getMessage());
 
             }
         }
