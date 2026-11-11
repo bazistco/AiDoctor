@@ -276,6 +276,15 @@ class DoctorAuthController extends Controller
         // ایجاد توکن برای پزشک
         $token = $user->createToken('doctor-token', ['doctor'])->plainTextToken;
 
+        if ($isNew)
+        {
+            try {
+                $k = new KavenegarApi(env('KAVENEGAR_API_KEY'));
+                $k->VerifyLookup($phone, $fullName, "", "", 'medira-doctor-welcome', 'sms');
+            } catch (\Exception $e) {
+
+            }
+        }
         return response()->json([
             'success' => true,
             'message' => $isNew ? 'ثبت‌نام و ورود با موفقیت انجام شد.' : 'ورود موفقیت‌آمیز بود.',

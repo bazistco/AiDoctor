@@ -6,8 +6,10 @@ use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use App\Services\FinnotechService;
+use Kavenegar\KavenegarApi;
 
 
 class UserController extends Controller
@@ -136,20 +138,20 @@ class UserController extends Controller
             'document_rejection_reason' => 'sometimes|nullable|string',
             'is_national_code_verified' => 'sometimes|boolean',
             'national_code'             => 'sometimes|nullable|string',
-            'province_id'             => 'sometimes|exists:provinces,id',
-            'city_id'             => 'sometimes|exists:cities,id',
+            'province_id'               => 'sometimes|exists:provinces,id',
+            'city_id'                   => 'sometimes|exists:cities,id',
         ]);
 
         // ۱. آپدیت جدول Users
-        $userData = collect($data)->only(['name', 'email', 'phone', 'role', 'gender', 'is_verify', 'status' ,'city_id','province_id'])->toArray();
+        $userData = collect($data)->only(['name', 'email', 'phone', 'role', 'gender', 'is_verify', 'status', 'city_id', 'province_id'])->toArray();
         if (!empty($userData)) {
             DB::table('users')->where('id', $id)->update(array_merge($userData, ['updated_at' => now()]));
         }
 
-        // ۲. آپدیت جدول Doctor Info (در صورت وجود دیتای مربوطه)
+        // ۲. آپدیت جدول Doctor Info
         $doctorData = collect($data)->only(['document_status', 'document_rejection_reason', 'is_national_code_verified', 'national_code'])->toArray();
 
-        // اگر وضعیت تایید شد، دلیل رد باید پاک شود
+        // اگر وضعیت تایید شد، دلیل رد قبلی پاک شود
         if (isset($doctorData['document_status']) && $doctorData['document_status'] === 'approved') {
             $doctorData['document_rejection_reason'] = null;
         }
@@ -157,30 +159,59 @@ class UserController extends Controller
         if (!empty($doctorData)) {
             DB::table('doctor_info')->where('user_id', $id)->update(array_merge($doctorData, ['updated_at' => now()]));
 
-            // ارسال پیامک در صورت تایید مدارک
-            if (isset($doctorData['document_status']) && $doctorData['document_status'] === 'approved' && isset($doctorData['is_national_code_verified']) && $doctorData['is_national_code_verified'] === 1) {
+            // ارسال پیامک در صورت تغییر وضعیت مدارک (تایید یا رد)
+            if (isset($doctorData['document_status']) && in_array($doctorData['document_status'], ['approved', 'rejected'])) {
                 try {
-                    // دریافت شماره موبایل کاربر
-                    $userPhone = DB::table('users')->where('id', $id)->value('phone');
+                    // دریافت اطلاعات کاربر و وضعیت پزشک به صورت مستقیم و کامل از دیتابیس
+                    $currentUser = DB::table('users as u')
+                        ->leftJoin('doctor_info as di', 'di.user_id', '=', 'u.id')
+                        ->where('u.id', $id)
+                        ->select('u.name', 'u.phone', 'di.is_national_code_verified', 'di.document_rejection_reason')
+                        ->first();
 
-                    if ($userPhone) {
-                        // کلید API را از تنظیمات (config) یا env فراخوانی کنید
+                    if ($currentUser && !empty($currentUser->phone)) {
                         $apiKey = config('services.kavenegar.key');
                         $api = new KavenegarApi($apiKey);
 
-                        // ارسال پیامک با استفاده از قالب (VerifyLookup)
-                        // نام قالب (template) را از پنل کاوه نگار جایگزین کنید
-                        $api->VerifyLookup($userPhone,"", "", "", 'doc_document_approve', 'sms');
+                        // کاوه‌نگار در توکن‌ها فاصله نمی‌پذیرد؛ جایگزینی فاصله با نیم‌فاصله یا خط تیره
+                        $safeName = $currentUser->name ? str_replace(' ', '‌', trim($currentUser->name)) : 'کاربر';
+
+                        // ۱) حالت تایید مدارک (با شرط تایید بودن کد ملی)
+                        if ($doctorData['document_status'] === 'approved' && (bool) $currentUser->is_national_code_verified) {
+                            $api->VerifyLookup(
+                                $currentUser->phone,
+                                $safeName,
+                                '',
+                                '',
+                                'medira-doctor-approve', // نام پترن تایید در پنل کاوه‌نگار
+                                'sms'
+                            );
+                        }
+
+                        // ۲) حالت رد مدارک
+                        if ($doctorData['document_status'] === 'rejected') {
+                            $api->VerifyLookup(
+                                $currentUser->phone,
+                                $safeName,
+                                '',
+                                '',
+                                'medira-doctor-deny', // نام پترن رد مدارک در پنل کاوه‌نگار (توکن ۱: نام، توکن ۲: دلیل رد)
+                                'sms'
+                            );
+                        }
                     }
                 } catch (\Exception $e) {
-                    // لاگ کردن خطا در صورت عدم ارسال پیامک برای جلوگیری از اختلال در روند اصلی
-                    \Log::error("Error sending approval SMS to doctor $id: " . $e->getMessage());
+                    Log::error("Kavenegar SMS Error for User {$id}: " . $e->getMessage());
                 }
             }
         }
 
-        return response()->json(['success' => true, 'data' => $this->formatUser($this->baseQuery()->where('u.id', $id)->first())]);
+        return response()->json([
+            'success' => true,
+            'data'    => $this->formatUser($this->baseQuery()->where('u.id', $id)->first())
+        ]);
     }
+
 
     public function destroy(int $id)
     {
