@@ -369,7 +369,7 @@ Route::group(['prefix' => 'admin'],function (){
 
     Route::post('/login', [\App\Http\Controllers\Api\AdminAuthController::class, 'login'])->middleware('throttle:3,1');
     Route::middleware(['auth:sanctum', 'user.active',\App\Http\Middleware\CheckApiAdmin::class])->group(function () {
-        Route::post('/pending-doctors', [\App\Http\Controllers\Api\Admin\UserManagementController::class, 'pendingDoctors']);
+        Route::get('/pending-doctors', [\App\Http\Controllers\Api\Admin\UserManagementController::class, 'pendingDoctors']);
 
         Route::get('/services', [AdminServiceController::class, 'index']);
         Route::post('/services', [AdminServiceController::class, 'store']);
