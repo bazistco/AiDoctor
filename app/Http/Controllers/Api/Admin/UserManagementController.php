@@ -76,11 +76,6 @@ class UserManagementController extends Controller
             // اطمینان از اینکه فقط کاربران با نقش پزشک دریافت شوند (در صورت نیاز)
             ->where('u.role', 'doctor')
             ->where(function ($q) {
-                // شرط ۱: کدملی تایید نشده باشد (0 یا NULL)
-                $q->where(function ($subQ) {
-                    $subQ->where('di.is_national_code_verified', 0)
-                        ->orWhereNull('di.is_national_code_verified');
-                });
 
                 // شرط ۲: مدارک آپلود نشده باشد (0 یا NULL)
                 $q->where(function ($subQ) {
