@@ -41,8 +41,13 @@ Route::get('/routes-count', function () {
         'total_routes' => $routes->count(),
     ]);
 });
-Route::get('/check/ip',function (){
-    return response()->json(['ip' => request()->ip()]);
+Route::get('/check/ip', function (\Illuminate\Http\Request $request) {
+    return response()->json([
+        'ip' => $request->ip(),
+        'remote_addr' => $request->server('REMOTE_ADDR'),
+        'x_forwarded_for' => $request->header('X-Forwarded-For'),
+        'x_real_ip' => $request->header('X-Real-IP'),
+    ]);
 });
 Route::prefix('marketer')->group(function () {
     Route::post('login',  [DoctorStaffAuthController::class, 'login']);
