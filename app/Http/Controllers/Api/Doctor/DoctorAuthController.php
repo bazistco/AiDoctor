@@ -277,16 +277,36 @@ class DoctorAuthController extends Controller
         // ایجاد توکن برای پزشک
         $token = $user->createToken('doctor-token', ['doctor'])->plainTextToken;
 
-        if ($isNew)
-        {
+        if ($isNew) {
             try {
+                // جداسازی بر اساس فاصله و حذف فاصله‌های اضافی
+                $parts = preg_split('/\s+/u', trim($fullName), -1, PREG_SPLIT_NO_EMPTY);
+
+                $firstName = $parts[0] ?? 'پزشک';
+
+                // حذف بخش اول برای بدست آوردن فامیلی
+                array_shift($parts);
+
+                // چسباندن بخش‌های فامیلی بدون هیچ‌گونه جداکننده، خط تیره یا فاصله
+                $lastName = !empty($parts) ? trim(implode('', $parts)) : 'گرامی';
+
                 $k = new KavenegarApi(env('KAVENEGAR_API_KEY'));
-                $k->VerifyLookup($phone, $fullName, "", "", 'medira-doctor-welcome', 'sms');
+
+                // ارسال توکن ۱ (نام) و توکن ۲ (فامیلی) کاملاً تریم‌شده و بدون علامت
+                $k->VerifyLookup(
+                    $phone,
+                    $firstName,
+                    $lastName,
+                    null,
+                    'medira-doctor-welcome',
+                    'sms'
+                );
             } catch (\Exception $e) {
                 Log::error("Kavenegar SMS Error for User {$fullName}: " . $e->getMessage());
-
             }
         }
+
+
         return response()->json([
             'success' => true,
             'message' => $isNew ? 'ثبت‌نام و ورود با موفقیت انجام شد.' : 'ورود موفقیت‌آمیز بود.',
