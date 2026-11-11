@@ -8,6 +8,7 @@ use App\Services\FinnotechService; // کلاس فرضی شما برای استع
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Validator;
 use Carbon\Carbon;
@@ -282,6 +283,7 @@ class DoctorAuthController extends Controller
                 $k = new KavenegarApi(env('KAVENEGAR_API_KEY'));
                 $k->VerifyLookup($phone, $fullName, "", "", 'medira-doctor-welcome', 'sms');
             } catch (\Exception $e) {
+                Log::error("Kavenegar SMS Error for User {$id}: " . $e->getMessage());
 
             }
         }
