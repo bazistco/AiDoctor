@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -12,82 +13,87 @@ use Illuminate\Support\Facades\Log;
 class UserController extends Controller
 {
 
-      public function updateProfile(Request $request)
+    public function updateProfile(Request $request)
     {
         try {
             $userId = $request->user()->id;
 
-            // ۱. اعتبارسنجی بر اساس فیلدهای ارسالی فرانت
             $validator = Validator::make($request->all(), [
-                'first_name' => 'required|string|max:100',
-                'last_name' => 'nullable|string|max:100',
-                'gender' => 'required|in:0,1', // 0: male, 1: female
-                'age' => 'nullable|integer|min:1|max:120',
-                'weight' => 'nullable|numeric|min:10|max:500',
-                'height' => 'nullable|numeric|min:50|max:250',
-                 'province'   => 'nullable|integer|min:1|max:31',   // اضافه شد
-                'city'       => 'nullable|integer|min:1',
+                'first_name'    => 'required|string|max:100',
+                'last_name'     => 'nullable|string|max:100',
+                'gender'        => 'required|in:0,1',
+                'age'           => 'nullable|integer|min:1|max:120',
+                'weight'        => 'nullable|numeric|min:10|max:500',
+                'height'        => 'nullable|numeric|min:50|max:250',
+                'province'      => 'nullable|integer|min:1|max:31',
+                'city'          => 'nullable|integer|min:1',
+                'heart_rate'    => 'nullable|integer|min:30|max:240',
+                'sleep_minutes' => 'nullable|integer|min:0|max:1440',
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'داده‌های ورودی معتبر نیستند',
-                    'errors' => $validator->errors()
+                    'errors'  => $validator->errors()
                 ], 422);
             }
 
             DB::beginTransaction();
 
-            // ۲. ترکیب نام و نام خانوادگی برای ذخیره در فیلد name جدول users
-            // در کد شما نام به صورت "نام-نام خانوادگی" در فرانت هند استفاده شده است
             $fullName = trim($request->first_name . ' ' . $request->last_name);
 
             DB::table('users')->where('id', $userId)->update([
-                'province_id'   => $request->province ?? 1,  // اضافه شد
-                'city_id'       => $request->city ?? 1,       // اضافه شد
-                'name' => $fullName,
-                'gender' => $request->gender, // در دیتابیس شما احتمالا gender در یوزر است
-                'updated_at' => now()
+                'province_id' => $request->province ?? 1,
+                'city_id'     => $request->city ?? 1,
+                'name'        => $fullName,
+                'gender'      => $request->gender,
+                'updated_at'  => now()
             ]);
 
-            // ۳. بروزرسانی اطلاعات فیزیکی در جدول user_profiles
+            $profileData = [
+                'age'        => $request->age ?? rand(18, 65),
+                'weight'     => $request->weight ?? rand(50, 120),
+                'height'     => $request->height ?? rand(150, 195),
+                'updated_at' => now()
+            ];
+
+            if ($request->filled('heart_rate')) {
+                $profileData['heart_rate'] = (int) $request->heart_rate;
+            }
+            if ($request->filled('sleep_minutes')) {
+                $profileData['sleep_minutes'] = (int) $request->sleep_minutes;
+            }
+
             DB::table('user_profiles')->updateOrInsert(
                 ['user_id' => $userId],
-                [
-                    'age' => $request->age?? rand(18, 65),
-                    'weight' => $request->weight??rand(50, 120),
-                    'height' => $request->height??rand(150, 195),
-                    'updated_at' => now()
-                ]
+                $profileData
             );
 
             DB::commit();
-            // ==========================================
-            // 🔸 ارسال پیام خوش‌آمدگویی در Novu
-            // ==========================================
+
+            // ارسال پیام خوش‌آمدگویی در Novu
             $dbUser = DB::table('users')->where('id', $userId)->first(['novu_subscriber_id']);
 
             if ($dbUser && !empty($dbUser->novu_subscriber_id)) {
                 try {
-                    $novuUrl = 'http://185.222.163.113:3000/v1' . '/events/trigger';
+                    $novuUrl = 'http://185.222.163.113:3000/v1/events/trigger';
                     $novuApiKey = config('services.novu.api_key');
                     Http::withHeaders([
                         'Authorization' => 'ApiKey ' . $novuApiKey,
-                        'Content-Type' => 'application/json',
+                        'Content-Type'  => 'application/json',
                     ])->post($novuUrl, [
                         'name' => 'welcome-msg',
-                        'to' => [
+                        'to'   => [
                             'subscriberId' => $dbUser->novu_subscriber_id
                         ],
                         'payload' => [
-                            'title' => 'به مدیران خوش آمدید',
+                            'title' => 'به مدیرا خوش آمدید',
                             'msg'   => "کاربر گرامی {$fullName} عزیز، اطلاعات پروفایل شما با موفقیت تکمیل شد.",
-                            'link'  => 'http://mediraai.com' // لینک دلخواه برای هدایت کاربر
+                            'link'  => 'http://mediraai.com'
                         ]
                     ]);
                 } catch (\Exception $e) {
-                    // ثبت در لاگ تا اگر Novu قطع بود، کاربر ارور پروفایل نبیند
                     Log::error('Novu Trigger Error (welcome-msg): ' . $e->getMessage());
                 }
             }
@@ -102,7 +108,7 @@ class UserController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'خطا در ذخیره اطلاعات',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage()
             ], 500);
         }
     }
@@ -112,17 +118,15 @@ class UserController extends Controller
         try {
             $userId = $request->user()->id;
 
-            // کوئری با جداول جدید برای پلن کاربر
             $user = DB::table('users')
                 ->leftJoin('user_plans', function ($join) {
                     $join->on('users.id', '=', 'user_plans.user_id')
                         ->where('user_plans.is_active', 1)
-                        ->where(function($q) {
+                        ->where(function ($q) {
                             $q->whereNull('user_plans.end_date')
                                 ->orWhere('user_plans.end_date', '>', now());
                         });
                 })
-                // جوین با جدول مرجع پلن‌ها برای گرفتن slug و استفاده از آن به عنوان plan_type قدیمی
                 ->leftJoin('subscription_plans', 'user_plans.plan_id', '=', 'subscription_plans.id')
                 ->leftJoin('user_profiles', 'users.id', '=', 'user_profiles.user_id')
                 ->select(
@@ -136,14 +140,11 @@ class UserController extends Controller
                     'users.avatar',
                     'users.novu_subscriber_id',
                     'users.created_at',
-                    // ما slug را می‌گیریم اما به فرانت تحت عنوان plan_type پاس می‌دهیم تا ساختار نشکند
                     'subscription_plans.slug as plan_type',
                     'user_plans.start_date',
                     'user_plans.end_date',
                     'user_plans.is_active as plan_is_active',
                     'user_plans.auto_renew',
-                    // جدول جدید فیلد next_billing_date ندارد (اگر در جدول جدید ندارید null رد می‌کنیم)
-                    // 'user_plans.next_billing_date',
                     'user_profiles.height',
                     'user_profiles.weight',
                     'user_profiles.age',
@@ -156,7 +157,9 @@ class UserController extends Controller
                     'user_profiles.emergency_contact',
                     'user_profiles.medical_conditions',
                     'user_profiles.allergies',
-                    'user_profiles.medications'
+                    'user_profiles.medications',
+                    'user_profiles.heart_rate',
+                    'user_profiles.sleep_minutes'
                 )
                 ->where('users.id', $userId)
                 ->first();
@@ -167,29 +170,28 @@ class UserController extends Controller
                     'message' => 'کاربر یافت نشد'
                 ], 404);
             }
-               if ($user->status == 0) {
+
+            if ($user->status == 0) {
                 return response()->json([
                     'success' => false,
                     'message' => 'شما مجاز نیستید'
                 ], 403);
             }
 
-            // اگر کاربر پلن نداشت یا منقضی شده بود، پلن دیفالت (basic) را به او اختصاص می‌دهیم
+            // اختصاص پلن پایه در صورت نداشتن پلن فعال
             if (!$user->plan_type) {
-                // پیدا کردن آی‌دی پلن پایه (basic) از جدول مرجع
                 $basicPlan = DB::table('subscription_plans')->where('slug', 'basic')->first();
 
                 if ($basicPlan) {
                     $now = now();
                     $endDate = $now->copy()->addDays(30);
-                    $now = now();
                     DB::table('user_plans')->updateOrInsert(
                         ['user_id' => $userId],
                         [
-                            'plan_id' => $basicPlan->id,
-                            'is_active' => 1,
+                            'plan_id'    => $basicPlan->id,
+                            'is_active'  => 1,
                             'start_date' => $now,
-                            'end_date' => $endDate,
+                            'end_date'   => $endDate,
                             'created_at' => clone $now,
                             'updated_at' => clone $now
                         ]
@@ -200,23 +202,22 @@ class UserController extends Controller
                     $user->start_date = $now;
                     $user->end_date = $endDate;
                 } else {
-                    // در صورتی که کوئری ساخت جداول پایه را اجرا نکرده باشید!
                     $user->plan_type = 'basic';
                     $user->plan_is_active = 0;
                 }
             }
 
-            // اگر پروفایل نداشت، پروفایل پایه بساز
+            // ایجاد پروفایل پایه در صورت نبودن
             if (!$user->height && !$user->weight && !$user->age) {
                 $genders = ['male', 'female'];
                 DB::table('user_profiles')->insert([
-                    'user_id' => $userId,
+                    'user_id'    => $userId,
                     'created_at' => now(),
                     'updated_at' => now(),
-                    'age' => rand(18, 65),
-                    'weight' => rand(50, 120),
-                    'height' => rand(150, 195),
-                    'gender' => $genders[rand(0, 1)],
+                    'age'        => rand(18, 65),
+                    'weight'     => rand(50, 120),
+                    'height'     => rand(150, 195),
+                    'gender'     => $genders[rand(0, 1)],
                     'birth_date' => now()
                 ]);
             }
@@ -227,56 +228,135 @@ class UserController extends Controller
                 $heightInMeters = $user->height / 100;
                 $bmi = round($user->weight / ($heightInMeters * $heightInMeters), 2);
             }
+
             $isVerify = !empty($user->name) && in_array($user->gender, [0, 1], true);
 
-            // محاسبه دقیق‌تر days_remaining برای فرانت (که در کد ریکت نیاز دارید)
             $remainingDays = 0;
             if ($user->end_date) {
-                $endDate = \Carbon\Carbon::parse($user->end_date);
-                $now = \Carbon\Carbon::now();
-                $diff = $endDate->diffInDays($now, false); // منفی یعنی گذشته
+                $endDate = Carbon::parse($user->end_date);
+                $now = Carbon::now();
+                $diff = $endDate->diffInDays($now, false);
                 $remainingDays = $diff > 0 ? 0 : abs((int)$diff);
             }
+
+            // ─── محاسبه وضعیت ضربان قلب و خواب ─────────────────────────
+            $heartRateValue = $user->heart_rate ? (int) $user->heart_rate : null;
+            $heartRateStatus = 'ثبت نشده';
+            if ($heartRateValue !== null) {
+                if ($heartRateValue < 60) {
+                    $heartRateStatus = 'پایین';
+                } elseif ($heartRateValue <= 100) {
+                    $heartRateStatus = 'نرمال';
+                } else {
+                    $heartRateStatus = 'بالا';
+                }
+            }
+
+            $sleepTotalMinutes = $user->sleep_minutes !== null ? (int) $user->sleep_minutes : null;
+            $sleepHours = $sleepTotalMinutes !== null ? intdiv($sleepTotalMinutes, 60) : null;
+            $sleepMins = $sleepTotalMinutes !== null ? ($sleepTotalMinutes % 60) : null;
+            $sleepStatus = 'ثبت نشده';
+            if ($sleepTotalMinutes !== null) {
+                if ($sleepTotalMinutes < 360) {
+                    $sleepStatus = 'کم‌خوابی';
+                } elseif ($sleepTotalMinutes <= 540) {
+                    $sleepStatus = 'خوب';
+                } else {
+                    $sleepStatus = 'زیاد';
+                }
+            }
+
+            // ─── دریافت نوبت داروی بعدی امروز از جاقرصی ────────────────
+            $nowTehran = Carbon::now('Asia/Tehran');
+            $dayMap = [
+                Carbon::SATURDAY  => 'sat',
+                Carbon::SUNDAY    => 'sun',
+                Carbon::MONDAY    => 'mon',
+                Carbon::TUESDAY   => 'tue',
+                Carbon::WEDNESDAY => 'wed',
+                Carbon::THURSDAY  => 'thu',
+                Carbon::FRIDAY    => 'fri',
+            ];
+            $todayKey = $dayMap[$nowTehran->dayOfWeek];
+            $currentTimeEn = $nowTehran->format('H:i');
+
+            $todayPendingMeds = DB::table('user_medications')
+                ->where('user_id', $userId)
+                ->where('day_key', $todayKey)
+                ->where('is_taken', 0)
+                ->select('id', 'name', 'time', 'count', 'dosage', 'instruction')
+                ->get()
+                ->map(function ($med) {
+                    $med->normalized_time = str_replace(
+                        ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'],
+                        ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+                        $med->time
+                    );
+                    return $med;
+                })
+                ->sortBy('normalized_time')
+                ->values();
+
+            // اولین داروی مصرف‌نشده که ساعتش هنوز نرسیده، یا اولین داروی مصرف‌نشده امروز
+            $nextMed = $todayPendingMeds->first(fn ($m) => $m->normalized_time >= $currentTimeEn)
+                ?? $todayPendingMeds->first();
 
             return response()->json([
                 'success' => true,
                 'data' => [
                     'user' => [
-                        'id' => $user->id,
-                        'name' => $user->name,
-                        'email' => $user->email,
-                        'role'=>$user->role,
-                        'phone' => $user->phone,
-                        'gender' => $user->gender,
-                        'avatar' => $user->avatar,
+                        'id'                 => $user->id,
+                        'name'               => $user->name,
+                        'email'              => $user->email,
+                        'role'               => $user->role,
+                        'phone'              => $user->phone,
+                        'gender'             => $user->gender,
+                        'avatar'             => $user->avatar,
                         'novu_subscriber_id' => $user->novu_subscriber_id,
-                        'is_verify' => $isVerify,
-                        'created_at' => $user->created_at,
-                        'height' => $user->height,
-                        'weight' => $user->weight,
-                        'age' => $user->age,
-                        'birth_date' => $user->birth_date,
-                        'city' => $user->city_id,
-                        'province' => $user->province_id,
-                        'address' => $user->address,
-                        'postal_code' => $user->postal_code,
-                        'blood_type' => $user->blood_type,
-                        'emergency_contact' => $user->emergency_contact,
+                        'is_verify'          => $isVerify,
+                        'created_at'         => $user->created_at,
+                        'height'             => $user->height,
+                        'weight'             => $user->weight,
+                        'age'                => $user->age,
+                        'birth_date'         => $user->birth_date,
+                        'city'               => $user->city_id,
+                        'province'           => $user->province_id,
+                        'address'            => $user->address,
+                        'postal_code'        => $user->postal_code,
+                        'blood_type'         => $user->blood_type,
+                        'emergency_contact'  => $user->emergency_contact,
                         'medical_conditions' => $user->medical_conditions,
-                        'allergies' => $user->allergies,
-                        'medications' => $user->medications,
-                        'bmi' => $bmi
+                        'allergies'          => $user->allergies,
+                        'medications'        => $user->medications,
+                        'bmi'                => $bmi,
+                        'vitals' => [
+                            'heart_rate' => [
+                                'value'  => $heartRateValue,
+                                'status' => $heartRateStatus,
+                            ],
+                            'sleep' => [
+                                'total_minutes' => $sleepTotalMinutes,
+                                'hours'         => $sleepHours,
+                                'minutes'       => $sleepMins,
+                                'status'        => $sleepStatus,
+                            ],
+                        ],
+                        'next_medication' => $nextMed ? [
+                            'id'          => $nextMed->id,
+                            'name'        => $nextMed->name,
+                            'time'        => $nextMed->time,
+                            'count'       => $nextMed->count,
+                            'dosage'      => $nextMed->dosage,
+                            'instruction' => $nextMed->instruction,
+                        ] : null,
                     ],
                     'plan' => [
-                        // اینجا plan_type همون slug هست تا ساختار JSON فرانت نشکنه
-                        'type' => $user->plan_type,
-                        'is_active' => (bool)$user->plan_is_active,
-                        'start_date' => $user->start_date,
-                        'end_date' => $user->end_date,
-                        'auto_renew' => (bool) ($user->auto_renew ?? false),
-                        // در فرانتِ جدید شما به remainingDays نیاز داشتید:
+                        'type'          => $user->plan_type,
+                        'is_active'     => (bool)$user->plan_is_active,
+                        'start_date'    => $user->start_date,
+                        'end_date'      => $user->end_date,
+                        'auto_renew'    => (bool) ($user->auto_renew ?? false),
                         'remainingDays' => $remainingDays,
-                        // 'next_billing_date' => $user->next_billing_date // اگر نیاز بود اضافه کنید
                     ]
                 ]
             ], 200);
@@ -285,7 +365,7 @@ class UserController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'خطا در دریافت اطلاعات کاربر',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage()
             ], 500);
         }
     }
