@@ -85,7 +85,8 @@ class HomeController extends Controller
             $suggestedDoctor = DB::table('doctor_info')
                 ->join('users', 'users.id', '=', 'doctor_info.user_id')
                 ->leftJoin('specialties', 'doctor_info.specialty_id', '=', 'specialties.id')
-                ->where('users.status', 1) // فقط پزشکان فعال
+                ->where('users.status', 1)
+//                ->where('doctor_info.user_id',)// فقط پزشکان فعال
                 ->select(
                     'users.id',
                     'users.name',
@@ -96,7 +97,7 @@ class HomeController extends Controller
                 ->first();
 
             if ($suggestedDoctor) {
-                $suggestedDoctor->image = $suggestedDoctor->image ? asset('storage/' . $suggestedDoctor->image) : null;
+                $suggestedDoctor->image =  '/doc-Photoroom.png';
                 $suggestedDoctor->rating = 4.8; // امتیاز نمونه ثابت تا زمانی که سیستم نمره‌دهی کامل شود
             }
 
