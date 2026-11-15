@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Doctor\DoctorSecretaryController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaymentGatewayController;
+use App\Http\Controllers\Api\PillOrganizerController;
 use App\Http\Controllers\Api\Staff\CenterStaffAuthController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffAppointmentController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffAuthController;
@@ -420,6 +421,26 @@ Route::group(['prefix' => 'user'],function (){
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
     Route::post('verify',[AuthController::class,'verify'])->middleware('throttle:10,1');
      Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
+         Route::middleware('auth:sanctum')->prefix('pill-organizer')->group(function () {
+             // دریافت کل جاقرصی (فرمت شده دقیقاً مشابه PillBoxMap در فرانت)
+             Route::get('/', [PillOrganizerController::class, 'index']);
+
+             // افزودن یک یا چند دارو به یک یا چند خانه به صورت یکجا (Batch Insert)
+             Route::post('/bulk', [PillOrganizerController::class, 'storeBulk']);
+
+             // تغییر وضعیت مصرف (تیک زدن / برداشتن تیک)
+             Route::patch('/{id}/toggle-taken', [PillOrganizerController::class, 'toggleTaken']);
+
+             // ویرایش یک دارو در یک خانه خاص
+             Route::put('/{id}', [PillOrganizerController::class, 'update']);
+
+             // حذف یک دارو از یک خانه
+             Route::delete('/{id}', [PillOrganizerController::class, 'destroy']);
+
+             // ریست کردن تیک‌های مصرف برای شروع هفته جدید
+             Route::post('/reset-week', [PillOrganizerController::class, 'resetWeek']);
+         });
+
          Route::get('/diagnosis/specialties',[DiagnosisController::class,'getSpecialties']);
          Route::get('/health-insights', [HealthController::class, 'getInsights']);
          Route::post('/fcm-token', [AuthController::class, 'updateFcmToken']);
