@@ -494,8 +494,7 @@ class DiagnosisController extends Controller
                 return [
                     'id' => $doctor->user_id,
                     'name' => $doctor->name,
-                    'image_url' => $doctor->image_url,
-                    'rating' => (float) $doctor->rating,
+                    'image_url' => $doctor->image_url ? asset('storage/' . ltrim($doctor->image_url, '/')) : null,                    'rating' => (float) $doctor->rating,
                     'visit_price' => $doctor->visit_price,
                     'experience' => $doctor->experience,
                     'is_vip' => (bool) $doctor->is_vip,
@@ -529,8 +528,7 @@ class DiagnosisController extends Controller
                     'address' => $lab->address,
                     'phone' => $lab->phone,
                     'rating' => (float) $lab->rating,
-                    'image_url' => $lab->image_url,
-                ];
+                    'image_url' => $lab->image_url ? asset('storage/' . ltrim($lab->image_url, '/')) : null,                ];
             })
             ->toArray();
 
