@@ -4,6 +4,7 @@ use App\Http\Api\Controllers\Auth\AuthController;
 use App\Http\Controllers\Api\DiagnosisController;
 use App\Http\Controllers\Api\Doctor\DoctorSecretaryController;
 use App\Http\Controllers\Api\HealthController;
+use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaymentGatewayController;
 use App\Http\Controllers\Api\PillOrganizerController;
@@ -499,6 +500,7 @@ Route::group(['prefix' => 'user'],function (){
          Route::post('pharmacy-requests/{id}/pay', [UserPharmacyRequestController::class, 'pay']);
          Route::post('pharmacy-requests/{id}/cancel', [UserPharmacyRequestController::class, 'cancelRequest']);
 
+         Route::get('/home-dashboard', [HomeController::class, 'getHomeData']);
          Route::get('/labs/prescription-types', [\App\Http\Controllers\Api\LabController::class, 'getPrescriptionTypes']);
          Route::get('/labs/test-packs', [\App\Http\Controllers\Api\LabController::class, 'getTestPacks']);
          Route::post('/labs/search-centers', [\App\Http\Controllers\Api\LabController::class, 'searchCenters']);
