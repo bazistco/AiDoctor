@@ -68,58 +68,66 @@ class UserManagementController extends Controller
     }
     public function pendingDoctors(Request $request)
     {
-        $perPage = (int)$request->input('per_page', 15);
+        $perPage = (int) $request->input('per_page', 15);
         // دریافت فیلتر وضعیت از فرانت‌اند (پیش‌فرض روی action_required)
-        $statusFilter =$request->input('status_filter', 'action_required');
+        $statusFilter = $request->input('status_filter', 'action_required');
 
-        $query =$this->baseQuery()
+        $query = $this->baseQuery()
             ->where('u.role', 'doctor')
             ->where(function ($q) use ($statusFilter) {
 
                 if ($statusFilter === 'all') {
-                    // نمایش همه پزشکانی که کارشان تمام نشده (شامل کسانی که هیچ مدرکی نداده‌اند)
+                    // حالت همه: نمایش تمام کسانی که کاملاً تایید نشده‌اند
+                    // (شامل آپلود نکرده‌ها، رد شده‌ها، در انتظارها و عکس‌های وریفای نشده)
                     $q->whereIn('di.document_status', ['not_uploaded', 'pending', 'rejected'])
                         ->orWhereNull('di.document_status')
-                        ->orWhere('di.is_avatar_verified', false)
-                        ->orWhereNull('di.is_avatar_verified');
+                        ->orWhere(function ($avatarSub) {
+                            $avatarSub->where('di.is_avatar_verified', false)
+                                ->orWhereNull('di.is_avatar_verified');
+                        });
 
                 } elseif ($statusFilter === 'not_uploaded') {
-                    // نمایش فقط کسانی که مدرک نداده‌اند
+                    // فقط کسانی که مدرک نداده‌اند
                     $q->whereIn('di.document_status', ['not_uploaded'])
                         ->orWhereNull('di.document_status');
 
                 } elseif ($statusFilter === 'pending') {
-                    // نمایش فقط در انتظار تاییدها
+                    // فقط در انتظار تایید مدارک
                     $q->where('di.document_status', 'pending');
 
                 } elseif ($statusFilter === 'avatar_unverified') {
-                    // نمایش فقط کسانی که عکس آپلود کرده‌اند اما تایید نشده
+                    // فقط کسانی که عکس آپلود کرده‌اند اما تایید نشده
                     $q->whereNotNull('di.image_url')
-                        ->where(function ($sub) {$sub->where('di.is_avatar_verified', false)
-                            ->orWhereNull('di.is_avatar_verified');
+                        ->where(function ($sub) {
+                            $sub->where('di.is_avatar_verified', false)
+                                ->orWhereNull('di.is_avatar_verified');
                         });
 
                 } else {
-                    // حالت پیش‌فرض (action_required): فقط نیازمند بررسی ادمین
-                    // ۱. مدرک در انتظار یا رد شده دارند
-                    $q->whereIn('di.document_status', ['pending', 'rejected'])
-                        // ۲. یا عکسی آپلود کرده‌اند که هنوز تایید نشده است
-                        ->orWhere(function ($sub) {$sub->whereNotNull('di.image_url')
-                            ->where(function ($avatarQ) {$avatarQ->where('di.is_avatar_verified', false)
-                                ->orWhereNull('di.is_avatar_verified');
-                            });
+                    // حالت پیش‌فرض (action_required):
+                    // فقط مواردی که منتظر بررسی ادمین هستند:
+                    // ۱. مدرکشان در انتظار تایید است
+                    // ۲. یا عکسی آپلود کرده‌اند که هنوز تایید نشده است
+                    $q->where('di.document_status', 'pending')
+                        ->orWhere(function ($sub) {
+                            $sub->whereNotNull('di.image_url')
+                                ->where(function ($avatarQ) {
+                                    $avatarQ->where('di.is_avatar_verified', false)
+                                        ->orWhereNull('di.is_avatar_verified');
+                                });
                         });
                 }
             });
 
-        if ($search = $request->input('search')) {$query->where(function ($q) use ($search) {
-            $q->where('u.name', 'like', "\%{$search}%")
-                ->orWhere('u.phone', 'like', "%{$search}%")
-                ->orWhere('di.national_code', 'like', "%{$search}%");
-        });
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('u.name', 'like', "%{$search}%")
+                    ->orWhere('u.phone', 'like', "%{$search}%")
+                    ->orWhere('di.national_code', 'like', "%{$search}%");
+            });
         }
 
-        // اولویت‌بندی مرتب‌سازی
+        // اولویت‌بندی مرتب‌سازی در خروجی
         $query->orderByRaw("
         CASE
             WHEN di.document_status = 'pending' THEN 1
