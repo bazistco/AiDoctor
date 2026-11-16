@@ -40,9 +40,10 @@ class UserController extends Controller
     public function uploadDoctorImage(Request $request, $id)
     {
         $request->validate([
-            'image' => 'required|image|mimes:jpeg,png,jpg,webp|max:2048',
+            'image' => 'required|image|mimes:jpeg,png,jpg,webp|max:4096', // حداکثر 4 مگابایت مشابه پنل دکتر
         ]);
 
+        // استفاده از کوئری پایه برای دریافت کاربر (با فرض اینکه baseQuery را در کنترلر دارید)
         $user = clone $this->baseQuery()->where('u.id', $id)->first();
 
         if (!$user) {
@@ -54,27 +55,28 @@ class UserController extends Controller
         }
 
         $file = $request->file('image');
-        $path = $file->store('doctors/images', 'public');
 
-        // حذف عکس قبلی در صورت وجود
+        // ذخیره فایل در پوشه avatars (مسیر نسبی برگردانده می‌شود مثلاً avatars/abc.jpg)
+        $path = $file->store('avatars', 'public');
+
+        // حذف عکس قبلی در صورت وجود (چون حالا مسیر نسبی است، به راحتی پیدا و حذف می‌شود)
         if (!empty($user->image_url)) {
-            $oldPath = str_replace(url('/storage') . '/', '', $user->image_url);
-            if (Storage::disk('public')->exists($oldPath)) {
-                Storage::disk('public')->delete($oldPath);
+            if (Storage::disk('public')->exists($user->image_url)) {
+                Storage::disk('public')->delete($user->image_url);
             }
         }
 
-        $fullUrl = url('/storage/' . $path);
-
+        // ذخیره "فقط" مسیر نسبی در دیتابیس
         DB::table('doctor_info')->where('user_id', $id)->update([
-            'image_url' => $fullUrl,
+            'image_url' => $path,
             'updated_at' => now()
         ]);
 
         return response()->json([
             'success' => true,
             'message' => 'عکس پروفایل پزشک با موفقیت آپلود شد.',
-            'image_url' => $fullUrl
+            // برای آپدیت شدن در لحظه در فرانت‌اند، آدرس کامل را اینجا به کمک asset می‌سازیم و می‌فرستیم
+            'image_url' => asset('storage/' . $path)
         ]);
     }
     private function formatUser(object $user): array
