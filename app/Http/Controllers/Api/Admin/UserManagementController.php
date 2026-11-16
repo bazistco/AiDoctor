@@ -68,23 +68,19 @@ class UserManagementController extends Controller
     }
     public function pendingDoctors(Request $request)
     {
-
         $perPage = (int) $request->input('per_page', 15);
 
-        // ساخت کوئری بر پایه متد پایه پروژه
         $query = $this->baseQuery()
-            // اطمینان از اینکه فقط کاربران با نقش پزشک دریافت شوند (در صورت نیاز)
             ->where('u.role', 'doctor')
             ->where(function ($q) {
-
-                // شرط ۲: مدارک آپلود نشده باشد (0 یا NULL)
-                $q->where(function ($subQ) {
-                    $subQ->whereIn('di.document_status', ['not_uploaded', 'pending', 'rejected'])
-                        ->orWhereNull('di.document_status');
-                });
+                // دریافت پزشکانی که وضعیت مدرکشان نامشخص/ردشده/آپلودنشده است
+                // **یا** عکسشان هنوز وریفای نشده است
+                $q->whereIn('di.document_status', ['not_uploaded', 'pending', 'rejected'])
+                    ->orWhereNull('di.document_status')
+                    ->orWhere('di.is_avatar_verified', false)
+                    ->orWhereNull('di.is_avatar_verified');
             });
 
-        // در صورت ارسال عبارت جستجو (نام، شماره تماس، کدملی)
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('u.name', 'like', "%{$search}%")
@@ -93,10 +89,16 @@ class UserManagementController extends Controller
             });
         }
 
-        // صفحه‌بندی نتایج
-        $paginated = $query->orderBy('u.id', 'desc')->paginate($perPage);
+        $query->orderByRaw("
+        CASE
+            WHEN di.document_status = 'pending' THEN 1
+            WHEN di.is_avatar_verified = 0 OR di.is_avatar_verified IS NULL THEN 2
+            ELSE 3
+        END ASC
+    ")->orderBy('u.id', 'desc');
 
-        // تبدیل و فرمت‌بندی رکوردهای هر صفحه با formatUser
+        $paginated = $query->paginate($perPage);
+
         $formattedData = collect($paginated->items())->map(function ($doctor) {
             return $this->formatUser($doctor);
         });
