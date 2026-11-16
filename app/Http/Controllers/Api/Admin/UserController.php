@@ -69,6 +69,7 @@ class UserController extends Controller
         // ذخیره "فقط" مسیر نسبی در دیتابیس
         DB::table('doctor_info')->where('user_id', $id)->update([
             'image_url' => $path,
+            'is_avatar_verified' => 1,
             'updated_at' => now()
         ]);
 
