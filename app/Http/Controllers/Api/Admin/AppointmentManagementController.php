@@ -248,7 +248,7 @@ class AppointmentManagementController extends Controller
             'reason' => 'required|string|max:1000',
         ]);
 
-        $exists = DB::table('appointment_slots')->where('id', $id)->first();
+        $exists = DB::table('appointment_slots')->where('id', $id)->where('patient_id',auth()->id())->where('status','available')->first();
 
         if (!$exists) {
             return response()->json([
@@ -258,6 +258,8 @@ class AppointmentManagementController extends Controller
 
         DB::table('appointment_slots')
             ->where('id', $id)
+            ->where('patient_id',auth()->id())
+            ->where('status','available')
             ->update([
                 'status' => 'cancelled',
                 'updated_at' => now(),

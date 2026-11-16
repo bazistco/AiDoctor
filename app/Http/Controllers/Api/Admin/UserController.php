@@ -25,6 +25,7 @@ class UserController extends Controller
                 'u.role', 'u.status', 'u.is_verify', 'u.avatar',
                 'u.created_at', 'u.updated_at',
                 'c.id as city', 'p.id as province',
+                'di.image_url',
                 // فیلدهای مربوط به پزشک
                 'di.document_status', 'di.document_rejection_reason',
                 'di.national_code', 'di.is_national_code_verified',
@@ -33,6 +34,49 @@ class UserController extends Controller
             );
     }
 
+    /**
+     * آپلود عکس پروفایل پزشک
+     */
+    public function uploadDoctorImage(Request $request, $id)
+    {
+        $request->validate([
+            'image' => 'required|image|mimes:jpeg,png,jpg,webp|max:2048',
+        ]);
+
+        $user = clone $this->baseQuery()->where('u.id', $id)->first();
+
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'کاربر یافت نشد.'], 404);
+        }
+
+        if ($user->role !== 'doctor') {
+            return response()->json(['success' => false, 'message' => 'این قابلیت فقط برای پزشکان فعال است.'], 403);
+        }
+
+        $file = $request->file('image');
+        $path = $file->store('doctors/images', 'public');
+
+        // حذف عکس قبلی در صورت وجود
+        if (!empty($user->image_url)) {
+            $oldPath = str_replace(url('/storage') . '/', '', $user->image_url);
+            if (Storage::disk('public')->exists($oldPath)) {
+                Storage::disk('public')->delete($oldPath);
+            }
+        }
+
+        $fullUrl = url('/storage/' . $path);
+
+        DB::table('doctor_info')->where('user_id', $id)->update([
+            'image_url' => $fullUrl,
+            'updated_at' => now()
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'عکس پروفایل پزشک با موفقیت آپلود شد.',
+            'image_url' => $fullUrl
+        ]);
+    }
     private function formatUser(object $user): array
     {
         // تابع کمکی برای تولید لینک دانلود ایمن برای ادمین
@@ -57,6 +101,7 @@ class UserController extends Controller
 
             // اطلاعات احراز و مدارک پزشک
             'doctor_info' => $user->role === 'doctor' ? [
+                'image_url'                 => $user->image_url,
                 'national_code'             => $user->national_code,
                 'is_national_code_verified' => (bool) $user->is_national_code_verified,
                 'medical_code'              => $user->medical_code,
