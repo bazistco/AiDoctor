@@ -35,6 +35,7 @@ use App\Http\Controllers\Api\MedicalServiceProviderController;
 use App\Http\Controllers\Api\Admin\AdminServiceController;
 use Kavenegar\KavenegarApi;
 use Illuminate\Support\Facades\Redis;
+Route::post('/internal/cleanup/expired-slots', [App\Http\Controllers\Api\CleanupController::class, 'releaseExpiredSlots']);
 Route::get('/routes-count', function () {
     $routes = Route::getRoutes();
 
@@ -372,7 +373,6 @@ Route::group(['prefix' => 'admin'],function (){
     Route::post('/login', [\App\Http\Controllers\Api\AdminAuthController::class, 'login'])->middleware('throttle:3,1');
     Route::middleware(['auth:sanctum', 'user.active',\App\Http\Middleware\CheckApiAdmin::class])->group(function () {
         Route::get('/pending-doctors', [\App\Http\Controllers\Api\Admin\UserManagementController::class, 'pendingDoctors']);
-
         Route::get('/services', [AdminServiceController::class, 'index']);
         Route::post('/services', [AdminServiceController::class, 'store']);
         Route::patch('/services/{id}/status', [AdminServiceController::class, 'updateStatus']);
@@ -384,6 +384,7 @@ Route::group(['prefix' => 'admin'],function (){
         Route::delete('users/{id}', [\App\Http\Controllers\Api\Admin\UserController::class, 'destroy']);
         Route::post('users/bulk-status', [\App\Http\Controllers\Api\Admin\UserController::class, 'bulkStatus']);
         Route::post('users/bulk-delete', [\App\Http\Controllers\Api\Admin\UserController::class, 'bulkDelete']);
+        Route::post('/users/{id}/avatar', [UserController::class, 'uploadAvatar']);
         Route::get('/profile', [UserController::class, 'getProfile']);
         Route::get('patient-rooms', [ChatController::class, 'getPatientRooms']);
         Route::get('/payments/report', [ \App\Http\Controllers\Api\PaymentReportController::class, 'index']);

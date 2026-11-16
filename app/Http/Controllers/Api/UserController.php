@@ -6,12 +6,55 @@ use App\Http\Controllers\Controller;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class UserController extends Controller
 {
+    /**
+     * آپلود عکس پروفایل کاربر
+     */
+    public function uploadAvatar(Request $request, $id)
+    {
+        $request->validate([
+            'avatar' => 'required|image|mimes:jpeg,png,jpg,webp|max:2048', // حداکثر 2 مگابایت
+        ]);
+
+        $user = DB::table('users')->where('id', $id)->first();
+
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'کاربر یافت نشد.'], 404);
+        }
+
+        $file = $request->file('avatar');
+        // ذخیره فایل در پوشه storage/app/public/avatars
+        $path = $file->store('avatars', 'public');
+
+        // حذف عکس قبلی در صورت وجود برای جلوگیری از اشغال فضا
+        if ($user->avatar) {
+            // استخراج مسیر نسبی فایل قبلی
+            $oldPath = str_replace(url('/storage') . '/', '', $user->avatar);
+            if (Storage::disk('public')->exists($oldPath)) {
+                Storage::disk('public')->delete($oldPath);
+            }
+        }
+
+        // ساخت آدرس کامل برای ارسال به فرانت و ذخیره در دیتابیس
+        $fullUrl = url('/storage/' . $path);
+
+        DB::table('users')->where('id', $id)->update([
+            'avatar' => $fullUrl,
+            'updated_at' => now()
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'عکس پروفایل با موفقیت آپلود شد.',
+            'avatar' => $fullUrl
+        ]);
+    }
 
     public function updateProfile(Request $request)
     {
