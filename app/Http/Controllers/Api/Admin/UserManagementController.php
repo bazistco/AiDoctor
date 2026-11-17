@@ -287,7 +287,7 @@ class UserManagementController extends Controller
             'name' => $name,
             'bio' => $details['bio'] ?? null,
             'specialty_id' => $specialtyId,
-            'visit_price' => $details['visit_price'] ?? 500000,
+            'visit_price' => $details['visit_price'] ?? 7000000,
             'experience' => $details['experience'] ?? null,
             'address' => $details['address'] ?? null,
             'phone' => $details['phone'] ?? null,

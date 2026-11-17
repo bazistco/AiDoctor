@@ -54,6 +54,25 @@ class AppointmentController
         }
     }
 
+    public function checkScheduleStatus(Request $request): JsonResponse
+    {
+        $doctorInfoId = $this->getDoctorUserId($request);
+
+        if (!$doctorInfoId) {
+            return response()->json([
+                'status' => false,
+                'message' => 'پزشک یافت نشد'
+            ], 404);
+        }
+
+        $redisKey = "doctor_schedule_rules:{$doctorInfoId}";
+        $rules = Redis::get($redisKey);
+
+        return response()->json([
+            'status' => true,
+            'has_rules' => !empty($rules),
+        ]);
+    }
     public function getCalendarSummary(Request $request): JsonResponse
     {
         $doctorInfoId = $this->getDoctorUserId($request);
@@ -143,6 +162,13 @@ class AppointmentController
 
         // ذخیره در ردیس به صورت جیسون
         Redis::set($redisKey, json_encode($validated['rules']));
+        DB::table('doctor_info')
+            ->where('user_id', $doctorInfoId)
+            ->update([
+                'status' => 1,
+                'updated_at' => now(),
+            ]);
+
 
         return response()->json([
             'status' => true,

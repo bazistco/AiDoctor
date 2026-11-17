@@ -307,6 +307,7 @@ Route::group(['prefix' => 'doctor'], function () {
     Route::post('/login/verify', [\App\Http\Controllers\Api\Doctor\DoctorAuthController::class, 'verifyAndLogin'])->middleware('throttle:5,1');
 
     Route::middleware(['auth:sanctum', 'user.active', 'role:doctor'])->group(function () {
+        Route::get('/check-schedule', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'checkScheduleStatus']);
         Route::patch('/schedule/visit-price', [\App\Http\Controllers\Api\Doctor\AppointmentController::class, 'updateVisitPrice']);
         Route::post('secretaries', [DoctorSecretaryController::class, 'store']);
         Route::get('secretaries', [DoctorSecretaryController::class, 'index']);
@@ -372,6 +373,7 @@ Route::group(['prefix' => 'admin'],function (){
 
     Route::post('/login', [\App\Http\Controllers\Api\AdminAuthController::class, 'login'])->middleware('throttle:3,1');
     Route::middleware(['auth:sanctum', 'user.active',\App\Http\Middleware\CheckApiAdmin::class])->group(function () {
+
         Route::post('/users/{id}/doctor-image', [\App\Http\Controllers\Api\Admin\UserController::class, 'uploadDoctorImage']);
         Route::get('/pending-doctors', [\App\Http\Controllers\Api\Admin\UserManagementController::class, 'pendingDoctors']);
         Route::get('/services', [AdminServiceController::class, 'index']);

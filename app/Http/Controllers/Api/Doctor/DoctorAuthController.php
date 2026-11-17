@@ -238,7 +238,7 @@ class DoctorAuthController extends Controller
                     'specialty_id'              => $request->specialty_id,
                     'national_code'             => $request->national_code,
                     'is_national_code_verified' => 1,
-                    'visit_price'               => 500000,
+                    'visit_price'               => 7000000,
                     'province'                  => $request->province,
                     'city'                      => $request->city,
                     'is_vip'                    => 0,
