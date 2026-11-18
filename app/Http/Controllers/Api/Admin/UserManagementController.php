@@ -82,8 +82,12 @@ class UserManagementController extends Controller
                     $q->whereIn('di.document_status', ['not_uploaded', 'pending', 'rejected'])
                         ->orWhereNull('di.document_status')
                         ->orWhere(function ($avatarSub) {
-                            $avatarSub->where('di.is_avatar_verified', false)
-                                ->orWhereNull('di.is_avatar_verified');
+                            $avatarSub->where(function ($inner) {
+                                $inner->where('di.is_avatar_verified', false)
+                                    ->orWhereNull('di.is_avatar_verified');
+                            })
+                                ->whereNotNull('di.image_url')
+                                ->where('di.image_url', '<>', '');
                         });
 
                 } elseif ($statusFilter === 'not_uploaded') {

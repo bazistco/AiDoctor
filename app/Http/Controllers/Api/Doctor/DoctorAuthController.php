@@ -243,7 +243,7 @@ class DoctorAuthController extends Controller
                     'city'                      => $request->city,
                     'is_vip'                    => 0,
                     'rating'                    => 0.0,
-                    'image_url'                 => 'https://www.tarhdokan.com/wp-content/uploads/2020/07/doctor-1-1.jpg', // تصویر دیفالت
+                    'image_url'                 => null,
                     'created_at'                => now(),
                     'updated_at'                => now(),
                 ]);
