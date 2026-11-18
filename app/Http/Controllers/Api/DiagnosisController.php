@@ -1433,7 +1433,8 @@ class DiagnosisController extends Controller
                 'doctor_info.reviews',
                 'doctor_info.recommendation',
                 'doctor_info.city',
-                'doctor_info.province'
+                'doctor_info.province',
+                'doctor_info.is_avatar_verified'
             )
             // محاسبه تعداد نوبت‌های خالی فردا با Subquery (حذف نیاز به JOIN و GROUP BY)
             ->selectSub(function ($subQuery) use ($tomorrow) {
@@ -1659,7 +1660,15 @@ class DiagnosisController extends Controller
             : collect();
 
         $mappedDoctors = $doctors->map(function ($doctor) use ($tags) {
-            $doctor->image = $doctor->image ? asset('storage/' . ltrim($doctor->image, '/')) : null;
+            if ($doctor->is_avatar_verified == 1)
+            {
+                $doctor->image = $doctor->image ? asset('storage/' . ltrim($doctor->image, '/')) : null;
+
+            }
+            else{
+                $doctor->image = 'https://app.mediraai.com/doc-Photoroom.png';
+
+            }
             $doctor->tags = isset($tags[$doctor->id]) ? $tags[$doctor->id]->pluck('name')->values()->toArray() : [];
             $doctor->matched_keywords = !empty($doctor->matched_keywords_raw) ? explode('|||', $doctor->matched_keywords_raw) : [];
 
