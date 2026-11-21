@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -11,29 +12,33 @@ use Illuminate\Support\Facades\Log;
 class MedicationCronController extends Controller
 {
     /**
-     * وب‌سرویس اجرایی توسط کران‌جاب لینوکس با استفاده از DB::table
+     * وب‌سرویس اجرایی توسط کران‌جاب لینوکس
+     * ارسال یادآوری برای داروهایی که امروز هستند و ۱ ساعت به موعد مصرفشان باقی مانده
      */
     public function sendReminders(Request $request)
     {
-        // ۱. بررسی کلید امنیتی جهت جلوگیری از دسترسی مستقیم و غیرمجاز
+        // ۱. بررسی کلید امنیتی کران‌جاب
         if ($request->query('secret') !== config('app.cron_secret', 'sosmost666')) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        // ۲. محاسبه روز جاری هفته (sun, mon, tue, ...)
+        // ۲. مشخص کردن روز جاری هفته (سه حرفی کوچک: sun, mon, tue, ...)
         $currentDayKey = strtolower(now()->format('D'));
 
-        // ۳. استخراج ساعت فعلی به دو فرمت انگلیسی و فارسی برای تطبیق دقیق با دیتابیس
-        $englishTime = now()->format('H:i');
-        $persianTime = $this->convertNumbersToPersian($englishTime);
+        // ۳. محاسبه زمان هدف: دقیقاً ۶۰ دقیقه بعد (کمتر از ۱ ساعت آینده)
+        // برای مثال اگر الان ۱۲:۳۰ باشد، داروهای ساعت ۱۳:۳۰ هدف قرار می‌گیرند.
+        $targetCarbon = now()->addHour();
+        $englishTargetTime = $targetCarbon->format('H:i');
+        $persianTargetTime = $this->convertNumbersToPersian($englishTargetTime);
 
-        // ۴. کوئری با DB::table به همراه Join با جدول users جهت استخراج subscriber_id و نام کاربر
+        // ۴. کوئری واکشی داروهای امروز که مصرف نشده‌اند و زمان مصرفشان ۱ ساعت دیگر است
         $medications = DB::table('user_medications')
             ->join('users', 'user_medications.user_id', '=', 'users.id')
             ->where('user_medications.day_key', $currentDayKey)
-            ->where(function ($query) use ($englishTime, $persianTime) {
-                $query->where('user_medications.time', $persianTime)
-                    ->orWhere('user_medications.time', $englishTime);
+            ->where(function ($query) use ($englishTargetTime, $persianTargetTime) {
+                // پوشش هر دو فرمت فارسی و انگلیسی دیتابیس
+                $query->where('user_medications.time', $persianTargetTime)
+                    ->orWhere('user_medications.time', $englishTargetTime);
             })
             ->where('user_medications.is_taken', 0)
             ->whereNotNull('users.novu_subscriber_id')
@@ -51,26 +56,25 @@ class MedicationCronController extends Controller
 
         if ($medications->isEmpty()) {
             return response()->json([
-                'status'  => true,
-                'message' => 'No medications found for current minute (' . $englishTime . ' / ' . $persianTime . ').'
+                'status'         => true,
+                'message'        => 'No medications found requiring reminder for ' . $englishTargetTime . ' (' . $persianTargetTime . ').',
+                'target_time'    => $englishTargetTime
             ]);
         }
 
-        // ۵. گروه‌بندی داروها بر اساس user_id جهت ارسال یک نوتیفیکیشن تجمیعی به هر کاربر
+        // ۵. تجمیع داروها به ازای هر کاربر
         $medicationsByUser = $medications->groupBy('user_id');
-
         $sentCount = 0;
 
         foreach ($medicationsByUser as $userId => $userMedications) {
             $firstRecord = $userMedications->first();
-
-            // استخراج اسامی همه داروهای این کاربر برای این ساعت
             $medicationNames = $userMedications->pluck('medication_name')->implode('، ');
 
             $this->triggerNovuEvent(
                 subscriberId: (string) $firstRecord->novu_subscriber_id,
                 userName: $firstRecord->user_name ?? 'کاربر',
-                medicationNames: $medicationNames
+                medicationNames: $medicationNames,
+                reminderTime: $firstRecord->time
             );
 
             $sentCount++;
@@ -78,15 +82,16 @@ class MedicationCronController extends Controller
 
         return response()->json([
             'status'         => true,
-            'message'        => 'Reminders processed successfully.',
+            'message'        => 'Upcoming reminders processed successfully.',
+            'target_time'    => $englishTargetTime,
             'users_notified' => $sentCount
         ]);
     }
 
     /**
-     * ارسال Event به سرور Novu
+     * ارسال Event به سرور Novu با متن اختصاصی یادآوری پیش از موعد
      */
-    private function triggerNovuEvent(string $subscriberId, string $userName, string $medicationNames): void
+    private function triggerNovuEvent(string $subscriberId, string $userName, string $medicationNames, string $reminderTime): void
     {
         try {
             $novuUrl = 'http://185.222.163.113:3000/v1/events/trigger';
@@ -101,20 +106,20 @@ class MedicationCronController extends Controller
                     'subscriberId' => $subscriberId
                 ],
                 'payload' => [
-                    'title' => '⏰ یادآوری مصرف دارو',
-                    'msg'   => "{$userName} عزیز، زمان مصرف این داروها فرا رسیده است: {$medicationNames}",
+                    'title' => '⏳ یادآوری: کمتر از ۱ ساعت تا مصرف دارو',
+                    'msg'   => "{$userName} عزیز، حدود ۱ ساعت دیگر (ساعت {$reminderTime}) زمان مصرف این داروهاست: {$medicationNames}",
                     'link'  => 'https://app.mediraai.com/medications'
                 ]
             ]);
         } catch (\Throwable $e) {
-            Log::error('Cron Novu Medication Reminder Error: ' . $e->getMessage(), [
+            Log::error('Cron Novu 1-Hour Reminder Error: ' . $e->getMessage(), [
                 'subscriber_id' => $subscriberId
             ]);
         }
     }
 
     /**
-     * متد تبدیل ارقام انگلیسی به فارسی
+     * تبدیل ارقام انگلیسی به فارسی
      */
     private function convertNumbersToPersian(string $string): string
     {
