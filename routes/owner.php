@@ -17,6 +17,18 @@ use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyProfileController;
 use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyStaffController;
 use Illuminate\Support\Facades\Route;
 
+
+Route::prefix('owner/beauty-clinic')->group(function () {
+    // عمومی (بدون توکن)
+    Route::post('/login', [\App\Http\Controllers\Api\Owner\Beauty\BeautyAuthController::class, 'login']);
+    Route::post('/verify', [\App\Http\Controllers\Api\Owner\Beauty\BeautyAuthController::class, 'verify']);
+
+    Route::middleware(['auth:sanctum', 'user.active', 'role:beauty_clinic','ownership:beauty_clinic'])->group(function () {
+        Route::get('/profile', [\App\Http\Controllers\Api\Owner\Beauty\BeautyProfileController::class, 'show']);
+
+    });
+
+});
 Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
 
     // 1. احراز هویت (بدون نیاز به توکن)
@@ -117,8 +129,6 @@ Route::prefix('lab')->name('lab.')->group(function () {
         Route::delete('/staffs/{id}', [LabStaffController::class, 'destroy']);
     });
 });
-
-
 // Medical Center Owner Routes
 Route::prefix('medical-center')->name('medical_center.')->group(function () {
 
