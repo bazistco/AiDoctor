@@ -52,7 +52,7 @@ class CheckOwnership
 
             return response()->json([
                 'status'  => false,
-                'message' => $messages[$entityType] ?? 'دسترسی غیرمجاز',
+                'message' => $messages[$entityType] ?? $user->id,
             ], 403);
         }
 
