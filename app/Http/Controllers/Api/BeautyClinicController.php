@@ -359,7 +359,6 @@ class BeautyClinicController extends Controller
                     $slotId = (int) $request->slot_id;
                     $servicePackIds = array_values(array_unique($request->service_pack_ids));
 
-                    // قفل ردیف نوبت برای جلوگیری از رزرو همزمان
                     $slot = DB::table('beauty_clinic_slots')
                         ->where('id', $slotId)
                         ->where('clinic_id', $clinicId)
@@ -368,8 +367,12 @@ class BeautyClinicController extends Controller
                         ->first();
 
                     if (!$slot || $slot->booked_count >= $slot->capacity) {
-                        throw new \RuntimeException('ظرفیت پذیرش این زمان مراجعه تکمیل شده است، لطفاً زمان دیگری را انتخاب کنید.');
+                        throw new \RuntimeException('این نوبت توسط کاربر دیگری در حال رزرو است یا تکمیل شده است.');
                     }
+
+                    DB::table('beauty_clinic_slots')
+                        ->where('id', $slotId)
+                        ->increment('booked_count');
 
                     $clinicServices = DB::table('beauty_clinic_services')
                         ->join('beauty_clinic_info', 'beauty_clinic_info.user_id', '=', 'beauty_clinic_services.clinic_id')
