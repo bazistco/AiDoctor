@@ -399,7 +399,7 @@ class BeautyClinicController extends Controller
                     // ایجاد سفارش و لینک پرداخت (reasonId را مطابق جدول order_reasons خود تنظیم کنید)
                     $orderResult = $orderService->createOrReuse(
                         userId: $user->id,
-                        reasonId: 6,
+                        reasonId: 10,
                         reasonRef: $beautyRequestId,
                         amount: $totalPrice,
                         description: "پرداخت فاکتور کلینیک زیبایی - درخواست #{$beautyRequestId}",
