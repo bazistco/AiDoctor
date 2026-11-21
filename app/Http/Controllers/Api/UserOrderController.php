@@ -251,7 +251,7 @@ class UserOrderController extends Controller
             ->leftJoin('beauty_clinic_slots as bcs', 'ubr.slot_id', '=', 'bcs.id')
             ->leftJoin('orders as o', function ($join) use ($userId) {
                 $join->on('o.reason_ref', '=', DB::raw('CAST(ubr.id AS CHAR)'))
-                    ->where('o.reason_id', '=', 7)
+                    ->where('o.reason_id', '=', 10)
                     ->where('o.user_id', '=', $userId)
                     ->where('o.status', '=', 1);
             })
@@ -395,24 +395,23 @@ class UserOrderController extends Controller
                     ]);
             }
 
-            // ۴. کلینیک زیبایی: وضعیت ۰ و ۱ -> تغییر به ۶ (لغو شده) + آزادسازی ظرفیت اسلات
             $expiredBeautyRequests = DB::table('users_beauty_requests')
                 ->whereIn('status', [0, 1])
                 ->where('created_at', '<=', $thresholdTime)
+                ->lockForUpdate()
                 ->select('id', 'slot_id')
                 ->get();
 
             if ($expiredBeautyRequests->isNotEmpty()) {
-                $expiredBeautyIds = $expiredBeautyRequests->pluck('id')->toArray();
+                $expiredIds = $expiredBeautyRequests->pluck('id')->toArray();
 
                 $results['beauty'] = DB::table('users_beauty_requests')
-                    ->whereIn('id', $expiredBeautyIds)
+                    ->whereIn('id', $expiredIds)
                     ->update([
                         'status'     => 6,
                         'updated_at' => Carbon::now(),
                     ]);
 
-                // برگرداندن ظرفیت اسلات‌های آزاد شده
                 foreach ($expiredBeautyRequests as $req) {
                     if ($req->slot_id) {
                         DB::table('beauty_clinic_slots')
@@ -422,10 +421,9 @@ class UserOrderController extends Controller
                     }
                 }
 
-                // لغو سفارش‌های متناظر در جدول orders (reason_id = 7)
                 $results['orders'] += DB::table('doctor.orders')
-                    ->where('reason_id', 7)
-                    ->whereIn('reason_ref', array_map('strval', $expiredBeautyIds))
+                    ->where('reason_id', 10)
+                    ->whereIn('reason_ref', array_map('strval', $expiredIds))
                     ->where('status', 1)
                     ->update([
                         'status'     => 3,
