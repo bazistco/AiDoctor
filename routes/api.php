@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\DiagnosisController;
 use App\Http\Controllers\Api\Doctor\DoctorSecretaryController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\HomeController;
+use App\Http\Controllers\Api\MedicationCronController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaymentGatewayController;
 use App\Http\Controllers\Api\PillOrganizerController;
@@ -35,6 +36,8 @@ use App\Http\Controllers\Api\MedicalServiceProviderController;
 use App\Http\Controllers\Api\Admin\AdminServiceController;
 use Kavenegar\KavenegarApi;
 use Illuminate\Support\Facades\Redis;
+Route::get('/cron/send-medication-reminders', [MedicationCronController::class, 'sendReminders']);
+
 Route::post('/internal/cleanup/expired-slots', [App\Http\Controllers\Api\CleanupController::class, 'releaseExpiredSlots']);
 Route::get('/routes-count', function () {
     $routes = Route::getRoutes();
