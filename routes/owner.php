@@ -18,7 +18,7 @@ use App\Http\Controllers\Api\Owner\Pharmacies\PharmacyStaffController;
 use Illuminate\Support\Facades\Route;
 
 
-Route::prefix('owner/beauty-clinic')->group(function () {
+Route::prefix('beauty-clinic')->group(function () {
     // عمومی (بدون توکن)
     Route::post('/login', [\App\Http\Controllers\Api\Owner\Beauty\BeautyAuthController::class, 'login']);
     Route::post('/verify', [\App\Http\Controllers\Api\Owner\Beauty\BeautyAuthController::class, 'verify']);
