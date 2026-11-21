@@ -336,9 +336,11 @@ class BeautyClinicController extends Controller
                     }
                 }
 
+                $prescriptionTypeId = ($requestTypeId === 4) ? 1 : $requestTypeId;
+
                 $prescriptionId = DB::table('users_prescriptions')->insertGetId([
                     'user_id' => $user->id,
-                    'prescription_type_id' => $requestTypeId,
+                    'prescription_type_id' => $prescriptionTypeId,
                     'status' => 1,
                     'details' => json_encode($prescriptionDetails),
                     'created_at' => now(),
