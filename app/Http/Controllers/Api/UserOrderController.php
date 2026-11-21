@@ -37,7 +37,7 @@ class UserOrderController extends Controller
             return response()->json(['success' => true, 'data' => []]);
         }
 
-        // --- بخش جدید: دریافت تمامی پرداخت‌های مرتبط با این سفارشات (جلوگیری از N+1) ---
+        // دریافت تمامی پرداخت‌های مرتبط با این سفارشات (جلوگیری از N+1)
         $orderIds = $orders->pluck('id')->toArray();
         $payments = DB::table('doctor.payments')
             ->whereIn('order_id', $orderIds)
@@ -49,7 +49,6 @@ class UserOrderController extends Controller
         foreach ($payments as $payment) {
             $groupedPayments[$payment->order_id][] = $payment;
         }
-        // ------------------------------------------------------------------------
 
         // نقشه ارتباط جداول درخواست با جداول اطلاعات مراکز درمانی
         $providerMap = [
@@ -57,6 +56,7 @@ class UserOrderController extends Controller
             'users_labs_requests'          => ['fk' => 'lab_id',            'info_table' => 'labs_info'],
             'users_pharmacy_requests'      => ['fk' => 'pharmacy_id',       'info_table' => 'pharmacies_info'],
             'user_medical_center_requests' => ['fk' => 'medical_center_id', 'info_table' => 'medical_centers_info'],
+            'users_beauty_requests'        => ['fk' => 'clinic_id',         'info_table' => 'beauty_clinic_info'],
         ];
 
         $targetRefs = [];
@@ -103,7 +103,7 @@ class UserOrderController extends Controller
         $formattedOrders = $orders->map(function ($order) use ($requestDetails, $providerMap, $providerDetails, $groupedPayments) {
             $order->request_info = null;
             $order->provider_info = null;
-            $order->payments = $groupedPayments[$order->id] ?? []; // اضافه شدن لیست پرداخت‌ها
+            $order->payments = $groupedPayments[$order->id] ?? [];
 
             if ($order->target_table && $order->reason_ref) {
                 $reqRecord = $requestDetails[$order->target_table][$order->reason_ref] ?? null;
@@ -129,12 +129,13 @@ class UserOrderController extends Controller
             'data'    => $formattedOrders
         ]);
     }
+
     public function index(Request $request)
     {
         $user = $request->user();
         $userId = $user->id;
 
-        // --- ۱. کوئری نوبت‌های پزشک (شامل رزرو قطعی و سفارشات باز/در انتظار پرداخت) ---
+        // --- ۱. کوئری نوبت‌های پزشک ---
         $q1 = DB::table('appointment_slots as sa')
             ->join('doctor_info as di', 'sa.doctor_id', '=', 'di.user_id')
             ->join('specialties as s', 'di.specialty_id', '=', 's.id')
@@ -142,7 +143,7 @@ class UserOrderController extends Controller
                 $join->on('o.reason_ref', '=', DB::raw('CAST(sa.id AS CHAR)'))
                     ->where('o.reason_id', '=', 1)
                     ->where('o.user_id', '=', $userId)
-                    ->where('o.status', '=', 1); // سفارشات با درگاه باز/در انتظار پرداخت
+                    ->where('o.status', '=', 1);
             })
             ->select(
                 'sa.id',
@@ -152,7 +153,7 @@ class UserOrderController extends Controller
                 'di.name',
                 's.name as detail',
                 DB::raw("'doctor' as type"),
-                DB::raw('COALESCE(sa.order_id, o.id) as order_id') // شناسه سفارش باز یا رزرو شده
+                DB::raw('COALESCE(sa.order_id, o.id) as order_id')
             )
             ->where(function ($query) use ($userId) {
                 $query->where('sa.patient_id', $userId);
@@ -165,7 +166,7 @@ class UserOrderController extends Controller
                 $join->on('o.reason_ref', '=', DB::raw('CAST(ulr.id AS CHAR)'))
                     ->where('o.reason_id', '=', 5)
                     ->where('o.user_id', '=', $userId)
-                    ->where('o.status', '=', 1); // سفارشات با درگاه باز/در انتظار پرداخت
+                    ->where('o.status', '=', 1);
             })
             ->select(
                 'ulr.id',
@@ -186,12 +187,12 @@ class UserOrderController extends Controller
                 $join->on('o.reason_ref', '=', DB::raw('CAST(upr.id AS CHAR)'))
                     ->where('o.reason_id', '=', 6)
                     ->where('o.user_id', '=', $userId)
-                    ->where('o.status', '=', 1); // سفارشات با درگاه باز/در انتظار پرداخت
+                    ->where('o.status', '=', 1);
             })
             ->select(
                 'upr.id',
                 'upr.status',
-                DB::raw('upr.total_price/ 10 as price'),
+                DB::raw('upr.total_price / 10 as price'),
                 'upr.created_at',
                 'pi.name',
                 DB::raw("'-' as detail"),
@@ -208,7 +209,7 @@ class UserOrderController extends Controller
                 $join->on('o.reason_ref', '=', DB::raw('CAST(umcr.id AS CHAR)'))
                     ->where('o.reason_id', '=', 4)
                     ->where('o.user_id', '=', $userId)
-                    ->where('o.status', '=', 1); // سفارشات با درگاه باز/در انتظار پرداخت
+                    ->where('o.status', '=', 1);
             })
             ->select(
                 'umcr.id',
@@ -222,11 +223,12 @@ class UserOrderController extends Controller
             )
             ->where('umcr.user_id', $userId);
 
+        // --- ۵. کوئری مشاوره متنی ---
         $q5 = DB::table('orders as o')
             ->join('chat_rooms as cr', DB::raw('CAST(o.reason_ref AS UNSIGNED)'), '=', 'cr.id')
             ->leftJoin('room_participants as rp', function ($join) use ($userId) {
                 $join->on('rp.room_id', '=', 'cr.id')
-                    ->where('rp.user_id', '!=', $userId); // پیدا کردن کاربری که بیمار نیست (یعنی پزشک)
+                    ->where('rp.user_id', '!=', $userId);
             })
             ->leftJoin('users as u', 'rp.user_id', '=', 'u.id')
             ->select(
@@ -242,27 +244,58 @@ class UserOrderController extends Controller
             ->where('o.user_id', $userId)
             ->where('o.status', 2)
             ->where('o.reason_id', 3);
+
+        // --- ۶. کوئری کلینیک زیبایی (ضمیمه و ادغام با پرستاری در خروجی) ---
+        $q6 = DB::table('users_beauty_requests as ubr')
+            ->leftJoin('users as u', 'ubr.clinic_id', '=', 'u.id')
+            ->leftJoin('beauty_clinic_slots as bcs', 'ubr.slot_id', '=', 'bcs.id')
+            ->leftJoin('orders as o', function ($join) use ($userId) {
+                $join->on('o.reason_ref', '=', DB::raw('CAST(ubr.id AS CHAR)'))
+                    ->where('o.reason_id', '=', 7)
+                    ->where('o.user_id', '=', $userId)
+                    ->where('o.status', '=', 1);
+            })
+            ->select(
+                'ubr.id',
+                'ubr.status',
+                DB::raw('ubr.total_price / 10 as price'),
+                'ubr.created_at',
+                DB::raw("CONCAT('⭐ درخواست زیبایی - ', COALESCE(u.name, 'کلینیک زیبایی')) as name"),
+                DB::raw("COALESCE(bcs.time, 'حضوری') as detail"),
+                DB::raw("'beauty' as type"),
+                DB::raw('o.id as order_id')
+            )
+            ->where('ubr.user_id', $userId);
+
         // اجرای UNION و مرتب‌سازی
         $orders = $q1->unionAll($q2)
             ->unionAll($q3)
             ->unionAll($q4)
             ->unionAll($q5)
+            ->unionAll($q6)
             ->orderBy('created_at', 'desc')
             ->orderByRaw("CASE WHEN status IN (0, 1, 'booked', 'available') THEN 0 ELSE 1 END ASC")
             ->get();
 
-        // --- تبدیل وضعیت به برچسب فارسی ---
+        // تبدیل وضعیت به برچسب فارسی + ادغام نوع beauty در nurse برای فرانت‌اند
         $orders = $orders->map(function ($order) {
             $order->status_label = $this->mapStatus((string) $order->type, $order->status);
+
+            if ($order->type === 'beauty') {
+                $order->type = 'nurse';
+            }
+
             return $order;
         });
 
-        // --- شمارش کلی هر دسته ---
+        // شمارش کلی هر دسته (ادغام شمارش کلینیک زیبایی با پرستاری)
         $countDoctor   = DB::table('appointment_slots')->where('patient_id', $userId)->count();
         $countLab      = DB::table('users_labs_requests')->where('user_id', $userId)->count();
         $countPharmacy = DB::table('users_pharmacy_requests')->where('user_id', $userId)->count();
         $countNurse    = DB::table('user_medical_center_requests')->where('user_id', $userId)->count();
-        $count_chat = DB::table('orders')->where('user_id', $userId)->where('reason_id', 3)->count();
+        $countBeauty   = DB::table('users_beauty_requests')->where('user_id', $userId)->count();
+        $countChat     = DB::table('orders')->where('user_id', $userId)->where('reason_id', 3)->count();
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -270,11 +303,12 @@ class UserOrderController extends Controller
                 'count_doctor'   => $countDoctor,
                 'count_lab'      => $countLab,
                 'count_pharmacy' => $countPharmacy,
-                'count_nurse'    => $countNurse,
-                'count_chat'     => $count_chat,
+                'count_nurse'    => $countNurse + $countBeauty,
+                'count_chat'     => $countChat,
             ]
         ]);
     }
+
     public function cancelExpiredPendingOrders()
     {
         $thresholdTime = Carbon::now()->subMinutes(30);
@@ -282,15 +316,15 @@ class UserOrderController extends Controller
             'pharmacy' => 0,
             'lab'      => 0,
             'nurse'    => 0,
+            'beauty'   => 0,
             'orders'   => 0,
         ];
 
         DB::transaction(function () use ($thresholdTime, &$results) {
-            $service_time = 60;
-            // ۱. آزمایشگاه: وضعیت ۱ (در انتظار پرداخت) -> تغییر به ۶ (لغو شده)
+            // ۱. آزمایشگاه: وضعیت ۰ و ۱ -> تغییر به ۶ (لغو شده)
             $expiredLabIds = DB::table('users_labs_requests')
-                ->whereIn('status', [0,1])
-                ->where('created_at', '<=', $service_time)
+                ->whereIn('status', [0, 1])
+                ->where('created_at', '<=', $thresholdTime)
                 ->pluck('id')
                 ->toArray();
 
@@ -302,21 +336,20 @@ class UserOrderController extends Controller
                         'updated_at' => Carbon::now(),
                     ]);
 
-                // لغو سفارش‌های متناظر در جدول orders (reason_id = 5)
                 $results['orders'] += DB::table('doctor.orders')
                     ->where('reason_id', 5)
                     ->whereIn('reason_ref', array_map('strval', $expiredLabIds))
                     ->where('status', 1)
                     ->update([
-                        'status'     => 3, // وضعیت لغو/منقضی سفارش (بر اساس استانداردهای سیستم معمولاً 3)
+                        'status'     => 3,
                         'updated_at' => Carbon::now(),
                     ]);
             }
 
-            // ۲. داروخانه: وضعیت ۱ (در انتظار پرداخت) -> تغییر به ۷ (لغو شده)
+            // ۲. داروخانه: وضعیت ۰ و ۱ -> تغییر به ۷ (لغو شده)
             $expiredPharmacyIds = DB::table('users_pharmacy_requests')
-                ->whereIn('status', [0,1])
-                ->where('created_at', '<=', $service_time)
+                ->whereIn('status', [0, 1])
+                ->where('created_at', '<=', $thresholdTime)
                 ->pluck('id')
                 ->toArray();
 
@@ -328,7 +361,6 @@ class UserOrderController extends Controller
                         'updated_at' => Carbon::now(),
                     ]);
 
-                // لغو سفارش‌های متناظر در جدول orders (reason_id = 6)
                 $results['orders'] += DB::table('doctor.orders')
                     ->where('reason_id', 6)
                     ->whereIn('reason_ref', array_map('strval', $expiredPharmacyIds))
@@ -339,10 +371,10 @@ class UserOrderController extends Controller
                     ]);
             }
 
-            // ۳. مراکز درمانی / پرستاری: وضعیت ۰ (در انتظار پرداخت) -> تغییر به ۵ (لغو شده)
+            // ۳. مراکز درمانی / پرستاری: وضعیت ۰ -> تغییر به ۵ (لغو شده)
             $expiredNurseIds = DB::table('user_medical_center_requests')
                 ->where('status', 0)
-                ->where('created_at', '<=', $service_time)
+                ->where('created_at', '<=', $thresholdTime)
                 ->pluck('id')
                 ->toArray();
 
@@ -354,10 +386,47 @@ class UserOrderController extends Controller
                         'updated_at' => Carbon::now(),
                     ]);
 
-                // لغو سفارش‌های متناظر در جدول orders (reason_id = 4)
                 $results['orders'] += DB::table('doctor.orders')
                     ->where('reason_id', 4)
                     ->whereIn('reason_ref', array_map('strval', $expiredNurseIds))
+                    ->where('status', 1)
+                    ->update([
+                        'status'     => 3,
+                        'updated_at' => Carbon::now(),
+                    ]);
+            }
+
+            // ۴. کلینیک زیبایی: وضعیت ۰ و ۱ -> تغییر به ۶ (لغو شده) + آزادسازی ظرفیت اسلات
+            $expiredBeautyRequests = DB::table('users_beauty_requests')
+                ->whereIn('status', [0, 1])
+                ->where('created_at', '<=', $thresholdTime)
+                ->select('id', 'slot_id')
+                ->get();
+
+            if ($expiredBeautyRequests->isNotEmpty()) {
+                $expiredBeautyIds = $expiredBeautyRequests->pluck('id')->toArray();
+
+                $results['beauty'] = DB::table('users_beauty_requests')
+                    ->whereIn('id', $expiredBeautyIds)
+                    ->update([
+                        'status'     => 6,
+                        'updated_at' => Carbon::now(),
+                    ]);
+
+                // برگرداندن ظرفیت اسلات‌های آزاد شده
+                foreach ($expiredBeautyRequests as $req) {
+                    if ($req->slot_id) {
+                        DB::table('beauty_clinic_slots')
+                            ->where('id', $req->slot_id)
+                            ->where('booked_count', '>', 0)
+                            ->decrement('booked_count');
+                    }
+                }
+
+                // لغو سفارش‌های متناظر در جدول orders (reason_id = 7)
+                $results['orders'] += DB::table('doctor.orders')
+                    ->where('reason_id', 7)
+                    ->whereIn('reason_ref', array_map('strval', $expiredBeautyIds))
                     ->where('status', 1)
                     ->update([
                         'status'     => 3,
@@ -382,20 +451,20 @@ class UserOrderController extends Controller
     {
         switch ($type) {
             case 'doctor':
-                // وضعیت‌های متنی برای دکتر
                 return match ($status) {
                     'available' => 'در دسترس',
                     'booked'    => 'رزرو شده',
                     'cancelled' => 'لغو شده',
-                    default     => $status   // یا 'نامشخص'
+                    default     => $status
                 };
 
             case 'lab':
+            case 'beauty':
                 return match ((int) $status) {
                     0 => 'درخواست جدید',
                     1 => 'در انتظار پرداخت',
-                    2 => 'در انتظار نمونه‌گیری',
-                    3 => 'در انتظار اعلام نتیجه',
+                    2 => 'در انتظار مراجعه',
+                    3 => 'در حال انجام',
                     4 => 'تکمیل شده',
                     5 => 'انجام شده',
                     6 => 'لغو شده',

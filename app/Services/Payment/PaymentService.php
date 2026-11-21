@@ -243,7 +243,33 @@ class PaymentService
                         'updated_at' => now()
                     ]);
             }
+            if ($order && (int) $order->reason_id === 10 && !empty($order->reason_ref)) {
+                $beautyRequestId = (int) $order->reason_ref;
 
+                DB::transaction(function () use ($beautyRequestId) {
+                    $beautyReq = DB::table('users_beauty_requests')
+                        ->where('id', $beautyRequestId)
+                        ->whereIn('status', [0, 1])
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($beautyReq) {
+                        DB::table('users_beauty_requests')
+                            ->where('id', $beautyRequestId)
+                            ->update([
+                                'status'     => 6,
+                                'updated_at' => now(),
+                            ]);
+
+                        if (!empty($beautyReq->slot_id)) {
+                            DB::table('beauty_clinic_slots')
+                                ->where('id', $beautyReq->slot_id)
+                                ->where('booked_count', '>', 0)
+                                ->decrement('booked_count');
+                        }
+                    }
+                });
+            }
             $this->logGateway($paymentId, 'callback_failed', $payload, ['state' => $state]);
             return ['success' => false, 'error' => $reason, 'payment_id' => $paymentId];
         }
@@ -400,6 +426,44 @@ class PaymentService
                 }
             }
 
+            // (10) کلینیک زیبایی: بررسی معتبر و منقضی نبودن درخواست قبل از Verify
+            if ((int) $order->reason_id === 10 && !empty($order->reason_ref)) {
+                $beautyRequestId = (int) $order->reason_ref;
+
+                $beautyReq = DB::table('users_beauty_requests')
+                    ->where('id', $beautyRequestId)
+                    ->where('user_id', $order->user_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $beautyReq || ! in_array((int) $beautyReq->status, [0, 1], true)) {
+                    $reason = 'درخواست کلینیک زیبایی منقضی یا لغو شده است و امکان تکمیل پرداخت وجود ندارد.';
+
+                    $this->markFailed($paymentId, $reason);
+
+                    DB::table('orders')
+                        ->where('id', $order->id)
+                        ->where('status', OrderService::STATUS_PENDING)
+                        ->update([
+                            'status'       => OrderService::STATUS_FAILED,
+                            'cancelled_at' => now(),
+                            'updated_at'   => now(),
+                        ]);
+
+                    $this->logGateway($paymentId, 'verify_aborted_beauty_request_invalid', [
+                        'beauty_request_id' => $beautyRequestId,
+                        'current_status'    => $beautyReq?->status ?? 'not_found',
+                    ], $payload);
+
+                    DB::commit();
+
+                    return [
+                        'success'    => false,
+                        'error'      => 'beauty_request_expired_or_cancelled',
+                        'payment_id' => $paymentId,
+                    ];
+                }
+            }
             // ─────────────────────────────────────────────────────────────
             // 4-B) Verify (بعد از پاس شدن گاردها)
             // ─────────────────────────────────────────────────────────────
@@ -750,6 +814,22 @@ class PaymentService
                         'order_id'   => $order->id,
                     ]);
                 }
+            }
+            if ((int) $order->reason_id === 10 && !empty($order->reason_ref)) {
+                $beautyRequestId = (int) $order->reason_ref;
+
+                DB::table('users_beauty_requests')
+                    ->where('id', $beautyRequestId)
+                    ->whereIn('status', [0, 1])
+                    ->update([
+                        'status'     => 2,
+                        'updated_at' => now(),
+                    ]);
+
+                Log::info('[PaymentService] Beauty request paid successfully', [
+                    'beauty_request_id' => $beautyRequestId,
+                    'order_id'          => $order->id,
+                ]);
             }
             $this->logGateway($paymentId, 'verify_success', [
                 'ref_num' => $refNum,

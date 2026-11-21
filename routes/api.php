@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Api\Controllers\Auth\AuthController;
+use App\Http\Controllers\Api\BeautyClinicController;
 use App\Http\Controllers\Api\DiagnosisController;
 use App\Http\Controllers\Api\Doctor\DoctorSecretaryController;
 use App\Http\Controllers\Api\HealthController;
@@ -429,6 +430,15 @@ Route::group(['prefix' => 'user'],function (){
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
     Route::post('verify',[AuthController::class,'verify'])->middleware('throttle:10,1');
      Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
+         Route::prefix('beauty-clinic')->group(function () {
+             Route::get('/service-packs', [BeautyClinicController::class, 'getServicePacks']);
+             Route::get('/centers', [BeautyClinicController::class, 'getCenters']);
+             Route::get('/centers/{clinicId}/services', [BeautyClinicController::class, 'getCenterServices']);
+             Route::get('/centers/{clinicId}/slots', [BeautyClinicController::class, 'getCenterSlots']);
+             Route::post('/search-centers', [BeautyClinicController::class, 'searchCenters']);
+             Route::post('/requests', [BeautyClinicController::class, 'storeRequest']);
+             Route::get('/requests', [BeautyClinicController::class, 'getUserRequests']);
+         });
          Route::middleware('auth:sanctum')->prefix('pill-organizer')->group(function () {
              // دریافت کل جاقرصی (فرمت شده دقیقاً مشابه PillBoxMap در فرانت)
              Route::get('/', [PillOrganizerController::class, 'index']);
