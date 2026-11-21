@@ -261,8 +261,7 @@ class UserOrderController extends Controller
                 DB::raw('ubr.total_price / 10 as price'),
                 'ubr.created_at',
                 DB::raw("CONCAT('⭐ درخواست زیبایی - ', COALESCE(u.name, 'کلینیک زیبایی')) as name"),
-                DB::raw("COALESCE(bcs.time, 'حضوری') as detail"),
-                DB::raw("'beauty' as type"),
+                DB::raw("IF(bcs.id IS NOT NULL, CONCAT(LEFT(bcs.start_time, 5), ' تا ', LEFT(bcs.end_time, 5)), 'حضوری') as detail"),                DB::raw("'beauty' as type"),
                 DB::raw('o.id as order_id')
             )
             ->where('ubr.user_id', $userId);

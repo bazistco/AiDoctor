@@ -125,34 +125,56 @@ class BeautyClinicController extends Controller
 
     public function getCenterSlots($clinicId)
     {
+        $today = now()->toDateString();
+        $nowTime = now()->format('H:i:s');
+
         $rows = DB::table('beauty_clinic_slots')
             ->where('clinic_id', $clinicId)
             ->where('status', 1)
-            ->where('date', '>=', now()->toDateString())
-            ->orderBy('date', 'asc')
-            ->orderBy('id', 'asc')
+            ->where(function ($q) use ($today, $nowTime) {
+                $q->where('slot_date', '>', $today)
+                    ->orWhere(function ($q2) use ($today, $nowTime) {
+                        $q2->where('slot_date', '=', $today)
+                            ->where('start_time', '>', $nowTime);
+                    });
+            })
+            ->orderBy('slot_date', 'asc')
+            ->orderBy('start_time', 'asc')
             ->get();
 
         $grouped = [];
         foreach ($rows as $row) {
-            if (!isset($grouped[$row->date])) {
-                $grouped[$row->date] = [
-                    'date' => $row->date,
-                    'label' => $row->date_label,
+            if (!isset($grouped[$row->slot_date])) {
+                $diffDays = now()->startOfDay()->diffInDays(\Carbon\Carbon::parse($row->slot_date)->startOfDay(), false);
+                $label = match ($diffDays) {
+                    0 => 'امروز',
+                    1 => 'فردا',
+                    2 => 'پس‌فردا',
+                    default => $row->slot_date,
+                };
+
+                $grouped[$row->slot_date] = [
+                    'date'  => $row->slot_date,
+                    'label' => $label,
                     'slots' => [],
                 ];
             }
 
-            $grouped[$row->date]['slots'][] = [
-                'id' => $row->id,
-                'time' => $row->time,
-                'is_full' => $row->booked_count >= $row->capacity,
+            $start = substr($row->start_time, 0, 5);
+            $end   = substr($row->end_time, 0, 5);
+
+            $grouped[$row->slot_date]['slots'][] = [
+                'id'         => $row->id,
+                'start_time' => $start,
+                'end_time'   => $end,
+                'time'       => "{$start} تا {$end}",
+                'is_full'    => $row->booked_count >= $row->capacity,
             ];
         }
 
         return response()->json([
             'success' => true,
-            'data' => array_values($grouped),
+            'data'    => array_values($grouped),
         ]);
     }
 
@@ -361,7 +383,7 @@ class BeautyClinicController extends Controller
                     }
 
                     $totalPrice = (float) $clinicServices->sum('price'); // به ریال برای درگاه پرداخت
-                    $appointmentDate = $slot->date;
+                    $appointmentDate = $slot->slot_date;
 
                     DB::table('beauty_clinic_slots')
                         ->where('id', $slotId)
@@ -460,7 +482,7 @@ class BeautyClinicController extends Controller
                 'users_beauty_requests.visit_type',
                 'users_beauty_requests.request_type_id',
                 'users_beauty_requests.appointment_date',
-                'beauty_clinic_slots.time as slot_time',
+                DB::raw("CONCAT(LEFT(beauty_clinic_slots.start_time, 5), ' تا ', LEFT(beauty_clinic_slots.end_time, 5)) as slot_time"),
                 'users_beauty_requests.status',
                 DB::raw('users_beauty_requests.total_price/10 as total_price'),
                 'users_beauty_requests.created_at',
