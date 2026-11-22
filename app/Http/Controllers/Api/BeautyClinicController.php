@@ -11,6 +11,149 @@ use Illuminate\Support\Facades\Validator;
 
 class BeautyClinicController extends Controller
 {
+
+    /**
+     * ۱. دریافت جزئیات درخواست کلینیک زیبایی برای کاربر
+     * GET /api/user/beauty-requests/{id}
+     */
+    public function getUserRequestDetail(Request $request, $id)
+    {
+        $userId = $request->user()->id;
+
+        $req = DB::table('users_beauty_requests as ubr')
+            ->leftJoin('users as u', 'u.id', '=', 'ubr.clinic_id')
+            ->leftJoin('beauty_clinic_info as bci', 'bci.user_id', '=', 'ubr.clinic_id')
+            ->leftJoin('beauty_clinic_slots as bcs', 'bcs.id', '=', 'ubr.slot_id')
+            ->where('ubr.id', $id)
+            ->where('ubr.user_id', $userId)
+            ->select(
+                'ubr.id',
+                'ubr.status',
+                DB::raw('ubr.total_price / 10 as total_price'),
+                'ubr.created_at as request_date',
+                'ubr.appointment_date',
+                DB::raw("IF(bcs.id IS NOT NULL, CONCAT(LEFT(bcs.start_time, 5), ' تا ', LEFT(bcs.end_time, 5)), NULL) as slot_time"),
+                DB::raw("COALESCE(u.name, 'کلینیک زیبایی') as clinic_name"),
+                'bci.address as clinic_address',
+                'bci.phone as clinic_phone'
+            )
+            ->first();
+
+        if (!$req) {
+            return response()->json([
+                'success' => false,
+                'message' => 'درخواست مورد نظر یافت نشد.',
+            ], 404);
+        }
+
+        $services = DB::table('beauty_request_service_packs as brsp')
+            ->join('beauty_clinic_services as bcs', 'bcs.id', '=', 'brsp.clinic_service_id')
+            ->join('beauty_service_packs as bsp', 'bsp.id', '=', 'bcs.service_pack_id')
+            ->where('brsp.beauty_request_id', $req->id)
+            ->select(
+                'brsp.id',
+                'bsp.name as service_name',
+                DB::raw('bcs.price / 10 as price')
+            )
+            ->get();
+
+        $statusLabels = [
+            0 => 'درخواست جدید',
+            1 => 'در انتظار پرداخت',
+            2 => 'در انتظار مراجعه',
+            3 => 'در حال انجام',
+            4 => 'تکمیل شده',
+            5 => 'انجام شده',
+            6 => 'لغو شده',
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'id'               => $req->id,
+                'status'           => (int) $req->status,
+                'status_label'     => $statusLabels[(int) $req->status] ?? 'نامشخص',
+                'total_price'      => (float) $req->total_price,
+                'request_date'     => $req->request_date,
+                'appointment_date' => $req->appointment_date,
+                'slot_time'        => $req->slot_time,
+                'clinic_name'      => $req->clinic_name,
+                'clinic_address'   => $req->clinic_address,
+                'clinic_phone'     => $req->clinic_phone,
+                'services'         => $services,
+            ],
+        ]);
+    }
+
+    /**
+     * ۲. لغو دستی درخواست کلینیک زیبایی توسط کاربر (فقط قبل از پرداخت)
+     * POST /api/user/beauty-requests/{id}/cancel
+     */
+    public function cancelUserRequest(Request $request, $id)
+    {
+        $userId = $request->user()->id;
+
+        try {
+            DB::transaction(function () use ($id, $userId) {
+                $req = DB::table('users_beauty_requests')
+                    ->where('id', $id)
+                    ->where('user_id', $userId)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$req) {
+                    throw new \RuntimeException('درخواست مورد نظر یافت نشد.', 404);
+                }
+
+                if ((int) $req->status === 6) {
+                    throw new \RuntimeException('این درخواست قبلاً لغو شده است.', 400);
+                }
+
+                if (!in_array((int) $req->status, [0, 1], true)) {
+                    throw new \RuntimeException('پس از پرداخت، امکان لغو مستقیم درخواست وجود ندارد.', 422);
+                }
+
+                // تغییر وضعیت درخواست به لغو شده (6)
+                DB::table('users_beauty_requests')
+                    ->where('id', $req->id)
+                    ->update([
+                        'status'     => 6,
+                        'updated_at' => now(),
+                    ]);
+
+                // آزادسازی فوری ظرفیت اسلات رزروشده
+                if (!empty($req->slot_id)) {
+                    DB::table('beauty_clinic_slots')
+                        ->where('id', $req->slot_id)
+                        ->where('booked_count', '>', 0)
+                        ->decrement('booked_count');
+                }
+
+                // لغو سفارش معلق متناظر در جدول orders (reason_id = 10)
+                DB::table('orders')
+                    ->where('user_id', $userId)
+                    ->where('reason_id', 10)
+                    ->where('reason_ref', (string) $req->id)
+                    ->where('status', 1)
+                    ->update([
+                        'status'       => 3, // FAILED / CANCELLED
+                        'cancelled_at' => now(),
+                        'updated_at'   => now(),
+                    ]);
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'درخواست شما با موفقیت لغو شد و ظرفیت نوبت آزاد گردید.',
+            ]);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], $e->getCode() ?: 400);
+        }
+    }
+
     public function getServicePacks()
     {
         $items = DB::table('beauty_service_packs')

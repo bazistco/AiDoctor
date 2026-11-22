@@ -438,6 +438,8 @@ Route::group(['prefix' => 'user'],function (){
              Route::post('/search-centers', [BeautyClinicController::class, 'searchCenters']);
              Route::post('/requests', [BeautyClinicController::class, 'storeRequest']);
              Route::get('/requests', [BeautyClinicController::class, 'getUserRequests']);
+             Route::get('/beauty-requests/{id}', [BeautyClinicController::class, 'getUserRequestDetail']);
+             Route::post('/beauty-requests/{id}/cancel', [BeautyClinicController::class, 'cancelUserRequest']);
          });
          Route::middleware('auth:sanctum')->prefix('pill-organizer')->group(function () {
              // دریافت کل جاقرصی (فرمت شده دقیقاً مشابه PillBoxMap در فرانت)
