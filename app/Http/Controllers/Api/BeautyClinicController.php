@@ -36,7 +36,13 @@ class BeautyClinicController extends Controller
                 DB::raw('MAX(beauty_clinic_services.price)/10 as max_price')
             )
             ->orderBy('beauty_service_packs.name')
-            ->get();
+            ->get()->map(function ($item) {
+                if (!empty($item->image) && !str_starts_with($item->image, 'http')) {
+                    $item->image = 'https://api.mediraai.com/storage/' . ltrim($item->image, '/');
+                }
+
+                return $item;
+            });
 
         return response()->json([
             'success' => true,
