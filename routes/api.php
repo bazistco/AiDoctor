@@ -71,9 +71,9 @@ Route::middleware('auth:sanctum')->prefix('staff')->group(function () {
 Route::get('/v1/check-version', function (Illuminate\Http\Request $request) {
     return response()->json([
         'success' => true,
-        'latestVersionCode' => 17,       // آخرین کد نسخه روی سرور
-        'versionName' => '0.0.17',          // نام نسخه نمایشی
-        'apkUrl' => 'https://api.mediraai.com/medira-0.0.17.apk',
+        'latestVersionCode' => 18,       // آخرین کد نسخه روی سرور
+        'versionName' => '0.0.18',          // نام نسخه نمایشی
+        'apkUrl' => 'https://api.mediraai.com/medira-0.0.18.apk',
         'isMandatory' => true,             // آیا آپدیت اجباری است؟ (true / false)
         'releaseNotes' => 'رفع اشکالات و بهبود پایداری برنامه'
     ]);
