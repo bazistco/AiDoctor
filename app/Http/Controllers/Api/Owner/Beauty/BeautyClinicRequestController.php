@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Api\Owner;
+namespace App\Http\Controllers\Api\Owner\Beauty;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
