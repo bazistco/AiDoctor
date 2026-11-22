@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Owner\BeautyClinicRequestController;
 use App\Http\Controllers\Api\Owner\Lab\LabRulesController;
 use App\Http\Controllers\Api\Owner\Labs\LabAuthController;
 use App\Http\Controllers\Api\Owner\Labs\LabProfileController;
@@ -25,7 +26,21 @@ Route::prefix('beauty-clinic')->group(function () {
 
     Route::middleware(['auth:sanctum', 'user.active', 'role:beauty_clinic','ownership:beauty_clinic'])->group(function () {
         Route::get('/profile', [\App\Http\Controllers\Api\Owner\Beauty\BeautyProfileController::class, 'show']);
+        Route::get('/requests', [BeautyClinicRequestController::class, 'index']);
+        Route::get('/requests/{id}', [BeautyClinicRequestController::class, 'show']);
 
+        // عملیات روی درخواست
+        Route::post('/requests/{id}/accept', [BeautyClinicRequestController::class, 'accept']);
+        Route::put('/requests/{id}/schedule', [BeautyClinicRequestController::class, 'updateSchedule']);
+        Route::put('/requests/{id}/status', [BeautyClinicRequestController::class, 'updateStatus']);
+
+        // مدیریت خدمات درخواست
+        Route::get('/services/available', [BeautyClinicRequestController::class, 'availableServices']);
+        Route::post('/requests/{id}/assign-services', [BeautyClinicRequestController::class, 'assignServices']);
+        Route::delete('/requests/{id}/assign-services', [BeautyClinicRequestController::class, 'unassignServices']);
+
+        // دانلود امن فایل ضمیمه مشاوره
+        Route::get('/prescription-file/{prescriptionId}/{fileName}', [BeautyClinicRequestController::class, 'downloadFile']);
     });
 
 });
