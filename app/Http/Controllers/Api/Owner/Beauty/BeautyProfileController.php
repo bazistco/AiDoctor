@@ -13,10 +13,10 @@ class BeautyProfileController extends \App\Http\Controllers\Controller
 
     public function show(Request $request)
     {
-        $labId = $request->lab_id;
+        $beauty_clinicId = $request->beauty_clinic_id;
 
         $lab = DB::table('beauty_clinic_info')
-            ->where('user_id', $labId)
+            ->where('user_id', $beauty_clinicId)
             ->first();
 
         if (!$lab) {
