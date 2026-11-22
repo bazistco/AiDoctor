@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Owner\Beauty\BeautyClinicRequestController;
+use App\Http\Controllers\Api\Owner\Beauty\BeautyClinicServiceController;
 use App\Http\Controllers\Api\Owner\Lab\LabRulesController;
 use App\Http\Controllers\Api\Owner\Labs\LabAuthController;
 use App\Http\Controllers\Api\Owner\Labs\LabProfileController;
@@ -41,6 +42,12 @@ Route::prefix('beauty-clinic')->group(function () {
 
         // دانلود امن فایل ضمیمه مشاوره
         Route::get('/prescription-file/{prescriptionId}/{fileName}', [BeautyClinicRequestController::class, 'downloadFile']);
+
+        Route::get('/services', [BeautyClinicServiceController::class, 'index']);
+        Route::get('/service-packs', [BeautyClinicServiceController::class, 'availablePacks']);
+        Route::post('/services', [BeautyClinicServiceController::class, 'store']);
+        Route::post('/services/{id}', [BeautyClinicServiceController::class, 'update']); // POST برای پشتیبانی از آپلود عکس
+        Route::put('/services/{id}/toggle', [BeautyClinicServiceController::class, 'toggleStatus']);
     });
 
 });

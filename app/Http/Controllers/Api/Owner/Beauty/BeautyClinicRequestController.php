@@ -266,36 +266,48 @@ class BeautyClinicRequestController extends Controller
         $clinicId  = $request->user()->id;
         $newStatus = (int) $request->input('status');
 
-        $req = DB::table('users_beauty_requests')
-            ->where('id', $id)
-            ->where('clinic_id', $clinicId)
-            ->first();
+        try {
+            DB::transaction(function () use ($id, $clinicId, $newStatus) {
+                $req = DB::table('users_beauty_requests')
+                    ->where('id', $id)
+                    ->where('clinic_id', $clinicId)
+                    ->lockForUpdate()
+                    ->first();
 
-        if (!$req) {
-            return response()->json(['status' => false, 'message' => 'درخواست یافت نشد.'], 404);
+                if (!$req) {
+                    throw new \RuntimeException('درخواست یافت نشد.', 404);
+                }
+
+                // گارد مالی: در وضعیت در انتظار پرداخت امکان تغییر وضعیت وجود ندارد
+                if ((int) $req->status === 1) {
+                    throw new \RuntimeException('این درخواست در وضعیت «در انتظار پرداخت» است و تا تعیین تکلیف پرداخت، امکان تغییر وضعیت آن وجود ندارد.', 422);
+                }
+
+                DB::table('users_beauty_requests')
+                    ->where('id', $req->id)
+                    ->update([
+                        'status'     => $newStatus,
+                        'updated_at' => now(),
+                    ]);
+
+                if ($newStatus === 6 && (int) $req->status !== 6 && !empty($req->slot_id)) {
+                    DB::table('beauty_clinic_slots')
+                        ->where('id', $req->slot_id)
+                        ->where('booked_count', '>', 0)
+                        ->decrement('booked_count');
+                }
+            });
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'وضعیت درخواست با موفقیت تغییر کرد.',
+            ]);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'status'  => false,
+                'message' => $e->getMessage(),
+            ], $e->getCode() ?: 400);
         }
-
-        // آزادسازی ظرفیت اسلات در صورت لغو شدن درخواست
-        DB::transaction(function () use ($req, $newStatus) {
-            DB::table('users_beauty_requests')
-                ->where('id', $req->id)
-                ->update([
-                    'status'     => $newStatus,
-                    'updated_at' => now(),
-                ]);
-
-            if ($newStatus === 6 && (int) $req->status !== 6 && !empty($req->slot_id)) {
-                DB::table('beauty_clinic_slots')
-                    ->where('id', $req->slot_id)
-                    ->where('booked_count', '>', 0)
-                    ->decrement('booked_count');
-            }
-        });
-
-        return response()->json([
-            'status'  => true,
-            'message' => 'وضعیت درخواست با موفقیت تغییر کرد.',
-        ]);
     }
 
     /**
@@ -343,19 +355,6 @@ class BeautyClinicRequestController extends Controller
         $clinicId   = $request->user()->id;
         $serviceIds = array_values(array_unique($request->input('clinic_service_ids')));
 
-        $req = DB::table('users_beauty_requests')
-            ->where('id', $id)
-            ->where('clinic_id', $clinicId)
-            ->whereIn('status', [0, 1])
-            ->first();
-
-        if (!$req) {
-            return response()->json([
-                'status'  => false,
-                'message' => 'درخواست یافت نشد یا امکان ویرایش خدمات آن وجود ندارد.',
-            ], 404);
-        }
-
         $services = DB::table('beauty_clinic_services')
             ->where('clinic_id', $clinicId)
             ->where('status', 1)
@@ -369,40 +368,61 @@ class BeautyClinicRequestController extends Controller
             ], 422);
         }
 
-        DB::transaction(function () use ($id, $services) {
-            DB::table('beauty_request_service_packs')
-                ->where('beauty_request_id', $id)
-                ->delete();
+        try {
+            DB::transaction(function () use ($id, $clinicId, $services) {
+                $req = DB::table('users_beauty_requests')
+                    ->where('id', $id)
+                    ->where('clinic_id', $clinicId)
+                    ->lockForUpdate()
+                    ->first();
 
-            $rows = [];
-            $totalPrice = 0;
+                if (!$req) {
+                    throw new \RuntimeException('درخواست یافت نشد.', 404);
+                }
 
-            foreach ($services as $srv) {
-                $totalPrice += $srv->price;
-                $rows[] = [
-                    'beauty_request_id' => $id,
-                    'clinic_service_id' => $srv->id,
-                    'status'            => 0,
-                    'created_at'        => now(),
-                    'updated_at'        => now(),
-                ];
-            }
+                if ((int) $req->status !== 0) {
+                    throw new \RuntimeException('در وضعیت «در انتظار پرداخت» یا پس از پرداخت، امکان تغییر فاکتور و خدمات وجود ندارد.', 422);
+                }
 
-            DB::table('beauty_request_service_packs')->insert($rows);
+                DB::table('beauty_request_service_packs')
+                    ->where('beauty_request_id', $id)
+                    ->delete();
 
-            DB::table('users_beauty_requests')
-                ->where('id', $id)
-                ->update([
-                    'total_price' => $totalPrice,
-                    'status'      => 1, // در انتظار پرداخت
-                    'updated_at'  => now(),
-                ]);
-        });
+                $rows = [];
+                $totalPrice = 0;
 
-        return response()->json([
-            'status'  => true,
-            'message' => 'خدمات با موفقیت به درخواست تخصیص داده شدند.',
-        ]);
+                foreach ($services as $srv) {
+                    $totalPrice += $srv->price;
+                    $rows[] = [
+                        'beauty_request_id' => $id,
+                        'clinic_service_id' => $srv->id,
+                        'status'            => 0,
+                        'created_at'        => now(),
+                        'updated_at'        => now(),
+                    ];
+                }
+
+                DB::table('beauty_request_service_packs')->insert($rows);
+
+                DB::table('users_beauty_requests')
+                    ->where('id', $id)
+                    ->update([
+                        'total_price' => $totalPrice,
+                        'status'      => 1, // در انتظار پرداخت
+                        'updated_at'  => now(),
+                    ]);
+            });
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'خدمات با موفقیت به درخواست تخصیص داده شدند.',
+            ]);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'status'  => false,
+                'message' => $e->getMessage(),
+            ], $e->getCode() ?: 400);
+        }
     }
 
     /**
@@ -413,37 +433,45 @@ class BeautyClinicRequestController extends Controller
     {
         $clinicId = $request->user()->id;
 
-        $req = DB::table('users_beauty_requests')
-            ->where('id', $id)
-            ->where('clinic_id', $clinicId)
-            ->whereIn('status', [0, 1])
-            ->first();
+        try {
+            DB::transaction(function () use ($id, $clinicId) {
+                $req = DB::table('users_beauty_requests')
+                    ->where('id', $id)
+                    ->where('clinic_id', $clinicId)
+                    ->lockForUpdate()
+                    ->first();
 
-        if (!$req) {
+                if (!$req) {
+                    throw new \RuntimeException('درخواست یافت نشد.', 404);
+                }
+
+                if ((int) $req->status !== 0) {
+                    throw new \RuntimeException('در وضعیت «در انتظار پرداخت» یا پس از آن، امکان حذف خدمات و تغییر فاکتور وجود ندارد.', 422);
+                }
+
+                DB::table('beauty_request_service_packs')
+                    ->where('beauty_request_id', $id)
+                    ->delete();
+
+                DB::table('users_beauty_requests')
+                    ->where('id', $id)
+                    ->update([
+                        'total_price' => 0,
+                        'status'      => 0,
+                        'updated_at'  => now(),
+                    ]);
+            });
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'لیست خدمات حذف شد.',
+            ]);
+        } catch (\RuntimeException $e) {
             return response()->json([
                 'status'  => false,
-                'message' => 'درخواست یافت نشد یا پس از پرداخت امکان حذف خدمات وجود ندارد.',
-            ], 400);
+                'message' => $e->getMessage(),
+            ], $e->getCode() ?: 400);
         }
-
-        DB::transaction(function () use ($id) {
-            DB::table('beauty_request_service_packs')
-                ->where('beauty_request_id', $id)
-                ->delete();
-
-            DB::table('users_beauty_requests')
-                ->where('id', $id)
-                ->update([
-                    'total_price' => 0,
-                    'status'      => 0,
-                    'updated_at'  => now(),
-                ]);
-        });
-
-        return response()->json([
-            'status'  => true,
-            'message' => 'لیست خدمات حذف شد.',
-        ]);
     }
 
     /**
