@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\Staff\PharmacyStaffInventoryController;
 use App\Http\Controllers\Api\Staff\PharmacyStaffRequestController;
 use App\Http\Controllers\Api\Staff\StaffLabRequestController;
 use App\Http\Controllers\Api\UserOrderController;
+use App\Http\Controllers\Api\UserPlanController;
 use App\Services\Payment\OrderService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -430,6 +431,7 @@ Route::group(['prefix' => 'user'],function (){
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
     Route::post('verify',[AuthController::class,'verify'])->middleware('throttle:10,1');
      Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
+         Route::get('/subscription/sidebar', [UserPlanController::class, 'sidebarSubscription']);
          Route::get('/beauty-requests/{id}', [BeautyClinicController::class, 'getUserRequestDetail']);
          Route::post('/beauty-requests/{id}/cancel', [BeautyClinicController::class, 'cancelUserRequest']);
          Route::prefix('beauty-clinic')->group(function () {

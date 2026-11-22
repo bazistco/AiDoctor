@@ -12,6 +12,75 @@ use Illuminate\Support\Facades\DB;
 class UserPlanController extends Controller
 {
     /**
+     * دریافت وضعیت اشتراک فعلی و روزهای باقی‌مانده برای سایدبار
+     */
+    public function sidebarSubscription(Request $request)
+    {
+        $userId = $request->user()->id;
+        $now = now();
+
+        $activePlan = DB::table('user_plans')
+            ->join('subscription_plans', 'user_plans.plan_id', '=', 'subscription_plans.id')
+            ->where('user_plans.user_id', $userId)
+            ->where('user_plans.is_active', 1)
+            ->where(function ($query) use ($now) {
+                $query->whereNull('user_plans.end_date')
+                    ->orWhere('user_plans.end_date', '>', $now);
+            })
+            ->orderByDesc('user_plans.id')
+            ->select(
+                'user_plans.id',
+                'user_plans.plan_id',
+                'user_plans.start_date',
+                'user_plans.end_date',
+                'subscription_plans.name as plan_name',
+                'subscription_plans.slug',
+                'subscription_plans.duration_days'
+            )
+            ->first();
+
+        if (!$activePlan) {
+            $basicPlan = DB::table('subscription_plans')
+                ->where('slug', 'basic')
+                ->where('status', 1)
+                ->first();
+
+            return response()->json([
+                'success' => true,
+                'data'    => [
+                    'has_active_plan' => false,
+                    'plan_id'         => $basicPlan->id ?? 1,
+                    'plan_name'       => $basicPlan->name ?? 'پلن پایه',
+                    'slug'            => $basicPlan->slug ?? 'basic',
+                    'days_remaining'  => null,
+                    'is_unlimited'    => false,
+                    'end_date'        => null,
+                ],
+            ]);
+        }
+
+        $daysRemaining = null;
+        $isUnlimited = is_null($activePlan->end_date);
+
+        if (!$isUnlimited) {
+            $endDate = \Carbon\Carbon::parse($activePlan->end_date);
+            $daysRemaining = max(0, (int) $now->diffInDays($endDate, false));
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'has_active_plan' => true,
+                'plan_id'         => $activePlan->plan_id,
+                'plan_name'       => $activePlan->plan_name,
+                'slug'            => $activePlan->slug,
+                'days_remaining'  => $daysRemaining,
+                'is_unlimited'    => $isUnlimited,
+                'end_date'        => $activePlan->end_date,
+            ],
+        ]);
+    }
+    /**
      * ۱. دریافت لیست پلن‌های قابل خرید
      */
     public function getPlans()
