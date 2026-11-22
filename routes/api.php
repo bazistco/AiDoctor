@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\MedicationCronController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaymentGatewayController;
 use App\Http\Controllers\Api\PillOrganizerController;
+use App\Http\Controllers\Api\PillOrganizerShareController;
 use App\Http\Controllers\Api\Staff\CenterStaffAuthController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffAppointmentController;
 use App\Http\Controllers\Api\Staff\Doctor\DoctorStaffAuthController;
@@ -39,7 +40,7 @@ use App\Http\Controllers\Api\Admin\AdminServiceController;
 use Kavenegar\KavenegarApi;
 use Illuminate\Support\Facades\Redis;
 Route::get('/cron/send-medication-reminders', [MedicationCronController::class, 'sendReminders']);
-
+Route::get('/cron/pill-organizer/generate-codes', [PillOrganizerShareController::class, 'cronGenerateMissingCodes']);
 Route::post('/internal/cleanup/expired-slots', [App\Http\Controllers\Api\CleanupController::class, 'releaseExpiredSlots']);
 Route::get('/routes-count', function () {
     $routes = Route::getRoutes();
@@ -462,6 +463,15 @@ Route::group(['prefix' => 'user'],function (){
 
              // ریست کردن تیک‌های مصرف برای شروع هفته جدید
              Route::post('/reset-week', [PillOrganizerController::class, 'resetWeek']);
+
+
+             Route::get('/share/my-code', [PillOrganizerShareController::class, 'myCode']);
+             Route::get('/share/shared-users', [PillOrganizerShareController::class, 'sharedUsers']);
+             Route::post('/share/accept-invite', [PillOrganizerShareController::class, 'acceptInvite']);
+             Route::post('/share/search-by-code', [PillOrganizerShareController::class, 'searchByCode']);
+             Route::get('/shared/{ownerId}', [PillOrganizerShareController::class, 'viewSharedCalendar']);
+             Route::delete('/shared/{ownerId}/medications/{id}', [PillOrganizerShareController::class, 'deleteSharedMedication']);
+
          });
 
          Route::get('/diagnosis/specialties',[DiagnosisController::class,'getSpecialties']);
