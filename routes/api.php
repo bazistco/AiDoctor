@@ -430,6 +430,8 @@ Route::group(['prefix' => 'user'],function (){
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
     Route::post('verify',[AuthController::class,'verify'])->middleware('throttle:10,1');
      Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
+         Route::get('/beauty-requests/{id}', [BeautyClinicController::class, 'getUserRequestDetail']);
+         Route::post('/beauty-requests/{id}/cancel', [BeautyClinicController::class, 'cancelUserRequest']);
          Route::prefix('beauty-clinic')->group(function () {
              Route::get('/service-packs', [BeautyClinicController::class, 'getServicePacks']);
              Route::get('/centers', [BeautyClinicController::class, 'getCenters']);
@@ -438,8 +440,7 @@ Route::group(['prefix' => 'user'],function (){
              Route::post('/search-centers', [BeautyClinicController::class, 'searchCenters']);
              Route::post('/requests', [BeautyClinicController::class, 'storeRequest']);
              Route::get('/requests', [BeautyClinicController::class, 'getUserRequests']);
-             Route::get('/beauty-requests/{id}', [BeautyClinicController::class, 'getUserRequestDetail']);
-             Route::post('/beauty-requests/{id}/cancel', [BeautyClinicController::class, 'cancelUserRequest']);
+
          });
          Route::middleware('auth:sanctum')->prefix('pill-organizer')->group(function () {
              // دریافت کل جاقرصی (فرمت شده دقیقاً مشابه PillBoxMap در فرانت)
