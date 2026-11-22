@@ -481,9 +481,9 @@ Route::group(['prefix' => 'user'],function (){
          Route::delete('/meal-plans/{id}', [MealPlanController::class, 'destroy']);
          Route::post('/meal-plans/biometrics', [MealPlanController::class, 'updateBiometrics']);
 
-         Route::get('/user/meal-plans/daily-meals', [MealPlanController::class, 'getDailyMeals']);
-         Route::post('/user/meal-plans/daily-meals', [MealPlanController::class, 'storeDailyMeal']);
-         Route::delete('/user/meal-plans/daily-meals/{id}', [MealPlanController::class, 'destroyDailyMeal']);
+         Route::get('/meal-plans/daily-meals', [MealPlanController::class, 'getDailyMeals']);
+         Route::post('/meal-plans/daily-meals', [MealPlanController::class, 'storeDailyMeal']);
+         Route::delete('/meal-plans/daily-meals/{id}', [MealPlanController::class, 'destroyDailyMeal']);
 
          Route::get('/diagnosis/specialties',[DiagnosisController::class,'getSpecialties']);
          Route::get('/health-insights', [HealthController::class, 'getInsights']);
