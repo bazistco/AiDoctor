@@ -276,18 +276,25 @@ class UserOrderController extends Controller
             ->orderByRaw("CASE WHEN status IN (0, 1, 'booked', 'available') THEN 0 ELSE 1 END ASC")
             ->get();
 
-        // تبدیل وضعیت به برچسب فارسی + ادغام نوع beauty در nurse برای فرانت‌اند
-        $orders = $orders->map(function ($order) {
-            $order->status_label = $this->mapStatus((string) $order->type, $order->status);
+        $beautyOrders = [];
+
+        // تبدیل وضعیت به برچسب فارسی + حفظ سازگاری موبایل + استخراج مجزای زیبایی برای وب
+        $orders = $orders->map(function ($order) use (&$beautyOrders) {
+            $order->status_label  = $this->mapStatus((string) $order->type, $order->status);
+            $order->original_type = $order->type;
 
             if ($order->type === 'beauty') {
+                // نسخه مجزا برای وب با type = 'beauty'
+                $beautyOrders[] = clone $order;
+
+                // حفظ حالت فعلی برای اپلیکیشن موبایل
                 $order->type = 'nurse';
             }
 
             return $order;
         });
 
-        // شمارش کلی هر دسته (ادغام شمارش کلینیک زیبایی با پرستاری)
+        // شمارش کلی هر دسته
         $countDoctor   = DB::table('appointment_slots')->where('patient_id', $userId)->count();
         $countLab      = DB::table('users_labs_requests')->where('user_id', $userId)->count();
         $countPharmacy = DB::table('users_pharmacy_requests')->where('user_id', $userId)->count();
@@ -299,10 +306,12 @@ class UserOrderController extends Controller
             'success' => true,
             'data' => [
                 'orders'         => $orders,
+                'beauty_orders'  => $beautyOrders, // لیست مجزای درخواست‌های زیبایی برای وب
                 'count_doctor'   => $countDoctor,
                 'count_lab'      => $countLab,
                 'count_pharmacy' => $countPharmacy,
-                'count_nurse'    => $countNurse + $countBeauty,
+                'count_nurse'    => $countNurse + $countBeauty, // حفظ حالت فعلی موبایل
+                'count_beauty'   => $countBeauty,               // شمارش مجزای زیبایی برای وب
                 'count_chat'     => $countChat,
             ]
         ]);
