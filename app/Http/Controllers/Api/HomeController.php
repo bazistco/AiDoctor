@@ -104,31 +104,11 @@ class HomeController extends Controller
             // ---------------------------------------------------------
             // ۳. بنر تبلیغاتی (داده نمونه Hardcode شده طبق درخواست)
             // ---------------------------------------------------------
-//            $promotionalBanner = [
-//                'id'        => 1,
-//                'title'     => 'مشاوره آنلاین شبانه‌روزی',
-//                'image_url' => 'https://api.mediraai.com/assets/img/appo-banner.png',
-//                'link'      => '/services' // لینک داخلی در ری‌اکت
-//            ];
-            $promotionalBanners = [
-                [
-                    'id'        => 1,
-                    'title'     => 'مشاوره آنلاین شبانه‌روزی',
-                    'image_url' => 'https://api.mediraai.com/assets/img/appo-banner.png',
-                    'link'      => '/services',
-                ],
-                [
-                    'id'        => 2,
-                    'title'     => 'انجام آزمایش در منزل با تخفیف ویژه',
-                    'image_url' => 'https://api.mediraai.com/assets/img/lab-banner.png',
-                    'link'      => '/lab-orders',
-                ],
-                [
-                    'id'        => 3,
-                    'title'     => 'سفارش آنلاین دارو و تحویل فوری',
-                    'image_url' => 'https://api.mediraai.com/assets/img/pharmacy-banner.png',
-                    'link'      => '/pharmacy',
-                ],
+            $promotionalBanner = [
+                'id'        => 1,
+                'title'     => 'مشاوره آنلاین شبانه‌روزی',
+                'image_url' => 'https://api.mediraai.com/assets/img/appo-banner.png',
+                'link'      => '/services' // لینک داخلی در ری‌اکت
             ];
 
             return response()->json([
