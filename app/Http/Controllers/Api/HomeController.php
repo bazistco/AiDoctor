@@ -111,12 +111,33 @@ class HomeController extends Controller
                 'link'      => '/services' // لینک داخلی در ری‌اکت
             ];
 
+            $promotionalBanners = [
+                [
+                    'id'        => 1,
+                    'title'     => null,
+                    'image_url' => 'https://api.mediraai.com/assets/img/appo-banner.png',
+                    'link'      => '/doctors',
+                ],
+                [
+                    'id'        => 2,
+                    'title'     => null,
+                    'image_url' => 'https://api.mediraai.com/assets/img/period.jpg',
+                    'link'      => '/period-tracker',
+                ],
+                [
+                    'id'        => 3,
+                    'title'     => null,
+                    'image_url' => 'https://api.mediraai.com/assets/img/drug.jpeg',
+                    'link'      => '/pill-organizer',
+                ],
+            ];
+
             return response()->json([
                 'success' => true,
                 'data' => [
                     'active_appointment' => $activeAppointment,
                     'suggested_doctor'   => $suggestedDoctor,
-                    'promotional_banner' => $promotionalBanner,
+                    'promotional_banner' => $promotionalBanners,
                 ]
             ], 200);
 
