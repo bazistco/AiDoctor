@@ -107,7 +107,7 @@ class HomeController extends Controller
             $promotionalBanner = [
                 'id'        => 1,
                 'title'     => 'مشاوره آنلاین شبانه‌روزی',
-                'image_url' => 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSJNHAQYF-M474z1PSWOcKARx_tyqEbRv7HmO_utZPndp7W_ugyXQSNKzE&s=10',
+                'image_url' => 'https://api.mediraai.com/assets/img/appo-banner.png',
                 'link'      => '/services' // لینک داخلی در ری‌اکت
             ];
 
