@@ -41,14 +41,16 @@ class MealPlanController extends Controller
             ->first();
 
         if ($activePlan) {
+            $isBasic = strtolower((string) $activePlan->slug) === 'basic';
             return (object) [
-                'id'           => (int) $activePlan->id,
-                'name'         => $activePlan->name,
-                'slug'         => $activePlan->slug,
-                'is_basic'     => strtolower((string) $activePlan->slug) === 'basic',
-                'max_plans'    => strtolower((string) $activePlan->slug) === 'basic' ? 1 : null,
-                'start_date'   => $activePlan->start_date,
-                'end_date'     => $activePlan->end_date,
+                'id'         => (int) $activePlan->id,
+                'name'       => $activePlan->name,
+                'slug'       => $activePlan->slug,
+                'is_basic'   => $isBasic,
+                'max_plans'  => $isBasic ? 1 : null,
+                'can_delete' => !$isBasic,
+                'start_date' => $activePlan->start_date,
+                'end_date'   => $activePlan->end_date,
             ];
         }
 
@@ -63,6 +65,7 @@ class MealPlanController extends Controller
             'slug'       => $basicPlan->slug ?? 'basic',
             'is_basic'   => true,
             'max_plans'  => 1,
+            'can_delete' => false,
             'start_date' => null,
             'end_date'   => null,
         ];
@@ -121,7 +124,9 @@ class MealPlanController extends Controller
 
             foreach ($items as $item) {
                 $cal = (int) $item->calories;
-                if ($cal <= 0) continue;
+                if ($cal <= 0) {
+                    continue;
+                }
                 if ($sum + $cal <= $budget || empty($picked)) {
                     $picked[] = [
                         'type'         => $type,
@@ -155,7 +160,10 @@ class MealPlanController extends Controller
 
         $redisRaw = Redis::get($this->getHealthRedisKey($userId));
         $redisData = $redisRaw ? json_decode($redisRaw, true) : [];
-        $dailyGoal = (int) ($redisData['dailyGoal'] ?? $this->calculateCalorieGoal($user, $redisData['idealWeight'] ?? null));
+        $dailyGoal = (int) (
+            $redisData['dailyGoal']
+            ?? $this->calculateCalorieGoal($user, $redisData['idealWeight'] ?? null)
+        );
         $idealWeight = $redisData['idealWeight'] ?? null;
 
         $plans = DB::table('meal_plans')
@@ -185,14 +193,15 @@ class MealPlanController extends Controller
             })->values();
 
             return [
-                'id'                 => (int) $p->id,
-                'title'              => $p->title,
-                'plan_date'          => $p->plan_date,
-                'daily_calorie_goal' => (int) $p->daily_calorie_goal,
-                'ideal_weight'       => $p->ideal_weight !== null ? (float) $p->ideal_weight : null,
-                'total_calories'     => (int) $items->sum('calories'),
-                'is_auto_generated'  => (bool) $p->is_auto_generated,
-                'meals'              => $items,
+                'id'                     => (int) $p->id,
+                'title'                  => $p->title,
+                'plan_date'              => $p->plan_date,
+                'daily_calorie_goal'     => (int) $p->daily_calorie_goal,
+                'ideal_weight'           => $p->ideal_weight !== null ? (float) $p->ideal_weight : null,
+                'total_calories'         => (int) $items->sum('calories'),
+                'is_auto_generated'      => (bool) $p->is_auto_generated,
+                'allow_delete_on_basic'  => (bool) ($p->allow_delete_on_basic ?? false),
+                'meals'                  => $items,
             ];
         })->values();
 
@@ -215,6 +224,7 @@ class MealPlanController extends Controller
                     'max_plans'      => $plan->max_plans,
                     'used_plans'     => $usedCount,
                     'can_create_new' => $canCreateNew,
+                    'can_delete'     => $plan->can_delete,
                 ],
                 'daily_calorie_goal' => $dailyGoal,
                 'ideal_weight'       => $idealWeight,
@@ -274,9 +284,11 @@ class MealPlanController extends Controller
             ? $validated['ideal_weight']
             : ($redisData['idealWeight'] ?? null);
 
-        $goal = (int) ($validated['daily_calorie_goal']
+        $goal = (int) (
+            $validated['daily_calorie_goal']
             ?? $redisData['dailyGoal']
-            ?? $this->calculateCalorieGoal($user, $idealWeight !== null ? (float) $idealWeight : null));
+            ?? $this->calculateCalorieGoal($user, $idealWeight !== null ? (float) $idealWeight : null)
+        );
 
         $planDate = $validated['plan_date'] ?? Carbon::now()->format('Y-m-d');
         $autoGenerate = (bool) ($validated['auto_generate'] ?? empty($validated['meals']));
@@ -311,7 +323,6 @@ class MealPlanController extends Controller
             return $id;
         });
 
-        // همگام‌سازی هدف و وزن ایده‌آل در ردیس در صورت تغییر
         $redisData['dailyGoal'] = $goal;
         if ($idealWeight !== null) {
             $redisData['idealWeight'] = (float) $idealWeight;
@@ -331,6 +342,7 @@ class MealPlanController extends Controller
                     'max_plans'      => $plan->max_plans,
                     'used_plans'     => $existingCount + 1,
                     'can_create_new' => !$plan->is_basic || ($existingCount + 1) < 1,
+                    'can_delete'     => $plan->can_delete,
                 ],
             ],
         ], 201);
@@ -398,24 +410,44 @@ class MealPlanController extends Controller
     public function destroy(Request $request, int $id)
     {
         $userId = (int) $request->user()->id;
-        $deleted = DB::table('meal_plans')
+        $plan = $this->resolveUserPlan($userId);
+
+        $mealPlan = DB::table('meal_plans')
             ->where('id', $id)
             ->where('user_id', $userId)
-            ->delete();
+            ->first();
 
-        if (!$deleted) {
+        if (!$mealPlan) {
             return response()->json([
                 'success' => false,
                 'message' => 'برنامه غذایی یافت نشد.',
             ], 404);
         }
 
+        $allowBasicDelete = (bool) ($mealPlan->allow_delete_on_basic ?? false);
+        if ($plan->is_basic && !$allowBasicDelete) {
+            return response()->json([
+                'success' => false,
+                'code'    => 'BASIC_PLAN_DELETE_FORBIDDEN',
+                'message' => 'در پلن پایه امکان حذف برنامه غذایی وجود ندارد. می‌توانید برنامه خود را ویرایش کنید یا اشتراک را ارتقا دهید.',
+            ], 403);
+        }
+
+        DB::table('meal_plans')
+            ->where('id', $id)
+            ->where('user_id', $userId)
+            ->delete();
+
         return response()->json([
             'success' => true,
             'message' => 'برنامه غذایی حذف شد.',
         ]);
     }
-    // در MealPlanController.php
+
+    /**
+     * POST /api/user/meal-plans/biometrics
+     * به‌روزرسانی قد، وزن فعلی، وزن ایده‌آل و هدف کالری
+     */
     public function updateBiometrics(Request $request)
     {
         $validated = $request->validate([
@@ -469,6 +501,7 @@ class MealPlanController extends Controller
             ],
         ]);
     }
+
     /**
      * GET /api/user/meal-plans/daily-meals?date=YYYY-MM-DD
      */
@@ -476,7 +509,10 @@ class MealPlanController extends Controller
     {
         $date = $request->query('date', Carbon::now()->format('Y-m-d'));
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-            return response()->json(['success' => false, 'message' => 'فرمت تاریخ نامعتبر است.'], 422);
+            return response()->json([
+                'success' => false,
+                'message' => 'فرمت تاریخ نامعتبر است.',
+            ], 422);
         }
 
         $userId = (int) $request->user()->id;
@@ -566,9 +602,15 @@ class MealPlanController extends Controller
             ->delete();
 
         if (!$deleted) {
-            return response()->json(['success' => false, 'message' => 'وعده یافت نشد.'], 404);
+            return response()->json([
+                'success' => false,
+                'message' => 'وعده یافت نشد.',
+            ], 404);
         }
 
-        return response()->json(['success' => true, 'message' => 'وعده حذف شد.']);
+        return response()->json([
+            'success' => true,
+            'message' => 'وعده حذف شد.',
+        ]);
     }
 }

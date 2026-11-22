@@ -475,11 +475,11 @@ Route::group(['prefix' => 'user'],function (){
 
          });
 
-         Route::get('/meal-plans', [MealPlanController::class, 'index']);
-         Route::post('/meal-plans', [MealPlanController::class, 'store']);
-         Route::put('/meal-plans/{id}', [MealPlanController::class, 'update']);
-         Route::delete('/meal-plans/{id}', [MealPlanController::class, 'destroy']);
-         Route::post('/meal-plans/biometrics', [MealPlanController::class, 'updateBiometrics']);
+         Route::get('/user/meal-plans', [MealPlanController::class, 'index']);
+         Route::post('/user/meal-plans', [MealPlanController::class, 'store']);
+         Route::put('/user/meal-plans/{id}', [MealPlanController::class, 'update']);
+         Route::delete('/user/meal-plans/{id}', [MealPlanController::class, 'destroy']);
+         Route::post('/user/meal-plans/biometrics', [MealPlanController::class, 'updateBiometrics']);
 
          Route::get('/user/meal-plans/daily-meals', [MealPlanController::class, 'getDailyMeals']);
          Route::post('/user/meal-plans/daily-meals', [MealPlanController::class, 'storeDailyMeal']);
