@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\DiagnosisController;
 use App\Http\Controllers\Api\Doctor\DoctorSecretaryController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\HomeController;
+use App\Http\Controllers\Api\MealPlanController;
 use App\Http\Controllers\Api\MedicationCronController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PaymentGatewayController;
@@ -473,6 +474,12 @@ Route::group(['prefix' => 'user'],function (){
              Route::delete('/shared/{ownerId}/medications/{id}', [PillOrganizerShareController::class, 'deleteSharedMedication']);
 
          });
+
+         Route::get('/user/meal-plans', [MealPlanController::class, 'index']);
+         Route::post('/user/meal-plans', [MealPlanController::class, 'store']);
+         Route::put('/user/meal-plans/{id}', [MealPlanController::class, 'update']);
+         Route::delete('/user/meal-plans/{id}', [MealPlanController::class, 'destroy']);
+         Route::post('/user/meal-plans/biometrics', [MealPlanController::class, 'updateBiometrics']);
 
          Route::get('/diagnosis/specialties',[DiagnosisController::class,'getSpecialties']);
          Route::get('/health-insights', [HealthController::class, 'getInsights']);
