@@ -25,7 +25,7 @@ class HomeController extends Controller
                 ->leftJoin('specialties', 'doctor_info.specialty_id', '=', 'specialties.id')
                 ->where('appointment_slots.patient_id', $userId)
                 ->where('appointment_slots.slot_date', '>=', $today)
-                ->whereIn('appointment_slots.status', ['available', 'booked']) // موقت (در ردیس) یا قطعی
+                ->whereIn('appointment_slots.status', ['available', 'booked'])
                 ->orderBy('appointment_slots.slot_date', 'asc')
                 ->orderBy('appointment_slots.start_time', 'asc')
                 ->select(
@@ -48,7 +48,6 @@ class HomeController extends Controller
                 $isTemporary = false;
 
                 if ($slot->status === 'available') {
-                    // بررسی وضعیت رزرو موقت در ردیس
                     $redisData = Redis::get("slot:reservation:{$slot->id}");
                     if ($redisData && $redisData !== 'locking...') {
                         $decoded = json_decode($redisData, true);
@@ -58,8 +57,7 @@ class HomeController extends Controller
                             $expiresAt = Carbon::parse($decoded['reserved_at'])->addMinutes(15)->toDateTimeString();
                         }
                     }
-                } else if ($slot->status === 'booked') {
-                    // نوبت قطعی
+                } elseif ($slot->status === 'booked') {
                     $isActive = true;
                 }
 
@@ -86,7 +84,6 @@ class HomeController extends Controller
                 ->join('users', 'users.id', '=', 'doctor_info.user_id')
                 ->leftJoin('specialties', 'doctor_info.specialty_id', '=', 'specialties.id')
                 ->where('users.status', 1)
-//                ->where('doctor_info.user_id',)// فقط پزشکان فعال
                 ->select(
                     'users.id',
                     'users.name',
@@ -97,20 +94,13 @@ class HomeController extends Controller
                 ->first();
 
             if ($suggestedDoctor) {
-                $suggestedDoctor->image =  '/doc-Photoroom.png';
-                $suggestedDoctor->rating = 4.8; // امتیاز نمونه ثابت تا زمانی که سیستم نمره‌دهی کامل شود
+                $suggestedDoctor->image = '/doc-Photoroom.png';
+                $suggestedDoctor->rating = 4.8;
             }
 
             // ---------------------------------------------------------
-            // ۳. بنر تبلیغاتی (داده نمونه Hardcode شده طبق درخواست)
+            // ۳. بنرهای تبلیغاتی
             // ---------------------------------------------------------
-            $promotionalBanner = [
-                'id'        => 1,
-                'title'     => 'مشاوره آنلاین شبانه‌روزی',
-                'image_url' => 'https://api.mediraai.com/assets/img/appo-banner.png',
-                'link'      => '/services' // لینک داخلی در ری‌اکت
-            ];
-
             $promotionalBanners = [
                 [
                     'id'        => 1,
@@ -132,20 +122,91 @@ class HomeController extends Controller
                 ],
             ];
 
+            // ---------------------------------------------------------
+            // ۴. وضعیت پلن فعلی کاربر
+            // ---------------------------------------------------------
+            $currentPlan = DB::table('user_plans')
+                ->join('subscription_plans', 'user_plans.plan_id', '=', 'subscription_plans.id')
+                ->where('user_plans.user_id', $userId)
+                ->where('user_plans.is_active', 1)
+                ->where(function ($query) {
+                    $query->whereNull('user_plans.end_date')
+                        ->orWhere('user_plans.end_date', '>', now());
+                })
+                ->orderByDesc('user_plans.id')
+                ->select(
+                    'user_plans.id',
+                    'user_plans.plan_id',
+                    'user_plans.start_date',
+                    'user_plans.end_date',
+                    'user_plans.is_active',
+                    'subscription_plans.name as plan_name',
+                    'subscription_plans.slug',
+                    'subscription_plans.price'
+                )
+                ->first();
+
+            $hasNonBasicPlan = $currentPlan !== null && $currentPlan->slug !== 'basic';
+
+            // ---------------------------------------------------------
+            // ۵. مقالات نمونه سلامت
+            // ---------------------------------------------------------
+            $blogPosts = [
+                [
+                    'id'        => 1,
+                    'title'     => '۱۰ نکته برای سلامت بهتر قلب',
+                    'excerpt'   => 'با این تغییرات ساده قلبی سالم‌تر داشته باشید.',
+                    'image'     => 'https://app.mediraai.com/scan.jpg',
+                    'date'      => '۲۸ اسفند ۱۴۰۴',
+                    'read_time' => '۵ دقیقه مطالعه',
+                    'tag'       => 'قلب و عروق',
+                ],
+                [
+                    'id'        => 2,
+                    'title'     => 'راهنمای تغذیه متعادل',
+                    'excerpt'   => 'با مواد مغذی ضروری عملکرد سالم بدن خود آشنا شوید.',
+                    'image'     => 'https://app.mediraai.com/scan.jpg',
+                    'date'      => '۲۵ اسفند ۱۴۰۴',
+                    'read_time' => '۷ دقیقه مطالعه',
+                    'tag'       => 'تغذیه',
+                ],
+                [
+                    'id'        => 3,
+                    'title'     => 'مزایای ورزش منظم',
+                    'excerpt'   => 'فعال ماندن چرا برای سلامت جسم و روان ضروری است.',
+                    'image'     => 'https://app.mediraai.com/scan.jpg',
+                    'date'      => '۲۰ اسفند ۱۴۰۴',
+                    'read_time' => '۶ دقیقه مطالعه',
+                    'tag'       => 'ورزش',
+                ],
+                [
+                    'id'        => 4,
+                    'title'     => 'سلامت روان: شکستن تابوها',
+                    'excerpt'   => 'اهمیت سلامت روان در تندرستی کلی بدن را بشناسید.',
+                    'image'     => 'https://app.mediraai.com/scan.jpg',
+                    'date'      => '۱۵ اسفند ۱۴۰۴',
+                    'read_time' => '۸ دقیقه مطالعه',
+                    'tag'       => 'سلامت روان',
+                ],
+            ];
+
             return response()->json([
                 'success' => true,
-                'data' => [
+                'data'    => [
                     'active_appointment' => $activeAppointment,
                     'suggested_doctor'   => $suggestedDoctor,
                     'promotional_banner' => $promotionalBanners,
-                ]
+                    'current_plan'       => $currentPlan,
+                    'has_non_basic_plan' => $hasNonBasicPlan,
+                    'blog_posts'         => $blogPosts,
+                ],
             ], 200);
 
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'خطا در دریافت اطلاعات داشبورد خانه',
-                'error'   => $e->getMessage()
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
