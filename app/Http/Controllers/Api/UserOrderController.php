@@ -276,23 +276,22 @@ class UserOrderController extends Controller
             ->orderByRaw("CASE WHEN status IN (0, 1, 'booked', 'available') THEN 0 ELSE 1 END ASC")
             ->get();
 
-        $beautyOrders = [];
-
-        // تبدیل وضعیت به برچسب فارسی + حفظ سازگاری موبایل + استخراج مجزای زیبایی برای وب
-        $orders = $orders->map(function ($order) use (&$beautyOrders) {
-            $order->status_label  = $this->mapStatus((string) $order->type, $order->status);
-            $order->original_type = $order->type;
+        // تبدیل وضعیت به برچسب فارسی + ارسال هم‌زمان با هر دو نوع beauty و nurse داخل orders
+        $orders = $orders->flatMap(function ($order) {
+            $order->status_label = $this->mapStatus((string) $order->type, $order->status);
 
             if ($order->type === 'beauty') {
-                // نسخه مجزا برای وب با type = 'beauty'
-                $beautyOrders[] = clone $order;
+                // نسخه ادغام‌شده با پرستاری برای اپلیکیشن موبایل
+                $nurseCopy = clone $order;
+                $nurseCopy->type = 'nurse';
+                $nurseCopy->is_mobile_alias = true;
 
-                // حفظ حالت فعلی برای اپلیکیشن موبایل
-                $order->type = 'nurse';
+                // هر دو نسخه داخل orders برگردانده می‌شوند
+                return [$order, $nurseCopy];
             }
 
-            return $order;
-        });
+            return [$order];
+        })->values();
 
         // شمارش کلی هر دسته
         $countDoctor   = DB::table('appointment_slots')->where('patient_id', $userId)->count();
@@ -306,12 +305,11 @@ class UserOrderController extends Controller
             'success' => true,
             'data' => [
                 'orders'         => $orders,
-                'beauty_orders'  => $beautyOrders, // لیست مجزای درخواست‌های زیبایی برای وب
                 'count_doctor'   => $countDoctor,
                 'count_lab'      => $countLab,
                 'count_pharmacy' => $countPharmacy,
-                'count_nurse'    => $countNurse + $countBeauty, // حفظ حالت فعلی موبایل
-                'count_beauty'   => $countBeauty,               // شمارش مجزای زیبایی برای وب
+                'count_nurse'    => $countNurse + $countBeauty,
+                'count_beauty'   => $countBeauty,
                 'count_chat'     => $countChat,
             ]
         ]);
