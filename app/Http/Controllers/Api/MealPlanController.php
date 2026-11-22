@@ -469,4 +469,106 @@ class MealPlanController extends Controller
             ],
         ]);
     }
+    /**
+     * GET /api/user/meal-plans/daily-meals?date=YYYY-MM-DD
+     */
+    public function getDailyMeals(Request $request)
+    {
+        $date = $request->query('date', Carbon::now()->format('Y-m-d'));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return response()->json(['success' => false, 'message' => 'فرمت تاریخ نامعتبر است.'], 422);
+        }
+
+        $userId = (int) $request->user()->id;
+
+        $rows = DB::table('daily_meal_logs')
+            ->where('user_id', $userId)
+            ->where('log_date', $date)
+            ->orderBy('id')
+            ->get()
+            ->map(function ($r) {
+                return [
+                    'id'        => (int) $r->id,
+                    'type'      => $r->meal_type,
+                    'name'      => $r->food_name,
+                    'calories'  => (int) $r->calories,
+                    'createdAt' => $r->created_at,
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'date'           => $date,
+                'meals'          => $rows,
+                'total_calories' => (int) $rows->sum('calories'),
+            ],
+        ]);
+    }
+
+    /**
+     * POST /api/user/meal-plans/daily-meals
+     */
+    public function storeDailyMeal(Request $request)
+    {
+        $validated = $request->validate([
+            'log_date' => 'nullable|date_format:Y-m-d',
+            'type'     => 'required|in:breakfast,lunch,dinner,snack',
+            'name'     => 'nullable|string|max:191',
+            'calories' => 'required|integer|min:1|max:5000',
+        ]);
+
+        $userId = (int) $request->user()->id;
+        $date = $validated['log_date'] ?? Carbon::now()->format('Y-m-d');
+
+        $labels = [
+            'breakfast' => 'صبحانه',
+            'lunch'     => 'ناهار',
+            'dinner'    => 'شام',
+            'snack'     => 'میان‌وعده',
+        ];
+
+        $foodName = trim((string) ($validated['name'] ?? '')) ?: ($labels[$validated['type']] ?? 'وعده غذایی');
+
+        $id = DB::table('daily_meal_logs')->insertGetId([
+            'user_id'    => $userId,
+            'log_date'   => $date,
+            'meal_type'  => $validated['type'],
+            'food_name'  => $foodName,
+            'calories'   => (int) $validated['calories'],
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'وعده روزانه ثبت شد.',
+            'data'    => [
+                'id'        => (int) $id,
+                'type'      => $validated['type'],
+                'name'      => $foodName,
+                'calories'  => (int) $validated['calories'],
+                'createdAt' => now()->toDateTimeString(),
+            ],
+        ], 201);
+    }
+
+    /**
+     * DELETE /api/user/meal-plans/daily-meals/{id}
+     */
+    public function destroyDailyMeal(Request $request, int $id)
+    {
+        $userId = (int) $request->user()->id;
+        $deleted = DB::table('daily_meal_logs')
+            ->where('id', $id)
+            ->where('user_id', $userId)
+            ->delete();
+
+        if (!$deleted) {
+            return response()->json(['success' => false, 'message' => 'وعده یافت نشد.'], 404);
+        }
+
+        return response()->json(['success' => true, 'message' => 'وعده حذف شد.']);
+    }
 }
