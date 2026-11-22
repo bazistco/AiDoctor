@@ -194,7 +194,7 @@ class HomeController extends Controller
                 'success' => true,
                 'data'    => [
                     'active_appointment' => $activeAppointment,
-                    'suggested_doctor'   => $suggestedDoctor,
+                    'suggested_doctor'   => null,
                     'promotional_banner' => $promotionalBanners,
                     'current_plan'       => $currentPlan,
                     'has_non_basic_plan' => $hasNonBasicPlan,
