@@ -29,6 +29,7 @@ Route::prefix('beauty-clinic')->group(function () {
         Route::get('/profile', [\App\Http\Controllers\Api\Owner\Beauty\BeautyProfileController::class, 'show']);
         Route::get('/requests', [BeautyClinicRequestController::class, 'index']);
         Route::get('/requests/{id}', [BeautyClinicRequestController::class, 'show']);
+        Route::get('/finance', [\App\Http\Controllers\Api\Owner\Beauty\BeautyProfileController::class, 'finance']);
 
         // عملیات روی درخواست
         Route::post('/requests/{id}/accept', [BeautyClinicRequestController::class, 'accept']);
