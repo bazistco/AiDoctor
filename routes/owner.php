@@ -26,6 +26,14 @@ Route::prefix('beauty-clinic')->group(function () {
     Route::post('/verify', [\App\Http\Controllers\Api\Owner\Beauty\BeautyAuthController::class, 'verify']);
 
     Route::middleware(['auth:sanctum', 'user.active', 'role:beauty_clinic','ownership:beauty_clinic'])->group(function () {
+        Route::middleware('auth:sanctum')->prefix('schedule')->group(function () {
+            Route::get('/rules', [BeautyClinicScheduleController::class, 'getRules']);
+            Route::post('/rules', [BeautyClinicScheduleController::class, 'saveRules']);
+            Route::post('/generate-slots-batch', [BeautyClinicScheduleController::class, 'generateSlotsBatch']);
+            Route::get('/calendar-summary', [BeautyClinicScheduleController::class, 'calendarSummary']);
+            Route::get('/slots', [BeautyClinicScheduleController::class, 'getSlotsByDate']);
+            Route::patch('/slots/{id}/toggle-status', [BeautyClinicScheduleController::class, 'toggleSlotStatus']);
+        });
         Route::get('/profile', [\App\Http\Controllers\Api\Owner\Beauty\BeautyProfileController::class, 'show']);
         Route::get('/requests', [BeautyClinicRequestController::class, 'index']);
         Route::get('/requests/{id}', [BeautyClinicRequestController::class, 'show']);
