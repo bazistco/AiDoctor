@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Owner\Beauty\BeautyClinicRequestController;
+use App\Http\Controllers\Api\Owner\Beauty\BeautyClinicScheduleController;
 use App\Http\Controllers\Api\Owner\Beauty\BeautyClinicServiceController;
 use App\Http\Controllers\Api\Owner\Lab\LabRulesController;
 use App\Http\Controllers\Api\Owner\Labs\LabAuthController;
