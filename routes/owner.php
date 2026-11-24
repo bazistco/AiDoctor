@@ -27,7 +27,7 @@ Route::prefix('beauty-clinic')->group(function () {
     Route::post('/verify', [\App\Http\Controllers\Api\Owner\Beauty\BeautyAuthController::class, 'verify']);
 
     Route::middleware(['auth:sanctum', 'user.active', 'role:beauty_clinic','ownership:beauty_clinic'])->group(function () {
-        Route::middleware('auth:sanctum')->prefix('schedule')->group(function () {
+        Route::prefix('schedule')->group(function () {
             Route::get('/rules', [BeautyClinicScheduleController::class, 'getRules']);
             Route::post('/rules', [BeautyClinicScheduleController::class, 'saveRules']);
             Route::post('/generate-slots-batch', [BeautyClinicScheduleController::class, 'generateSlotsBatch']);
@@ -39,8 +39,7 @@ Route::prefix('beauty-clinic')->group(function () {
         Route::get('/requests', [BeautyClinicRequestController::class, 'index']);
         Route::get('/requests/{id}', [BeautyClinicRequestController::class, 'show']);
         Route::get('/finance', [\App\Http\Controllers\Api\Owner\Beauty\BeautyProfileController::class, 'finance']);
-
-        // عملیات روی درخواست
+        Route::match(['put', 'post'], '/profile', [\App\Http\Controllers\Api\Owner\Beauty\BeautyProfileController::class, 'update']);        // عملیات روی درخواست
         Route::post('/requests/{id}/accept', [BeautyClinicRequestController::class, 'accept']);
         Route::put('/requests/{id}/schedule', [BeautyClinicRequestController::class, 'updateSchedule']);
         Route::put('/requests/{id}/status', [BeautyClinicRequestController::class, 'updateStatus']);
