@@ -43,7 +43,7 @@ class AuthController extends Controller
         }
 
         $redisKey = "otp:rate_limit:{$phone}";
-        $ttlSeconds = 120; // 2 دقیقه
+        $ttlSeconds = 60; // 2 دقیقه
 
         $lockAcquired = Redis::set($redisKey, 1, 'EX', $ttlSeconds, 'NX');
 
@@ -51,9 +51,10 @@ class AuthController extends Controller
             $remainingTtl = Redis::ttl($redisKey); // ثانیه‌های باقی‌مانده
             return response()->json([
                 'success' => false,
-                'message' => 'محدودیت در ارسال کد لطفا کمی صبر کنید',
+                'message' => __('messages.sms_rate_limit', ['seconds' => $remainingTtl]),
                 'next_allowed_in_seconds' => $remainingTtl,
-            ], 429);
+            ], 429); // پیشنهاد: استفاده از کد وضعیت HTTP 429 (Too Many Requests)
+
         }
 
         // 🔸 تولید کد OTP جدید
