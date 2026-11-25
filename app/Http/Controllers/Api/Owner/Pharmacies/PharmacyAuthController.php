@@ -5,9 +5,12 @@ namespace App\Http\Controllers\Api\Owner\Pharmacies;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Validator;
 use App\Models\User; // فقط برای تولید توکن Sanctum نیاز است
 use Carbon\Carbon;
+use Kavenegar\KavenegarApi;
+
 
 class PharmacyAuthController extends Controller
 {
@@ -60,26 +63,38 @@ class PharmacyAuthController extends Controller
             ], 403);
         }
 
-        // 🔸 چک محدودیت زمانی OTP
-        $recentOtp = DB::table('otp_codes')
-            ->where('mobile', $phone)
-            ->where('created_at', '>=', Carbon::now()->subMinutes(2))
-            ->first();
+        $redisKey = "otp:rate_limit:pharmacy:{$phone}";
+        $ttlSeconds = 180; // 3 دقیقه
 
-        if ($recentOtp) {
+        $lockAcquired = Redis::set($redisKey, 1, 'EX', $ttlSeconds, 'NX');
+
+        if (!$lockAcquired) {
+            $remainingTtl = Redis::ttl($redisKey);
             return response()->json([
                 'success' => false,
-                'message' => 'لطفاً قبل از درخواست مجدد صبر کنید.',
-                'next_allowed_in_seconds' => Carbon::parse($recentOtp->created_at)
-                    ->diffInSeconds(Carbon::now()->addMinutes(2))
+                'message' => 'محدودیت در ارسال کد؛ لطفا کمی صبر کنید.',
+                'next_allowed_in_seconds' => $remainingTtl,
             ], 429);
         }
 
-        // 🔸 ایجاد کد OTP
-        $code = rand(100000, 999999);
+        // تولید کد 4 رقمی
+        $code = rand(1000, 9999);
+
+        // ارسال پیامک با کاوه‌نگار
+        try {
+            $k = new KavenegarApi(env('KAVENEGAR_API_KEY'));
+            $k->VerifyLookup($phone, $code, "", "", 'medira-verify', 'sms');
+        } catch (\Exception $e) {
+            // آزاد کردن Redis در صورت خطای پیامک برای تلاش مجدد
+            Redis::del($redisKey);
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در ارتباط با سرویس پیامک.',
+            ], 500);
+        }
 
         DB::table('otp_codes')->insert([
-            'code' => 1111, // TODO: در پروداکشن به $code تغییر دهید
+            'code' => $code, // TODO: در پروداکشن به $code تغییر دهید
             'mobile' => $phone,
             'created_at' => now()
         ]);

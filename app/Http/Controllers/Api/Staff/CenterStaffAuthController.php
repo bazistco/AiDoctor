@@ -8,7 +8,10 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 use Symfony\Component\HttpFoundation\Response;
+use Kavenegar\KavenegarApi;
+
 
 class CenterStaffAuthController extends Controller
 {
@@ -158,13 +161,40 @@ class CenterStaffAuthController extends Controller
             ], 403);
         }
 
-        // تولید کد تایید ۴ رقمی
+        $redisKey = "otp:rate_limit:doctor:{$request->phone}";
+        $ttlSeconds = 180; // 3 دقیقه
+
+        $lockAcquired = Redis::set($redisKey, 1, 'EX', $ttlSeconds, 'NX');
+
+        if (!$lockAcquired) {
+            $remainingTtl = Redis::ttl($redisKey);
+            return response()->json([
+                'success' => false,
+                'message' => 'محدودیت در ارسال کد؛ لطفا کمی صبر کنید.',
+                'next_allowed_in_seconds' => $remainingTtl,
+            ], 429);
+        }
+
+        // تولید کد 4 رقمی
         $code = rand(1000, 9999);
+
+        // ارسال پیامک با کاوه‌نگار
+        try {
+            $k = new KavenegarApi(env('KAVENEGAR_API_KEY'));
+            $k->VerifyLookup($request->phone, $code, "", "", 'medira-verify', 'sms');
+        } catch (\Exception $e) {
+            // آزاد کردن Redis در صورت خطای پیامک برای تلاش مجدد
+            Redis::del($redisKey);
+            return response()->json([
+                'success' => false,
+                'message' => 'خطا در ارتباط با سرویس پیامک.',
+            ], 500);
+        }
 
         DB::table('otp_codes')->updateOrInsert(
             ['mobile' => $request->phone],
             [
-                'code'       => 1111,
+                'code'       => $code,
                 'created_at' => now(),
             ]
         );
