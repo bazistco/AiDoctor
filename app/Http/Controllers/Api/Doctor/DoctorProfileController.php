@@ -123,6 +123,7 @@ class DoctorProfileController extends Controller
             if ($request->hasFile('avatar')) {
                 $path = $request->file('avatar')->store('avatars', 'public');
                 $doctorData['image_url'] = $path;
+                $doctorData['is_avatar_verified']=0;
             }
 
             if (!empty($doctorData)) {

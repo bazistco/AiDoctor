@@ -222,6 +222,7 @@ class BeautyClinicController extends Controller
             'beauty_clinic_info.phone',
             'beauty_clinic_info.description',
             'beauty_clinic_info.image',
+            'beauty_clinic_info.is_avatar_verified',
         ];
 
         if ($userAddress && !empty($userAddress->lat) && !empty($userAddress->lng)) {
@@ -241,9 +242,25 @@ class BeautyClinicController extends Controller
             $query->select($selects)->orderByDesc('beauty_clinic_info.created_at');
         }
 
+        $defaultImage = 'https://api.mediraai.com/clinic.jpg';
+
+        $centers = $query->get()->map(function ($clinic) use ($defaultImage) {
+            $isVerified = (int) ($clinic->is_avatar_verified ?? 0) === 1;
+
+            if ($isVerified && !empty($clinic->image)) {
+                $clinic->image = str_starts_with($clinic->image, 'http')
+                    ? $clinic->image
+                    : 'https://api.mediraai.com/storage/' . ltrim($clinic->image, '/');
+            } else {
+                $clinic->image = $defaultImage;
+            }
+
+            return $clinic;
+        });
+
         return response()->json([
             'success' => true,
-            'data' => $query->get(),
+            'data'    => $centers,
         ]);
     }
 
