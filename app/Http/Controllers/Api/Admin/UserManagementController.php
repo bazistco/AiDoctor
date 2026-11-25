@@ -29,10 +29,9 @@ class UserManagementController extends Controller
                 'di.national_card_image', 'di.medical_council_card_image', 'di.clinic_license_image'
             );
     }
+
     private function formatUser(object $user): array
     {
-        // تابع کمکی برای تولید لینک دانلود ایمن برای ادمین
-        // توجه: می‌توانید یک روت اختصاصی برای دانلود ادمین بسازید یا از Storage::url استفاده کنید.
         $getDocUrl = fn($path) => $path ? secure_url('/api/admin/documents/download?path=' . urlencode($path)) : null;
 
         return [
@@ -66,10 +65,10 @@ class UserManagementController extends Controller
             ] : null,
         ];
     }
+
     public function pendingDoctors(Request $request)
     {
         $perPage = (int) $request->input('per_page', 15);
-        // دریافت فیلتر وضعیت از فرانت‌اند (پیش‌فرض روی action_required)
         $statusFilter = $request->input('status_filter', 'action_required');
 
         $query = $this->baseQuery()
@@ -77,8 +76,6 @@ class UserManagementController extends Controller
             ->where(function ($q) use ($statusFilter) {
 
                 if ($statusFilter === 'all') {
-                    // حالت همه: نمایش تمام کسانی که کاملاً تایید نشده‌اند
-                    // (شامل آپلود نکرده‌ها، رد شده‌ها، در انتظارها و عکس‌های وریفای نشده)
                     $q->whereIn('di.document_status', ['not_uploaded', 'pending', 'rejected'])
                         ->orWhereNull('di.document_status')
                         ->orWhere(function ($avatarSub) {
@@ -91,16 +88,13 @@ class UserManagementController extends Controller
                         });
 
                 } elseif ($statusFilter === 'not_uploaded') {
-                    // فقط کسانی که مدرک نداده‌اند
                     $q->whereIn('di.document_status', ['not_uploaded'])
                         ->orWhereNull('di.document_status');
 
                 } elseif ($statusFilter === 'pending') {
-                    // فقط در انتظار تایید مدارک
                     $q->where('di.document_status', 'pending');
 
                 } elseif ($statusFilter === 'avatar_unverified') {
-                    // فقط کسانی که عکس آپلود کرده‌اند اما تایید نشده
                     $q->whereNotNull('di.image_url')
                         ->where(function ($sub) {
                             $sub->where('di.is_avatar_verified', false)
@@ -108,10 +102,6 @@ class UserManagementController extends Controller
                         });
 
                 } else {
-                    // حالت پیش‌فرض (action_required):
-                    // فقط مواردی که منتظر بررسی ادمین هستند:
-                    // ۱. مدرکشان در انتظار تایید است
-                    // ۲. یا عکسی آپلود کرده‌اند که هنوز تایید نشده است
                     $q->where('di.document_status', 'pending')
                         ->orWhere(function ($sub) {
                             $sub->whereNotNull('di.image_url')
@@ -131,14 +121,13 @@ class UserManagementController extends Controller
             });
         }
 
-        // اولویت‌بندی مرتب‌سازی در خروجی
         $query->orderByRaw("
-        CASE
-            WHEN di.document_status = 'pending' THEN 1
-            WHEN di.is_avatar_verified = 0 OR di.is_avatar_verified IS NULL THEN 2
-            ELSE 3
-        END ASC
-    ")->orderBy('u.id', 'desc');
+            CASE
+                WHEN di.document_status = 'pending' THEN 1
+                WHEN di.is_avatar_verified = 0 OR di.is_avatar_verified IS NULL THEN 2
+                ELSE 3
+            END ASC
+        ")->orderBy('u.id', 'desc');
 
         $paginated = $query->paginate($perPage);
 
@@ -157,23 +146,24 @@ class UserManagementController extends Controller
             ]
         ]);
     }
+
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'firstName' => 'required|string|max:255',
-            'lastName' => 'required|string|max:255',
-            'phone' => 'required|string|size:11|unique:users,phone|regex:/^09[0-9]{9}$/',
-            'province' => 'required|string|max:100',
-            'city' => 'required|string|max:100',
-            'status' => 'required|in:active,inactive,blocked',
-            'type' => 'required|in:patient,doctor,pharmacy,lab,nurse',
-            'details' => 'nullable|array',
+            'lastName'  => 'required|string|max:255',
+            'phone'     => 'required|string|size:11|unique:users,phone|regex:/^09[0-9]{9}$/',
+            'province'  => 'required|string|max:100',
+            'city'      => 'required|string|max:100',
+            'status'    => 'required|in:active,inactive,blocked',
+            'type'      => 'required|in:patient,doctor,pharmacy,lab,nurse,medical_center,beauty_clinic',
+            'details'   => 'nullable|array',
         ]);
 
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'errors' => $validator->errors()
+                'errors'  => $validator->errors()
             ], 422);
         }
 
@@ -194,45 +184,51 @@ class UserManagementController extends Controller
             }
 
             $statusMap = [
-                'active' => 1,
+                'active'   => 1,
                 'inactive' => 0,
-                'blocked' => 2,
+                'blocked'  => 2,
             ];
 
             $roleMap = [
-                'patient' => 'patient',
-                'doctor' => 'doctor',
-                'pharmacy' => 'pharmacy',
-                'lab' => 'lab',
-                'nurse' => 'medical_center', // اگر رول جدا داری اصلاحش کن
+                'patient'        => 'patient',
+                'doctor'         => 'doctor',
+                'pharmacy'       => 'pharmacy',
+                'lab'            => 'lab',
+                'nurse'          => 'medical_center',
+                'medical_center' => 'medical_center',
+                'beauty_clinic'  => 'beauty_clinic',
             ];
 
+            $details = $request->details ?? [];
             $fullName = trim($request->firstName . ' ' . $request->lastName);
 
+            // اگر برای کلینیک زیبایی نام مرکز در details وارد شده بود، به‌عنوان نام کاربر ثبت شود
+            $userDisplayName = ($request->type === 'beauty_clinic' && !empty($details['clinicName']))
+                ? trim($details['clinicName'])
+                : $fullName;
+
             $userId = DB::table('users')->insertGetId([
-                'name' => $fullName,
-                'phone' => $request->phone,
-                'password' => Hash::make($request->phone),
-                'role' => $roleMap[$request->type],
-                'status' => $statusMap[$request->status],
-                'is_verify' => 0,
+                'name'        => $userDisplayName,
+                'phone'       => $request->phone,
+                'password'    => Hash::make($request->phone),
+                'role'        => $roleMap[$request->type],
+                'status'      => $statusMap[$request->status],
+                'is_verify'   => 0,
                 'province_id' => $province->id,
-                'city_id' => $city->id,
-                'created_at' => now(),
-                'updated_at' => now(),
+                'city_id'     => $city->id,
+                'created_at'  => now(),
+                'updated_at'  => now(),
             ]);
 
             // ساخت کیف پول برای همه کاربران
             DB::table('wallets')->insert([
-                'user_id' => $userId,
-                'balance' => 0,
-                'version' => 0,
+                'user_id'    => $userId,
+                'balance'    => 0,
+                'version'    => 0,
                 'deleted_at' => null,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
-
-            $details = $request->details ?? [];
 
             switch ($request->type) {
                 case 'doctor':
@@ -250,11 +246,13 @@ class UserManagementController extends Controller
                     break;
 
                 case 'pharmacy':
+                case 'nurse':
+                case 'medical_center':
                     $this->createMedicalCenterInfo($userId, $fullName, $details);
                     break;
 
-                case 'nurse':
-                    $this->createMedicalCenterInfo($userId, $fullName, $details);
+                case 'beauty_clinic':
+                    $this->createBeautyClinicInfo($userId, $userDisplayName, $request->phone, $details);
                     break;
             }
 
@@ -263,8 +261,8 @@ class UserManagementController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'کاربر با موفقیت ایجاد شد.',
-                'data' => [
-                    'id' => $userId,
+                'data'    => [
+                    'id'    => $userId,
                     'phone' => $request->phone,
                 ]
             ], 201);
@@ -287,29 +285,29 @@ class UserManagementController extends Controller
         }
 
         DB::table('doctor_info')->insert([
-            'user_id' => $userId,
-            'name' => $name,
-            'bio' => $details['bio'] ?? null,
-            'specialty_id' => $specialtyId,
-            'visit_price' => $details['visit_price'] ?? 7000000,
-            'experience' => $details['experience'] ?? null,
-            'address' => $details['address'] ?? null,
-            'phone' => $details['phone'] ?? null,
-            'medical_code' => $details['medical_code'] ?? null,
-            'rank' => $details['rank'] ?? null,
-            'image_url' => $details['image_url'] ?? 'https://www.tarhdokan.com/wp-content/uploads/2020/07/doctor-1-1.jpg',
-            'lat' => $details['lat'] ?? null,
-            'lng' => $details['lng'] ?? null,
-            'province' => $province,
-            'city' => $city,
-            'is_vip' => 0,
-            'rating' => 0.0,
-            'visit_count' => 0,
-            'appointments' => 0,
-            'reviews' => 0,
+            'user_id'        => $userId,
+            'name'           => $name,
+            'bio'            => $details['bio'] ?? null,
+            'specialty_id'   => $specialtyId,
+            'visit_price'    => $details['visit_price'] ?? 7000000,
+            'experience'     => $details['experience'] ?? null,
+            'address'        => $details['address'] ?? null,
+            'phone'          => $details['phone'] ?? null,
+            'medical_code'   => $details['medical_code'] ?? null,
+            'rank'           => $details['rank'] ?? null,
+            'image_url'      => $details['image_url'] ?? 'https://www.tarhdokan.com/wp-content/uploads/2020/07/doctor-1-1.jpg',
+            'lat'            => $details['lat'] ?? null,
+            'lng'            => $details['lng'] ?? null,
+            'province'       => $province,
+            'city'           => $city,
+            'is_vip'         => 0,
+            'rating'         => 0.0,
+            'visit_count'    => 0,
+            'appointments'   => 0,
+            'reviews'        => 0,
             'recommendation' => 0,
-            'created_at' => now(),
-            'updated_at' => now(),
+            'created_at'     => now(),
+            'updated_at'     => now(),
         ]);
     }
 
@@ -318,19 +316,19 @@ class UserManagementController extends Controller
         $slug = Str::slug($name . '-' . $userId);
 
         DB::table('labs_info')->insert([
-            'user_id' => $userId,
-            'name' => $name,
-            'slug' => $slug,
-            'license_number' => $details['license_number'] ?? null,
+            'user_id'           => $userId,
+            'name'              => $name,
+            'slug'              => $slug,
+            'license_number'    => $details['license_number'] ?? null,
             'technical_manager' => $details['technical_manager'] ?? null,
-            'work_hours' => $details['work_hours'] ?? null,
-            'min_order_amount' => $details['min_order_amount'] ?? 0,
-            'status' => 1,
-            'address' => $details['address'] ?? null,
-            'lat' => $details['lat'] ?? null,
-            'lng' => $details['lng'] ?? null,
-            'created_at' => now(),
-            'updated_at' => now(),
+            'work_hours'        => $details['work_hours'] ?? null,
+            'min_order_amount'  => $details['min_order_amount'] ?? 0,
+            'status'            => 1,
+            'address'           => $details['address'] ?? null,
+            'lat'               => $details['lat'] ?? null,
+            'lng'               => $details['lng'] ?? null,
+            'created_at'        => now(),
+            'updated_at'        => now(),
         ]);
     }
 
@@ -339,18 +337,40 @@ class UserManagementController extends Controller
         $slug = Str::slug($name . '-' . $userId);
 
         DB::table('medical_centers_info')->insert([
-            'user_id' => $userId,
-            'name' => $name,
-            'slug' => $slug,
-            'status' => 1,
-            'image' => $details['image'] ?? null,
-            'lat' => $details['lat'] ?? null,
-            'lng' => $details['lng'] ?? null,
-            'address' => $details['address'] ?? null,
+            'user_id'              => $userId,
+            'name'                 => $name,
+            'slug'                 => $slug,
+            'status'               => 1,
+            'image'                => $details['image'] ?? null,
+            'lat'                  => $details['lat'] ?? null,
+            'lng'                  => $details['lng'] ?? null,
+            'address'              => $details['address'] ?? null,
             'coverage_description' => $details['coverage_description'] ?? null,
-            'coverage_radius' => $details['coverage_radius'] ?? null,
-            'created_at' => now(),
-            'updated_at' => now(),
+            'coverage_radius'      => $details['coverage_radius'] ?? null,
+            'created_at'           => now(),
+            'updated_at'           => now(),
+        ]);
+    }
+
+    private function createBeautyClinicInfo($userId, $clinicName, $defaultPhone, $details)
+    {
+        $slugBase = Str::slug($clinicName) ?: 'beauty-clinic';
+        $slug     = "{$slugBase}-{$userId}";
+
+        DB::table('beauty_clinic_info')->insert([
+            'user_id'            => $userId,
+            'slug'               => $slug,
+            'phone'              => $details['phone'] ?? $defaultPhone,
+            'work_hours'         => $details['workHours'] ?? ($details['work_hours'] ?? null),
+            'address'            => $details['address'] ?? null,
+            'description'        => $details['description'] ?? null,
+            'lat'                => $details['lat'] ?? null,
+            'lng'                => $details['lng'] ?? null,
+            'image'              => $details['image'] ?? null,
+            'is_avatar_verified' => 0,
+            'status'             => 1,
+            'created_at'         => now(),
+            'updated_at'         => now(),
         ]);
     }
 }
