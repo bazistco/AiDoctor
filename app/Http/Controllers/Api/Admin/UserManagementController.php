@@ -17,22 +17,52 @@ class UserManagementController extends Controller
             ->join('cities as c', 'c.id', '=', 'u.city_id')
             ->join('provinces as p', 'p.id', '=', 'u.province_id')
             ->leftJoin('doctor_info as di', 'di.user_id', '=', 'u.id')
+            ->leftJoin('beauty_clinic_info as bci', 'bci.user_id', '=', 'u.id')
             ->select(
-                'u.id', 'u.name', 'u.email', 'u.phone',
-                'u.role', 'u.status', 'u.is_verify', 'u.avatar',
-                'u.created_at', 'u.updated_at',
-                'c.id as city', 'p.id as province',
+                'u.id',
+                'u.name',
+                'u.email',
+                'u.phone',
+                'u.role',
+                'u.status',
+                'u.is_verify',
+                'u.avatar',
+                'u.created_at',
+                'u.updated_at',
+                'c.id as city',
+                'p.id as province',
                 // فیلدهای مربوط به پزشک
-                'di.document_status', 'di.document_rejection_reason',
-                'di.national_code', 'di.is_national_code_verified',
+                'di.document_status',
+                'di.document_rejection_reason',
+                'di.national_code',
+                'di.is_national_code_verified',
                 'di.medical_code',
-                'di.national_card_image', 'di.medical_council_card_image', 'di.clinic_license_image'
+                'di.is_avatar_verified as doctor_avatar_verified',
+                'di.image_url as doctor_image_url',
+                'di.national_card_image',
+                'di.medical_council_card_image',
+                'di.clinic_license_image',
+                // فیلدهای مربوط به کلینیک زیبایی
+                'bci.image as beauty_image',
+                'bci.is_avatar_verified as beauty_avatar_verified',
+                'bci.address as beauty_address',
+                'bci.phone as beauty_phone'
             );
     }
 
     private function formatUser(object $user): array
     {
         $getDocUrl = fn($path) => $path ? secure_url('/api/admin/documents/download?path=' . urlencode($path)) : null;
+
+        $beautyImageUrl = !empty($user->beauty_image)
+            ? (str_starts_with($user->beauty_image, 'http')
+                ? $user->beauty_image
+                : 'https://api.mediraai.com/storage/' . ltrim($user->beauty_image, '/'))
+            : null;
+
+        $displayAvatar = $user->role === 'beauty_clinic'
+            ? ($beautyImageUrl ?? $user->avatar)
+            : ($user->doctor_image_url ?? $user->avatar);
 
         return [
             'id'         => $user->id,
@@ -44,7 +74,7 @@ class UserManagementController extends Controller
             'status'     => $user->status,
             'is_verify'  => (bool) $user->is_verify,
             'isVerified' => (bool) $user->is_verify,
-            'avatar'     => $user->avatar ?? null,
+            'avatar'     => $displayAvatar,
             'city'       => $user->city,
             'province'   => $user->province,
             'created_at' => $user->created_at,
@@ -57,59 +87,100 @@ class UserManagementController extends Controller
                 'medical_code'              => $user->medical_code,
                 'document_status'           => $user->document_status ?? 'not_uploaded',
                 'document_rejection_reason' => $user->document_rejection_reason,
+                'is_avatar_verified'        => (bool) $user->doctor_avatar_verified,
                 'documents' => [
                     'national_card'        => $getDocUrl($user->national_card_image),
                     'medical_council_card' => $getDocUrl($user->medical_council_card_image),
                     'clinic_license'       => $getDocUrl($user->clinic_license_image),
                 ]
             ] : null,
+
+            // اطلاعات تصویر و پروفایل کلینیک زیبایی
+            'beauty_clinic_info' => $user->role === 'beauty_clinic' ? [
+                'image_url'          => $beautyImageUrl,
+                'is_avatar_verified' => (bool) $user->beauty_avatar_verified,
+                'address'            => $user->beauty_address,
+                'phone'              => $user->beauty_phone,
+            ] : null,
         ];
     }
 
     public function pendingDoctors(Request $request)
     {
-        $perPage = (int) $request->input('per_page', 15);
+        $perPage      = (int) $request->input('per_page', 15);
         $statusFilter = $request->input('status_filter', 'action_required');
+        $roleFilter   = $request->input('role_filter', 'all'); // all | doctor | beauty_clinic
 
         $query = $this->baseQuery()
-            ->where('u.role', 'doctor')
-            ->where(function ($q) use ($statusFilter) {
+            ->where(function ($root) use ($statusFilter, $roleFilter) {
 
-                if ($statusFilter === 'all') {
-                    $q->whereIn('di.document_status', ['not_uploaded', 'pending', 'rejected'])
-                        ->orWhereNull('di.document_status')
-                        ->orWhere(function ($avatarSub) {
-                            $avatarSub->where(function ($inner) {
-                                $inner->where('di.is_avatar_verified', false)
-                                    ->orWhereNull('di.is_avatar_verified');
-                            })
-                                ->whereNotNull('di.image_url')
-                                ->where('di.image_url', '<>', '');
-                        });
+                // ۱. بخش پزشکان
+                if ($roleFilter === 'all' || $roleFilter === 'doctor') {
+                    $root->orWhere(function ($docQ) use ($statusFilter) {
+                        $docQ->where('u.role', 'doctor')
+                            ->where(function ($q) use ($statusFilter) {
+                                if ($statusFilter === 'all') {
+                                    $q->whereIn('di.document_status', ['not_uploaded', 'pending', 'rejected'])
+                                        ->orWhereNull('di.document_status')
+                                        ->orWhere(function ($avatarSub) {
+                                            $avatarSub->where(function ($inner) {
+                                                $inner->where('di.is_avatar_verified', false)
+                                                    ->orWhereNull('di.is_avatar_verified');
+                                            })
+                                                ->whereNotNull('di.image_url')
+                                                ->where('di.image_url', '<>', '');
+                                        });
+                                } elseif ($statusFilter === 'not_uploaded') {
+                                    $q->whereIn('di.document_status', ['not_uploaded'])
+                                        ->orWhereNull('di.document_status');
+                                } elseif ($statusFilter === 'pending') {
+                                    $q->where('di.document_status', 'pending');
+                                } elseif ($statusFilter === 'avatar_unverified') {
+                                    $q->whereNotNull('di.image_url')
+                                        ->where('di.image_url', '<>', '')
+                                        ->where(function ($sub) {
+                                            $sub->where('di.is_avatar_verified', false)
+                                                ->orWhereNull('di.is_avatar_verified');
+                                        });
+                                } else {
+                                    $q->where('di.document_status', 'pending')
+                                        ->orWhere(function ($sub) {
+                                            $sub->whereNotNull('di.image_url')
+                                                ->where('di.image_url', '<>', '')
+                                                ->where(function ($avatarQ) {
+                                                    $avatarQ->where('di.is_avatar_verified', false)
+                                                        ->orWhereNull('di.is_avatar_verified');
+                                                });
+                                        });
+                                }
+                            });
+                    });
+                }
 
-                } elseif ($statusFilter === 'not_uploaded') {
-                    $q->whereIn('di.document_status', ['not_uploaded'])
-                        ->orWhereNull('di.document_status');
+                // ۲. بخش کلینیک‌های زیبایی
+                if (
+                    ($roleFilter === 'all' || $roleFilter === 'beauty_clinic') &&
+                    !in_array($statusFilter, ['pending', 'not_uploaded'], true)
+                ) {
+                    $root->orWhere(function ($beautyQ) use ($statusFilter) {
+                        $beautyQ->where('u.role', 'beauty_clinic');
 
-                } elseif ($statusFilter === 'pending') {
-                    $q->where('di.document_status', 'pending');
-
-                } elseif ($statusFilter === 'avatar_unverified') {
-                    $q->whereNotNull('di.image_url')
-                        ->where(function ($sub) {
-                            $sub->where('di.is_avatar_verified', false)
-                                ->orWhereNull('di.is_avatar_verified');
-                        });
-
-                } else {
-                    $q->where('di.document_status', 'pending')
-                        ->orWhere(function ($sub) {
-                            $sub->whereNotNull('di.image_url')
-                                ->where(function ($avatarQ) {
-                                    $avatarQ->where('di.is_avatar_verified', false)
-                                        ->orWhereNull('di.is_avatar_verified');
+                        if ($statusFilter === 'all') {
+                            $beautyQ->where(function ($sub) {
+                                $sub->where('bci.is_avatar_verified', false)
+                                    ->orWhereNull('bci.is_avatar_verified');
+                            });
+                        } else {
+                            // حالت action_required و avatar_unverified:
+                            // کلینیک‌هایی که تصویر آپلود کرده‌اند ولی هنوز تایید نشده است
+                            $beautyQ->whereNotNull('bci.image')
+                                ->where('bci.image', '<>', '')
+                                ->where(function ($sub) {
+                                    $sub->where('bci.is_avatar_verified', false)
+                                        ->orWhereNull('bci.is_avatar_verified');
                                 });
-                        });
+                        }
+                    });
                 }
             });
 
@@ -121,18 +192,31 @@ class UserManagementController extends Controller
             });
         }
 
+        if ($phone = $request->input('phone')) {
+            $query->where('u.phone', 'like', "%{$phone}%");
+        }
+
+        if ($province = $request->input('province')) {
+            $query->where('p.name', $province);
+        }
+
+        if ($city = $request->input('city')) {
+            $query->where('c.name', $city);
+        }
+
         $query->orderByRaw("
             CASE
-                WHEN di.document_status = 'pending' THEN 1
-                WHEN di.is_avatar_verified = 0 OR di.is_avatar_verified IS NULL THEN 2
+                WHEN u.role = 'doctor' AND di.document_status = 'pending' THEN 1
+                WHEN (u.role = 'doctor' AND (di.is_avatar_verified = 0 OR di.is_avatar_verified IS NULL))
+                  OR (u.role = 'beauty_clinic' AND (bci.is_avatar_verified = 0 OR bci.is_avatar_verified IS NULL)) THEN 2
                 ELSE 3
             END ASC
         ")->orderBy('u.id', 'desc');
 
         $paginated = $query->paginate($perPage);
 
-        $formattedData = collect($paginated->items())->map(function ($doctor) {
-            return $this->formatUser($doctor);
+        $formattedData = collect($paginated->items())->map(function ($row) {
+            return $this->formatUser($row);
         });
 
         return response()->json([
