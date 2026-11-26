@@ -41,7 +41,7 @@ class BeautyAuthController extends Controller
                 'work_hours'  => ['nullable', 'string', 'max:255'],
                 'description' => ['nullable', 'string', 'max:2000'],
             ]
-        );;
+        );
 
         if ($validator->fails()) {
             return response()->json([
@@ -53,27 +53,42 @@ class BeautyAuthController extends Controller
 
         $user = DB::table('users')->where('phone', $phone)->first();
 
+        // اگر کاربر وجود دارد و نقش آن beauty_clinic نیست، جلوی ادامه کار را بگیر
+        if ($user && $user->role !== 'beauty_clinic') {
+            return response()->json([
+                'success' => false,
+                'message' => 'این شماره موبایل با نقش دیگری در سیستم ثبت شده است و امکان ثبت‌نام یا ورود به‌عنوان کلینیک زیبایی وجود ندارد.',
+            ], 409);
+        }
+
         if (!$user) {
             $clinicName    = trim((string) $request->input('name', ''));
             $clinicAddress = trim((string) $request->input('address', ''));
 
             if ($clinicName === '' || $clinicAddress === '') {
                 return response()->json([
-                    'success'            => false,
+                    'success'               => false,
                     'requires_registration' => true,
-                    'message'            => 'شماره موبایل ثبت نشده است؛ برای ثبت‌نام کلینیک، نام و آدرس را وارد کنید.',
+                    'message'               => 'شماره موبایل ثبت نشده است؛ برای ثبت‌نام کلینیک، نام و آدرس را وارد کنید.',
                 ], 404);
             }
 
-            $user = $this->createInactiveBeautyClinic(
-                $phone,
-                $clinicName,
-                $clinicAddress,
-                $request->input('province_id') ? (int) $request->input('province_id') : null,
-                $request->input('city_id') ? (int) $request->input('city_id') : null,
-                $request->input('work_hours'),
-                $request->input('description')
-            );
+            try {
+                $user = $this->createInactiveBeautyClinic(
+                    $phone,
+                    $clinicName,
+                    $clinicAddress,
+                    $request->input('province_id') ? (int) $request->input('province_id') : null,
+                    $request->input('city_id') ? (int) $request->input('city_id') : null,
+                    $request->input('work_hours'),
+                    $request->input('description')
+                );
+            } catch (\RuntimeException $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $e->getMessage(),
+                ], 409);
+            }
         }
 
         if ($user->role !== 'beauty_clinic') {
@@ -84,7 +99,7 @@ class BeautyAuthController extends Controller
         }
 
         // وضعیت 2 = مسدود شده
-        if ((int) $user->status === 2) {
+        if ((int) $user->status === 0) {
             return response()->json([
                 'success' => false,
                 'message' => 'حساب کاربری شما مسدود است.',
@@ -226,6 +241,7 @@ class BeautyAuthController extends Controller
 
     /**
      * ایجاد کاربر کلینیک زیبایی و کیف‌پول با وضعیت پیش‌فرض غیرفعال (status = 0)
+     * با قفل و بررسی مجدد داخل تراکنش برای جلوگیری از تداخل با نقش‌های دیگر
      */
     private function createInactiveBeautyClinic(
         string $phone,
@@ -262,6 +278,17 @@ class BeautyAuthController extends Controller
             $description,
             $now
         ) {
+            $existing = DB::table('users')
+                ->where('phone', $phone)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existing) {
+                throw new \RuntimeException(
+                    'این شماره موبایل قبلاً در سیستم ثبت شده است و امکان ایجاد حساب جدید با آن وجود ندارد.'
+                );
+            }
+
             $id = DB::table('users')->insertGetId([
                 'name'        => $clinicName,
                 'phone'       => $phone,
