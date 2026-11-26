@@ -88,11 +88,11 @@ class BeautyDashboardController extends Controller
             ->where('id', $userId)
             ->first();
 
-        // دریافت لیست درخواست‌های کلینیک زیبایی به‌همراه عنوان سرویس‌ها از beauty_request_service_packs
         $allRequests = DB::table('users_beauty_requests as ubr')
             ->leftJoin('users as u', 'u.id', '=', 'ubr.user_id')
             ->leftJoin('beauty_request_service_packs as brsp', 'brsp.beauty_request_id', '=', 'ubr.id')
             ->leftJoin('beauty_clinic_services as bcs', 'bcs.id', '=', 'brsp.clinic_service_id')
+            ->leftJoin('beauty_service_packs as bsp', 'bsp.id', '=', 'bcs.service_pack_id')
             ->where('ubr.clinic_id', $userId)
             ->groupBy(
                 'ubr.id',
@@ -111,7 +111,7 @@ class BeautyDashboardController extends Controller
                 'ubr.appointment_date',
                 'ubr.created_at',
                 'u.name as patient_name',
-                DB::raw("GROUP_CONCAT(DISTINCT bcs.title SEPARATOR '، ') as services_title"),
+                DB::raw("GROUP_CONCAT(DISTINCT bsp.name SEPARATOR '، ') as services_name"),
                 DB::raw("GROUP_CONCAT(DISTINCT brsp.clinic_service_id SEPARATOR ',') as service_ids")
             )
             ->orderByDesc('ubr.created_at')
@@ -186,7 +186,7 @@ class BeautyDashboardController extends Controller
         };
 
         $recentRequests = $allRequests->take(5)->values()->map(function ($r) use ($mapStatusKey) {
-            $serviceLabel = $r->services_title
+            $serviceLabel = $r->services_name
                 ?: (!empty($r->service_ids) ? "سرویس #{$r->service_ids}" : 'خدمت زیبایی');
 
             return [
