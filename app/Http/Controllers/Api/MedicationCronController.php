@@ -107,8 +107,8 @@ class MedicationCronController extends Controller
             // ارسال برای خود صاحب تقویم
             $this->triggerNovuEvent(
                 subscriberId: (string) $firstRecord->novu_subscriber_id,
-                title: '⏳ یادآوری: کمتر از ۱ ساعت تا مصرف دارو',
-                message: "{$ownerName} عزیز، کمتر از یک ساعت دیگر زمان مصرف این داروهاست: {$medicationNames}",
+                title: "⏳1 ساعت تا مصرف دارو: {$medicationNames}",
+                message: "{$ownerName} عزیز، کمتر از یک ساعت دیگر زمان مصرف داروهای فوق است.",
                 link: 'https://app.mediraai.com/pill-organizer'
             );
             $ownersNotified++;
