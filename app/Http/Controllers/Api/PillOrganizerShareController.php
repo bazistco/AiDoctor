@@ -69,7 +69,7 @@ class PillOrganizerShareController extends Controller
             'success' => true,
             'data' => [
                 'share_code' => $code,
-                'invite_path' => "https://app.mediraai.com//pill-invite/{$code}",
+                'invite_path' => "https://app.mediraai.com/pill-invite/{$code}",
             ],
         ]);
     }
