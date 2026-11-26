@@ -109,7 +109,7 @@ class MedicationCronController extends Controller
                 subscriberId: (string) $firstRecord->novu_subscriber_id,
                 title: '⏳ یادآوری: کمتر از ۱ ساعت تا مصرف دارو',
                 message: "{$ownerName} عزیز، کمتر از یک ساعت دیگر زمان مصرف این داروهاست: {$medicationNames}",
-                link: 'https://app.mediraai.com/medications'
+                link: 'https://app.mediraai.com/pill-organizer'
             );
             $ownersNotified++;
 
