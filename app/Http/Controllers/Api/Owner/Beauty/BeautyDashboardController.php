@@ -88,22 +88,31 @@ class BeautyDashboardController extends Controller
             ->where('id', $userId)
             ->first();
 
-        // کوئری درخواست‌های نوبت کلینیک زیبایی
-        $requestsQuery = DB::table('users_beauty_requests as ubr')
+        // دریافت لیست درخواست‌های کلینیک زیبایی به‌همراه عنوان سرویس‌ها از beauty_request_service_packs
+        $allRequests = DB::table('users_beauty_requests as ubr')
             ->leftJoin('users as u', 'u.id', '=', 'ubr.user_id')
-            ->leftJoin('beauty_clinic_services as bcs', 'bcs.id', '=', 'ubr.service_id')
-            ->where('ubr.clinic_id', $userId);
-
-        $allRequests = (clone $requestsQuery)
+            ->leftJoin('beauty_request_service_packs as brsp', 'brsp.beauty_request_id', '=', 'ubr.id')
+            ->leftJoin('beauty_clinic_services as bcs', 'bcs.id', '=', 'brsp.clinic_service_id')
+            ->where('ubr.clinic_id', $userId)
+            ->groupBy(
+                'ubr.id',
+                'ubr.user_id',
+                'ubr.status',
+                'ubr.total_price',
+                'ubr.appointment_date',
+                'ubr.created_at',
+                'u.name'
+            )
             ->select(
                 'ubr.id',
                 'ubr.user_id',
-                'ubr.service_id',
                 'ubr.status',
                 'ubr.total_price',
+                'ubr.appointment_date',
                 'ubr.created_at',
                 'u.name as patient_name',
-                'bcs.title as service_name'
+                DB::raw("GROUP_CONCAT(DISTINCT bcs.title SEPARATOR '، ') as services_title"),
+                DB::raw("GROUP_CONCAT(DISTINCT brsp.clinic_service_id SEPARATOR ',') as service_ids")
             )
             ->orderByDesc('ubr.created_at')
             ->get();
@@ -177,11 +186,14 @@ class BeautyDashboardController extends Controller
         };
 
         $recentRequests = $allRequests->take(5)->values()->map(function ($r) use ($mapStatusKey) {
+            $serviceLabel = $r->services_title
+                ?: (!empty($r->service_ids) ? "سرویس #{$r->service_ids}" : 'خدمت زیبایی');
+
             return [
                 'id'          => (int) $r->id,
-                'patientName' => $r->patient_name ?: 'بیمار / مراجع',
+                'patientName' => $r->patient_name ?: 'مراجع',
                 'code'        => 'BC-' . (1000 + (int) $r->id),
-                'serviceName' => $r->service_name ?: 'خدمت زیبایی',
+                'serviceName' => $serviceLabel,
                 'status'      => $mapStatusKey((int) $r->status),
                 'totalPrice'  => (float) ($r->total_price ?? 0),
             ];
