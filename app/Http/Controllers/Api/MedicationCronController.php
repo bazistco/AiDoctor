@@ -11,11 +11,6 @@ use Illuminate\Support\Facades\Log;
 
 class MedicationCronController extends Controller
 {
-    /**
-     * وب‌سرویس اجرایی توسط کران‌جاب لینوکس
-     * واکشی داروهای امروز که زمان مصرفشان کمتر از ۱ ساعت آینده است (بین اکنون تا ۱ ساعت بعد)
-     * و ارسال نوتیفیکیشن برای خود کاربر و مشاهده‌کنندگان تقویم اشتراک‌گذاری‌شده او
-     */
     public function sendReminders(Request $request)
     {
         // ۱. بررسی کلید امنیتی کران‌جاب
@@ -23,14 +18,10 @@ class MedicationCronController extends Controller
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        // ۲. استخراج روز جاری هفته (sun, mon, tue, ...)
-        $currentDayKey = strtolower(now()->format('D'));
+        $now = Carbon::now();
+        $currentDayKey = strtolower($now->format('D')); // sun, mon, tue, ...
 
-        // ۳. تعیین بازه زمانی: از همین لحظه تا حداکثر ۶۰ دقیقه آینده
-        $currentTime  = now()->format('H:i');           // مثلا 14:15
-        $oneHourLater = now()->addHour()->format('H:i'); // مثلا 15:15
-
-        // ۴. واکشی داروهای امروز که هنوز مصرف نشده‌اند و کاربر دارای اشتراک Novu است
+        // ۲. واکشی داروهای مصرف‌نشده امروز برای کاربران دارای Novu Subscriber ID
         $rawMedications = DB::table('user_medications')
             ->join('users', 'user_medications.user_id', '=', 'users.id')
             ->where('user_medications.day_key', $currentDayKey)
@@ -48,37 +39,47 @@ class MedicationCronController extends Controller
             ])
             ->get();
 
-        // ۵. فیلتر کردن رکوردهایی که زمان مصرفشان بین اکنون تا کمتر از ۱ ساعت دیگر است
-        $medications = $rawMedications->filter(function ($item) use ($currentTime, $oneHourLater) {
-            if (empty($item->time)) {
-                return false;
+        // ۳. دسته‌بندی داروها در دو بازه: ۳۰ دقیقه مانده (30m) و سرِ موقع (on_time)
+        // فرض: کران‌جاب هر ۱ تا ۵ دقیقه اجرا می‌شود.
+        // برای 30m: بین 28 تا 32 دقیقه آینده
+        // برای on_time: بین 2 دقیقه قبل تا 2 دقیقه بعد از زمان مقرر
+        $dueMedications = collect();
+
+        foreach ($rawMedications as $item) {
+            $medTime = $this->parseMedicationTimeToday((string) $item->time, $now);
+            if (!$medTime) {
+                continue;
             }
 
-            $normalizedTime = $this->convertNumbersToEnglish(trim($item->time));
+            // تفاوت دقیق به دقیقه نسبت به الان (مثبت یعنی در آینده است، منفی یعنی گذشته است)
+            $diffInMinutes = $now->diffInMinutes($medTime, false);
 
-            if (strlen($normalizedTime) === 4 && str_contains($normalizedTime, ':')) {
-                $normalizedTime = '0' . $normalizedTime;
+            $reminderType = null;
+
+            if ($diffInMinutes >= 28 && $diffInMinutes <= 32) {
+                $reminderType = '30m';
+            } elseif ($diffInMinutes >= -2 && $diffInMinutes <= 2) {
+                $reminderType = 'on_time';
             }
 
-            if ($oneHourLater >= $currentTime) {
-                return $normalizedTime >= $currentTime && $normalizedTime <= $oneHourLater;
+            if ($reminderType !== null) {
+                $clone = clone $item;
+                $clone->reminder_type = $reminderType;
+                $clone->normalized_time = $medTime->format('H:i');
+                $dueMedications->push($clone);
             }
+        }
 
-            // حالت نیمه‌شب و تغییر روز (مثلا 23:30 تا 00:30)
-            return $normalizedTime >= $currentTime || $normalizedTime <= $oneHourLater;
-        });
-
-        if ($medications->isEmpty()) {
+        if ($dueMedications->isEmpty()) {
             return response()->json([
                 'status'       => true,
-                'message'      => "No medications found between {$currentTime} and {$oneHourLater}.",
-                'current_time' => $currentTime,
-                'until_time'   => $oneHourLater,
+                'message'      => 'No medications due for 30-min or on-time reminders.',
+                'current_time' => $now->format('H:i'),
             ]);
         }
 
-        // ۶. واکشی همه مشاهده‌کنندگان تقویم‌های اشتراک‌گذاری‌شده به ازای صاحبان دارو
-        $ownerIds = $medications->pluck('user_id')->unique()->values()->all();
+        // ۴. واکشی مشاهده‌کنندگان تقویم اشتراک‌گذاری‌شده
+        $ownerIds = $dueMedications->pluck('user_id')->unique()->values()->all();
 
         $sharesByOwner = DB::table('pill_organizer_shares as s')
             ->join('users as v', 'v.id', '=', 's.viewer_user_id')
@@ -94,38 +95,54 @@ class MedicationCronController extends Controller
             ->get()
             ->groupBy('owner_user_id');
 
-        // ۷. تجمیع داروها به ازای هر صاحب تقویم و ارسال نوتیفیکیشن برای خود فرد و مشاهده‌کنندگان
-        $medicationsByUser = $medications->groupBy('user_id');
-        $ownersNotified    = 0;
-        $viewersNotified   = 0;
+        // ۵. گروه‌بندی بر اساس صاحب تقویم و نوع یادآور (30m یا on_time)
+        $groupedByOwnerAndType = $dueMedications->groupBy(function ($item) {
+            return $item->user_id . '_' . $item->reminder_type;
+        });
 
-        foreach ($medicationsByUser as $ownerId => $userMedications) {
-            $firstRecord     = $userMedications->first();
+        $ownersNotified  = 0;
+        $viewersNotified = 0;
+
+        foreach ($groupedByOwnerAndType as $group) {
+            $firstRecord     = $group->first();
+            $ownerId         = (int) $firstRecord->user_id;
+            $reminderType    = $firstRecord->reminder_type;
             $ownerName       = $firstRecord->user_name ?? 'کاربر';
-            $medicationNames = $userMedications->pluck('medication_name')->implode('، ');
+            $medicationNames = $group->pluck('medication_name')->unique()->implode('، ');
 
-            // ارسال برای خود صاحب تقویم
+            if ($reminderType === '30m') {
+                $ownerTitle   = "⏳ ۳۰ دقیقه تا مصرف دارو: {$medicationNames}";
+                $ownerMessage = "{$ownerName} عزیز، حدود ۳۰ دقیقه دیگر زمان مصرف داروهای فوق است.";
+                $viewerTitle  = "⏳ یادآوری ۳۰ دقیقه‌ای داروی {$ownerName}";
+                $viewerMsg    = "حدود ۳۰ دقیقه دیگر زمان مصرف داروهای {$ownerName} است: {$medicationNames}";
+            } else {
+                $ownerTitle   = "💊 زمان مصرف دارو رسید: {$medicationNames}";
+                $ownerMessage = "{$ownerName} عزیز، اکنون زمان مصرف داروهای زیر است: {$medicationNames}";
+                $viewerTitle  = "💊 زمان مصرف داروی {$ownerName}";
+                $viewerMsg    = "اکنون زمان مصرف داروهای {$ownerName} است: {$medicationNames}";
+            }
+
+            // ارسال برای صاحب تقویم
             $this->triggerNovuEvent(
                 subscriberId: (string) $firstRecord->novu_subscriber_id,
-                title: "⏳1 ساعت تا مصرف دارو: {$medicationNames}",
-                message: "{$ownerName} عزیز، کمتر از یک ساعت دیگر زمان مصرف داروهای فوق است.",
+                title: $ownerTitle,
+                message: $ownerMessage,
                 link: 'https://app.mediraai.com/pill-organizer'
             );
             $ownersNotified++;
 
-            // ارسال برای کاربرانی که تقویم این فرد را دنبال می‌کنند
-            $viewers = $sharesByOwner->get((int) $ownerId, collect());
+            // ارسال برای مشاهده‌کنندگان
+            $viewers = $sharesByOwner->get($ownerId, collect());
 
             foreach ($viewers as $viewer) {
-                // جلوگیری از ارسال تکراری در صورت وجود رکورد هم‌نام یا خود کاربر
-                if ((int) $viewer->viewer_user_id === (int) $ownerId) {
+                if ((int) $viewer->viewer_user_id === $ownerId) {
                     continue;
                 }
 
                 $this->triggerNovuEvent(
                     subscriberId: (string) $viewer->viewer_novu_subscriber_id,
-                    title: "👥 یادآوری داروی {$ownerName}",
-                    message: "کمتر از یک ساعت دیگر زمان مصرف داروهای {$ownerName} است: {$medicationNames}",
+                    title: $viewerTitle,
+                    message: $viewerMsg,
                     link: "https://app.mediraai.com/pill-organizer/shared/{$ownerId}"
                 );
                 $viewersNotified++;
@@ -135,17 +152,39 @@ class MedicationCronController extends Controller
         return response()->json([
             'status'           => true,
             'message'          => 'Reminders processed successfully.',
-            'from_time'        => $currentTime,
-            'to_time'          => $oneHourLater,
+            'current_time'     => $now->format('H:i'),
             'owners_notified'  => $ownersNotified,
             'viewers_notified' => $viewersNotified,
             'total_notified'   => $ownersNotified + $viewersNotified,
         ]);
     }
 
-    /**
-     * ارسال Event به سرور Novu
-     */
+    private function parseMedicationTimeToday(string $rawTime, Carbon $now): ?Carbon
+    {
+        $clean = trim($this->convertNumbersToEnglish($rawTime));
+        if ($clean === '') {
+            return null;
+        }
+
+        // پشتیبانی از فرمت‌های H:i یا HH:MM یا H:i:s
+        foreach (['H:i:s', 'H:i', 'G:i'] as $format) {
+            try {
+                $parsed = Carbon::createFromFormat($format, $clean, $now->getTimezone());
+                if ($parsed !== false) {
+                    return $now->copy()->setTime(
+                        $parsed->hour,
+                        $parsed->minute,
+                        0
+                    );
+                }
+            } catch (\Throwable) {
+                // تلاش با فرمت بعدی
+            }
+        }
+
+        return null;
+    }
+
     private function triggerNovuEvent(string $subscriberId, string $title, string $message, string $link): void
     {
         try {
@@ -167,15 +206,12 @@ class MedicationCronController extends Controller
                 ],
             ]);
         } catch (\Throwable $e) {
-            Log::error('Cron Novu 1-Hour Reminder Error: ' . $e->getMessage(), [
+            Log::error('Cron Novu Reminder Error: ' . $e->getMessage(), [
                 'subscriber_id' => $subscriberId,
             ]);
         }
     }
 
-    /**
-     * متد کمکی برای تبدیل ارقام فارسی و عربی به انگلیسی جهت مقایسه‌ی دقیق زمان
-     */
     private function convertNumbersToEnglish(string $string): string
     {
         $persian = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
