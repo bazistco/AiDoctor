@@ -13,15 +13,14 @@ class MedicationCronController extends Controller
 {
     public function sendReminders(Request $request)
     {
-        // ۱. بررسی کلید امنیتی کران‌جاب
         if ($request->query('secret') !== config('app.cron_secret', 'sosmost666')) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
         $now = Carbon::now();
+        $todayDate = $now->toDateString(); // YYYY-MM-DD
         $currentDayKey = strtolower($now->format('D')); // sun, mon, tue, ...
 
-        // ۲. واکشی داروهای مصرف‌نشده امروز برای کاربران دارای Novu Subscriber ID
         $rawMedications = DB::table('user_medications')
             ->join('users', 'user_medications.user_id', '=', 'users.id')
             ->where('user_medications.day_key', $currentDayKey)
@@ -39,11 +38,10 @@ class MedicationCronController extends Controller
             ])
             ->get();
 
-        // ۳. دسته‌بندی داروها در دو بازه: ۳۰ دقیقه مانده (30m) و سرِ موقع (on_time)
-        // فرض: کران‌جاب هر ۱ تا ۵ دقیقه اجرا می‌شود.
-        // برای 30m: بین 28 تا 32 دقیقه آینده
-        // برای on_time: بین 2 دقیقه قبل تا 2 دقیقه بعد از زمان مقرر
-        $dueMedications = collect();
+        // برای کران‌جاب هر ۱ دقیقه:
+        // 30m: بین 29 تا 30 دقیقه مانده (یا 28..30 برای اطمینان از تیک کران)
+        // on_time: بین 0 تا 1 دقیقه گذشته/فعلی (یا -1..1)
+        $candidates = collect();
 
         foreach ($rawMedications as $item) {
             $medTime = $this->parseMedicationTimeToday((string) $item->time, $now);
@@ -51,35 +49,75 @@ class MedicationCronController extends Controller
                 continue;
             }
 
-            // تفاوت دقیق به دقیقه نسبت به الان (مثبت یعنی در آینده است، منفی یعنی گذشته است)
             $diffInMinutes = $now->diffInMinutes($medTime, false);
 
             $reminderType = null;
-
-            if ($diffInMinutes >= 28 && $diffInMinutes <= 32) {
+            if ($diffInMinutes >= 29 && $diffInMinutes <= 30) {
                 $reminderType = '30m';
-            } elseif ($diffInMinutes >= -2 && $diffInMinutes <= 2) {
+            } elseif ($diffInMinutes >= -1 && $diffInMinutes <= 0) {
                 $reminderType = 'on_time';
             }
 
             if ($reminderType !== null) {
                 $clone = clone $item;
                 $clone->reminder_type = $reminderType;
-                $clone->normalized_time = $medTime->format('H:i');
-                $dueMedications->push($clone);
+                $candidates->push($clone);
             }
         }
 
-        if ($dueMedications->isEmpty()) {
+        if ($candidates->isEmpty()) {
             return response()->json([
                 'status'       => true,
-                'message'      => 'No medications due for 30-min or on-time reminders.',
+                'message'      => 'No candidate medications at this minute.',
                 'current_time' => $now->format('H:i'),
             ]);
         }
 
-        // ۴. واکشی مشاهده‌کنندگان تقویم اشتراک‌گذاری‌شده
-        $ownerIds = $dueMedications->pluck('user_id')->unique()->values()->all();
+        // واکشی لاگ‌های ثبت‌شده امروز برای داروهای کاندید
+        $candidateMedIds = $candidates->pluck('id')->unique()->values()->all();
+
+        $existingLogs = DB::table('medication_reminder_logs')
+            ->whereIn('user_medication_id', $candidateMedIds)
+            ->where('remind_date', $todayDate)
+            ->get()
+            ->mapWithKeys(function ($row) {
+                return ["{$row->user_medication_id}_{$row->reminder_type}" => true];
+            });
+
+        // ثبت اتمیک لاگ و انتخاب فقط داروهایی که قبلاً ارسال نشده‌اند
+        $unsentMedications = collect();
+
+        foreach ($candidates as $med) {
+            $key = "{$med->id}_{$med->reminder_type}";
+            if ($existingLogs->has($key)) {
+                continue;
+            }
+
+            $inserted = DB::table('medication_reminder_logs')->insertOrIgnore([
+                'user_medication_id' => $med->id,
+                'user_id'            => $med->user_id,
+                'reminder_type'      => $med->reminder_type,
+                'remind_date'        => $todayDate,
+                'sent_at'            => $now->toDateTimeString(),
+                'created_at'         => $now->toDateTimeString(),
+                'updated_at'         => $now->toDateTimeString(),
+            ]);
+
+            // اگر درج انجام شد یعنی این کران‌جاب مالک ارسال این یادآور است
+            if ($inserted > 0) {
+                $unsentMedications->push($med);
+            }
+        }
+
+        if ($unsentMedications->isEmpty()) {
+            return response()->json([
+                'status'       => true,
+                'message'      => 'All due reminders for this minute were already sent.',
+                'current_time' => $now->format('H:i'),
+            ]);
+        }
+
+        $ownerIds = $unsentMedications->pluck('user_id')->unique()->values()->all();
 
         $sharesByOwner = DB::table('pill_organizer_shares as s')
             ->join('users as v', 'v.id', '=', 's.viewer_user_id')
@@ -95,8 +133,7 @@ class MedicationCronController extends Controller
             ->get()
             ->groupBy('owner_user_id');
 
-        // ۵. گروه‌بندی بر اساس صاحب تقویم و نوع یادآور (30m یا on_time)
-        $groupedByOwnerAndType = $dueMedications->groupBy(function ($item) {
+        $groupedByOwnerAndType = $unsentMedications->groupBy(function ($item) {
             return $item->user_id . '_' . $item->reminder_type;
         });
 
@@ -122,7 +159,6 @@ class MedicationCronController extends Controller
                 $viewerMsg    = "اکنون زمان مصرف داروهای {$ownerName} است: {$medicationNames}";
             }
 
-            // ارسال برای صاحب تقویم
             $this->triggerNovuEvent(
                 subscriberId: (string) $firstRecord->novu_subscriber_id,
                 title: $ownerTitle,
@@ -131,7 +167,6 @@ class MedicationCronController extends Controller
             );
             $ownersNotified++;
 
-            // ارسال برای مشاهده‌کنندگان
             $viewers = $sharesByOwner->get($ownerId, collect());
 
             foreach ($viewers as $viewer) {
@@ -166,7 +201,6 @@ class MedicationCronController extends Controller
             return null;
         }
 
-        // پشتیبانی از فرمت‌های H:i یا HH:MM یا H:i:s
         foreach (['H:i:s', 'H:i', 'G:i'] as $format) {
             try {
                 $parsed = Carbon::createFromFormat($format, $clean, $now->getTimezone());
@@ -178,7 +212,6 @@ class MedicationCronController extends Controller
                     );
                 }
             } catch (\Throwable) {
-                // تلاش با فرمت بعدی
             }
         }
 
