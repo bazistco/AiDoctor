@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Owner\Beauty\BeautyClinicRequestController;
 use App\Http\Controllers\Api\Owner\Beauty\BeautyClinicScheduleController;
 use App\Http\Controllers\Api\Owner\Beauty\BeautyClinicServiceController;
+use App\Http\Controllers\Api\Owner\Beauty\BeautyDashboardController;
 use App\Http\Controllers\Api\Owner\Lab\LabRulesController;
 use App\Http\Controllers\Api\Owner\Labs\LabAuthController;
 use App\Http\Controllers\Api\Owner\Labs\LabProfileController;
@@ -27,6 +28,8 @@ Route::prefix('beauty-clinic')->group(function () {
     Route::post('/verify', [\App\Http\Controllers\Api\Owner\Beauty\BeautyAuthController::class, 'verify']);
 
     Route::middleware(['auth:sanctum', 'user.active', 'role:beauty_clinic','ownership:beauty_clinic'])->group(function () {
+        Route::put('/status', [BeautyDashboardController::class, 'toggleStatus']);
+        Route::get('/dashboard', [BeautyDashboardController::class, 'index']);
         Route::prefix('schedule')->group(function () {
             Route::get('/rules', [BeautyClinicScheduleController::class, 'getRules']);
             Route::post('/rules', [BeautyClinicScheduleController::class, 'saveRules']);
