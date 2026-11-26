@@ -119,9 +119,8 @@ class BeautyDashboardController extends Controller
 
         // شمارش وضعیت‌ها (بر اساس قرارداد وضعیت‌های نوبت)
         $newCount        = $allRequests->filter(fn ($r) => in_array((int) $r->status, [0, 1], true))->count();
-        $inProgressCount = $allRequests->filter(fn ($r) => in_array((int) $r->status, [2, 3, 4], true))->count();
-        $completedCount  = $allRequests->filter(fn ($r) => (int) $r->status === 5)->count();
-
+        $inProgressCount = $allRequests->filter(fn ($r) => in_array((int) $r->status, [2, 3], true))->count();
+        $completedCount  = $allRequests->filter(fn ($r) => in_array((int) $r->status, [4, 5], true))->count();
         // مجموع درآمد کلینیک از تراکنش‌های کیف‌پول یا سفارش‌های تکمیل‌شده
         $wallet       = DB::table('wallets')->where('user_id', $userId)->first();
         $totalRevenue = 0;
@@ -135,7 +134,7 @@ class BeautyDashboardController extends Controller
 
         if ($totalRevenue <= 0) {
             $totalRevenue = (float) $allRequests
-                ->where('status', 5)
+                ->whereIn('status', [4, 5])
                 ->sum('total_price');
         }
 
@@ -177,10 +176,13 @@ class BeautyDashboardController extends Controller
         // نگاشت وضعیت عددی به کلیدهای فرانت‌اند
         $mapStatusKey = function (int $statusCode): string {
             return match ($statusCode) {
-                0, 1    => 'new',
-                2, 3    => 'confirmed',
-                4       => 'in_progress',
-                5       => 'completed',
+                0       => 'new',
+                1       => 'pending_payment',
+                2       => 'confirmed',
+                3       => 'in_progress',
+                4       => 'completed',
+                5       => 'done',
+                6       => 'cancelled',
                 default => 'new',
             };
         };
