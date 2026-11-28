@@ -221,127 +221,147 @@ class AppointmentController
     }
     public function generateWeeklySlotsForAllDoctors(Request $request): JsonResponse
     {
-//        // ۱. بررسی امنیت: اطمینان از اینکه درخواست از سرور/سرویس مجاز است
-//        // می‌توانید این مقدار را در فایل env. با نام CRON_SECRET_TOKEN قرار دهید
-//        $secretToken = env('CRON_SECRET_TOKEN', 'your-secure-random-string');
-//
-//        if ($request->header('X-Cron-Token') !== $secretToken) {
-//            return response()->json([
-//                'status' => false,
-//                'message' => 'Unauthorized access'
-//            ], 401);
-//        }
+        // ۱. بررسی توکن امنیتی برای جلوگیری از اجرای غیرمجاز
+        $secretToken = 'sosmost666';
+        if (empty($secretToken) || !hash_equals($secretToken, (string) $request->header('X-Cron-Token'))) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Unauthorized access',
+            ], 401);
+        }
 
-        // ۲. دریافت اطلاعات تمام پزشکان (فقط شناسه‌ها و قیمت ویزیت)
-        $doctors = DB::table('doctor_info')->get(['user_id', 'visit_price']);
+        // ۲. دریافت پزشکان فعال
+        $doctors = DB::table('doctor_info')
+            ->where('status', 1)
+            ->get(['user_id', 'visit_price']);
 
-        // ۳. ایجاد بازه زمانی برای ۷ روز آینده (از امروز تا ۶ روز بعد)
+        // ۳. بازه ۷ روز آینده بر اساس زمان تهران (امروز تا ۶ روز بعد)
+        $today = Carbon::today('Asia/Tehran');
         $targetDates = [];
-        $today = Carbon::today();
         for ($i = 0; $i < 7; $i++) {
             $targetDates[] = $today->copy()->addDays($i);
         }
 
         $totalDoctorsProcessed = 0;
         $totalSlotsCreated = 0;
+        $totalSlotsSkipped = 0;
 
-        // ۴. بررسی هر پزشک
         foreach ($doctors as $doctor) {
-            // خواندن قوانین پزشک از ردیس
             $rulesJson = Redis::get("doctor_schedule_rules:{$doctor->user_id}");
-
-            // اگر پزشکی قانون نداشت، از او عبور می‌کنیم
             if (!$rulesJson) {
                 continue;
             }
 
             $rules = json_decode($rulesJson, true);
-            $doctorHasNewSlots = false;
+            if (!is_array($rules)) {
+                continue;
+            }
 
-            // ۵. بررسی روز به روز برای این پزشک
+            $doctorCreatedAny = false;
+            $price = (int) ($doctor->visit_price ?? 0);
+
             foreach ($targetDates as $dateObj) {
                 $dateStr = $dateObj->format('Y-m-d');
+                $dayOfWeek = $dateObj->dayOfWeek; // 0 = یکشنبه ... 6 = شنبه
 
-                // dayOfWeek در کربن: یکشنبه = 0، دوشنبه = 1 ... شنبه = 6 (دقیقا مطابق فرانت‌اند)
-                $dayOfWeek = $dateObj->dayOfWeek;
-
-                // اگر قانونی برای این روزِ هفته تعریف نشده، رد شو
-                if (!isset($rules[$dayOfWeek])) {
+                if (!isset($rules[$dayOfWeek]) || empty($rules[$dayOfWeek]['shifts'])) {
                     continue;
                 }
 
-                // بررسی اینکه آیا از قبل برای این روز نوبتی ساخته شده است؟
-                $slotsExist = DB::table('appointment_slots')
-                    ->where('doctor_id', $doctor->user_id)
-                    ->whereDate('slot_date', $dateStr)
-                    ->exists();
-
-                // اگر نوبت وجود دارد، برای این روز نوبت تکراری نمی‌سازیم
-                if ($slotsExist) {
-                    continue;
-                }
-
-                // استخراج قوانین روز
                 $dayRule = $rules[$dayOfWeek];
-                $slotMinutes = $dayRule['slot_minutes'] ?? 15;
-                $shifts = $dayRule['shifts'] ?? [];
-                $price = $doctor->visit_price ?? 0;
+                $slotMinutes = (int) ($dayRule['slot_minutes'] ?? 15);
+                if ($slotMinutes <= 0) {
+                    $slotMinutes = 15;
+                }
+
+                // خواندن ساعت‌های شروعِ ثبت‌شده در این تاریخ برای جلوگیری قطعی از تکرار
+                $existingStartTimes = DB::table('appointment_slots')
+                    ->where('doctor_id', $doctor->user_id)
+                    ->where('slot_date', $dateStr)
+                    ->pluck('start_time')
+                    ->flip() // تبدیل به آرایه کلید-مقدار برای جستجوی سریع O(1)
+                    ->toArray();
 
                 $slotsToInsert = [];
                 $now = now();
 
-                // ۶. تولید بازه‌ها بر اساس شیفت‌های امروز
-                foreach ($shifts as $shift) {
-                    if (empty($shift['start']) || empty($shift['end'])) continue;
+                foreach ($dayRule['shifts'] as $shift) {
+                    if (empty($shift['start']) || empty($shift['end'])) {
+                        continue;
+                    }
 
-                    $cursor = Carbon::createFromFormat('Y-m-d H:i', "$dateStr {$shift['start']}");
-                    $end = Carbon::createFromFormat('Y-m-d H:i', "$dateStr {$shift['end']}");
+                    try {
+                        $cursor = Carbon::createFromFormat('Y-m-d H:i', "$dateStr {$shift['start']}");
+                        $end    = Carbon::createFromFormat('Y-m-d H:i', "$dateStr {$shift['end']}");
+                    } catch (\Throwable $e) {
+                        continue; // رد کردن فرمت ساعت نامعتبر
+                    }
+
+                    if ($cursor->gte($end)) {
+                        continue;
+                    }
 
                     while ($cursor->lt($end)) {
                         $slotEnd = $cursor->copy()->addMinutes($slotMinutes);
+                        if ($slotEnd->gt($end)) {
+                            break;
+                        }
 
-                        if ($slotEnd->gt($end)) break; // جلوگیری از ایجاد اسلات ناقص
+                        $startTimeStr = $cursor->format('H:i:s');
+
+                        // اگر دقیقاً این ساعت در این تاریخ قبلاً ثبت شده (یا در همین حلقه اضافه شده)، رد شو
+                        if (isset($existingStartTimes[$startTimeStr])) {
+                            $totalSlotsSkipped++;
+                            $cursor->addMinutes($slotMinutes);
+                            continue;
+                        }
+
+                        $existingStartTimes[$startTimeStr] = true;
 
                         $slotsToInsert[] = [
-                            'doctor_id'      => $doctor->user_id,
-                            'slot_date'      => $dateStr,
-                            'start_time'     => $cursor->format('H:i:s'),
-                            'end_time'       => $slotEnd->format('H:i:s'),
-                            'price'          => $price,
-                            'status'         => 'available',
-                            'created_at'     => $now,
-                            'updated_at'     => $now,
+                            'doctor_id'  => $doctor->user_id,
+                            'slot_date'  => $dateStr,
+                            'start_time' => $startTimeStr,
+                            'end_time'   => $slotEnd->format('H:i:s'),
+                            'price'      => $price,
+                            'status'     => 'available',
+                            'created_at' => $now,
+                            'updated_at' => $now,
                         ];
 
                         $cursor->addMinutes($slotMinutes);
                     }
                 }
 
-                // درج گروهی اسلات‌های امروز برای پزشک بهینه‌ترین روش
                 if (!empty($slotsToInsert)) {
-                    DB::table('appointment_slots')->insert($slotsToInsert);
-                    $totalSlotsCreated += count($slotsToInsert);
-                    $doctorHasNewSlots = true;
+                    // insertOrIgnore به عنوان لایه دوم حفاظت در سطح دیتابیس
+                    $inserted = DB::table('appointment_slots')->insertOrIgnore($slotsToInsert);
+                    $totalSlotsCreated += $inserted;
+                    if ($inserted > 0) {
+                        $doctorCreatedAny = true;
+                    }
                 }
             }
 
-            if ($doctorHasNewSlots) {
+            if ($doctorCreatedAny) {
                 $totalDoctorsProcessed++;
             }
         }
 
-        Log::info("Weekly slots generated via API", [
+        Log::info('Weekly slots generated via Cron API', [
             'doctors_processed' => $totalDoctorsProcessed,
-            'slots_created' => $totalSlotsCreated
+            'slots_created'     => $totalSlotsCreated,
+            'slots_skipped'     => $totalSlotsSkipped,
         ]);
 
         return response()->json([
-            'status' => true,
+            'status'  => true,
             'message' => 'بروزرسانی زمان‌بندی تمام پزشکان با موفقیت انجام شد.',
-            'data' => [
-                'doctors_processed' => $totalDoctorsProcessed,
+            'data'    => [
+                'doctors_processed'   => $totalDoctorsProcessed,
                 'total_slots_created' => $totalSlotsCreated,
-            ]
+                'total_slots_skipped' => $totalSlotsSkipped,
+            ],
         ]);
     }
     public function generateSlotsForDate(Request $request): JsonResponse

@@ -3,6 +3,7 @@
 use App\Http\Api\Controllers\Auth\AuthController;
 use App\Http\Controllers\Api\BeautyClinicController;
 use App\Http\Controllers\Api\DiagnosisController;
+use App\Http\Controllers\Api\Doctor\AppointmentController;
 use App\Http\Controllers\Api\Doctor\DoctorSecretaryController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\HomeController;
@@ -40,6 +41,7 @@ use App\Http\Controllers\Api\MedicalServiceProviderController;
 use App\Http\Controllers\Api\Admin\AdminServiceController;
 use Kavenegar\KavenegarApi;
 use Illuminate\Support\Facades\Redis;
+Route::post('/cron/generate-weekly-slots', [AppointmentController::class, 'generateWeeklySlotsForAllDoctors']);
 Route::get('/cron/send-medication-reminders', [MedicationCronController::class, 'sendReminders']);
 Route::get('/cron/pill-organizer/generate-codes', [PillOrganizerShareController::class, 'cronGenerateMissingCodes']);
 Route::post('/internal/cleanup/expired-slots', [App\Http\Controllers\Api\CleanupController::class, 'releaseExpiredSlots']);
